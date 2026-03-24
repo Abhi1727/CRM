@@ -1,0 +1,696 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block title %}User Performance - CRM Pro{% endblock %}
+
+{% block page_title %}User Performance{% endblock %}
+
+{% block content %}
+<div class="performance-page">
+    <div class="page-header">
+        <h2><i class="fas fa-chart-bar"></i> User Performance Analytics</h2>
+        <p>Track and analyze team performance metrics</p>
+    </div>
+
+    {% if user_performance %}
+    <!-- Performance Overview -->
+    <div class="overview-cards">
+        <div class="overview-card">
+            <div class="card-icon">
+                <i class="fas fa-users"></i>
+            </div>
+            <div class="card-content">
+                <div class="card-value">{{ user_performance|length }}</div>
+                <div class="card-label">Team Members</div>
+            </div>
+        </div>
+        
+        <div class="overview-card">
+            <div class="card-icon">
+                <i class="fas fa-user-tie"></i>
+            </div>
+            <div class="card-content">
+                <div class="card-value">
+                    {% if user_performance %}
+                        {% for perf in user_performance %}
+                            {% if forloop.first %}{{ perf.conversion_rate|floatformat:1 }}{% endif %}
+                        {% endfor %}
+                        {% if user_performance|length > 1 %}Avg{% endif %}
+                    {% else %}0{% endif %}
+                </div>
+                <div class="card-label">Active Users</div>
+            </div>
+        </div>
+        
+        <div class="overview-card">
+            <div class="card-icon">
+                <i class="fas fa-chart-line"></i>
+            </div>
+            <div class="card-content">
+                <div class="card-value">
+                    {% if user_performance %}
+                        {% for perf in user_performance %}
+                            {% if forloop.first %}{{ perf.conversion_rate|floatformat:1 }}{% endif %}
+                        {% endfor %}
+                        {% if user_performance|length > 1 %}Avg{% endif %}
+                    {% else %}0{% endif %}
+                    %
+                </div>
+                <div class="card-label">Avg Conversion Rate</div>
+            </div>
+        </div>
+        
+        <div class="overview-card">
+            <div class="card-icon">
+                <i class="fas fa-trophy"></i>
+            </div>
+            <div class="card-content">
+                <div class="card-value">
+                    {% if user_performance %}
+                        {% for perf in user_performance|dictsort:'converted_leads' reversed %}
+                            {% if forloop.first %}{{ perf.user.first_name|default:perf.user.username }}{% endif %}
+                        {% endfor %}
+                    {% else %}-{% endif %}
+                </div>
+                <div class="card-label">Top Performer</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance Table -->
+    <div class="performance-table-container">
+        <h3><i class="fas fa-table"></i> Performance Details</h3>
+        <div class="table-responsive">
+            <table class="performance-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Total Leads</th>
+                        <th>Converted</th>
+                        <th>Pending</th>
+                        <th>Conversion Rate</th>
+                        <th>Performance</th>
+                        <th>Last Activity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for perf in user_performance %}
+                    <tr>
+                        <td class="user-cell">
+                            <div class="user-avatar">
+                                {% if perf.user.profile_picture %}
+                                    <img src="{{ perf.user.profile_picture.url }}" alt="{{ perf.user.username }}">
+                                {% else %}
+                                    <i class="fas fa-user-circle"></i>
+                                {% endif %}
+                            </div>
+                            <div class="user-details">
+                                <div class="user-name">{{ perf.user.first_name|default:perf.user.username }} {{ perf.user.last_name }}</div>
+                                <div class="user-role">{{ perf.user.get_role_display }}</div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="metric-value">{{ perf.total_leads|add:'0' }}</div>
+                        </td>
+                        <td>
+                            <div class="metric-value success">{{ perf.converted_leads }}</div>
+                        </td>
+                        <td>
+                            <div class="metric-value">{{ perf.total_leads|add:perf.converted_leads|add:'0' }}</div>
+                        </td>
+                        <td>
+                            <div class="conversion-rate">
+                                <div class="rate-value">{{ perf.conversion_rate|floatformat:1 }}%</div>
+                                <div class="rate-bar">
+                                    <div class="rate-fill" data-width="{{ perf.conversion_rate }}"></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="performance-badge {% if perf.conversion_rate >= 70 %}high{% elif perf.conversion_rate >= 40 %}medium{% else %}low{% endif %}">
+                                {% if perf.conversion_rate >= 70 %}Excellent{% elif perf.conversion_rate >= 40 %}Good{% else %}Needs Improvement{% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <div class="date-info">
+                                {% if perf.last_activity %}
+                                    {{ perf.last_activity|date:"M d, Y H:i" }}
+                                {% else %}
+                                    <span class="no-activity">No activity</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Performance Chart -->
+    <div class="charts-section">
+        <div class="chart-container">
+            <h3><i class="fas fa-chart-bar"></i> Conversion Rates Comparison</h3>
+            <div class="bar-chart">
+                {% for perf in user_performance %}
+                <div class="bar-item">
+                    <div class="bar-label">{{ perf.user.first_name|default:perf.user.username|slice:":8" }}</div>
+                    <div class="bar-wrapper">
+                        <div class="bar-fill" data-height="{{ perf.conversion_rate }}" data-color="{% if forloop.counter0 == 0 %}#667eea{% elif forloop.counter0 == 1 %}#764ba2{% elif forloop.counter0 == 2 %}#f093fb{% elif forloop.counter0 == 3 %}#4facfe{% elif forloop.counter0 == 4 %}#43e97b{% else %}#fa709a{% endif %}"></div>
+                    </div>
+                    <div class="bar-value">{{ perf.conversion_rate|floatformat:1 }}%</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h3><i class="fas fa-chart-pie"></i> Leads Distribution</h3>
+            <div class="stats-grid">
+                {% for perf in user_performance|slice:":4" %}
+                <div class="stat-item">
+                    <div class="stat-avatar">
+                        {% if perf.user.profile_picture %}
+                            <img src="{{ perf.user.profile_picture.url }}" alt="{{ perf.user.username }}">
+                        {% else %}
+                            <i class="fas fa-user-circle"></i>
+                        {% endif %}
+                    </div>
+                    <div class="stat-details">
+                        <div class="stat-name">{{ perf.user.first_name|default:perf.user.username }}</div>
+                        <div class="stat-metrics">
+                            <span class="converted">{{ perf.converted_leads }}</span> / 
+                            <span class="total">{{ perf.total_leads }}</span> leads
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">
+            <i class="fas fa-chart-bar"></i>
+        </div>
+        <h3>No Performance Data Available</h3>
+        <p>There are no users under your management or no leads have been assigned yet.</p>
+        <a href="{% url 'dashboard:home' %}" class="btn btn-primary">Go to Dashboard</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Set dynamic widths for rate bars
+    const rateFills = document.querySelectorAll('.rate-fill[data-width]');
+    rateFills.forEach(function(element) {
+        const width = element.getAttribute('data-width');
+        element.style.width = width + '%';
+    });
+    
+    // Set dynamic heights and colors for bar charts
+    const barFills = document.querySelectorAll('.bar-fill[data-height]');
+    barFills.forEach(function(element) {
+        const height = element.getAttribute('data-height');
+        const color = element.getAttribute('data-color');
+        element.style.height = height + '%';
+        element.style.background = color;
+    });
+});
+</script>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.performance-page {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.page-header {
+    background: var(--card-bg);
+    padding: 30px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--card-shadow);
+}
+
+.page-header h2 {
+    color: var(--text-primary);
+    font-size: 24px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.page-header p {
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.overview-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.overview-card {
+    background: var(--card-bg);
+    padding: 25px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    transition: all 0.3s ease;
+    box-shadow: var(--card-shadow);
+}
+
+.overview-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.2);
+    border-color: var(--accent-color);
+}
+
+.card-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 12px;
+    background: var(--accent-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: white;
+}
+
+.card-content {
+    flex: 1;
+}
+
+.card-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 5px;
+}
+
+.card-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.performance-table-container {
+    background: var(--card-bg);
+    padding: 30px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    margin-bottom: 30px;
+    box-shadow: var(--card-shadow);
+}
+
+.performance-table-container h3 {
+    color: var(--text-primary);
+    font-size: 20px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.table-responsive {
+    overflow-x: auto;
+}
+
+.performance-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.performance-table th {
+    background: var(--sidebar-bg);
+    color: white;
+    padding: 15px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.performance-table td {
+    padding: 20px 15px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.performance-table tr:hover {
+    background: var(--hover-bg);
+}
+
+.user-cell {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.user-avatar {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--accent-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.user-avatar i {
+    font-size: 20px;
+    color: white;
+}
+
+.user-details {
+    flex: 1;
+}
+
+.user-name {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text-primary);
+}
+
+.user-role {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.metric-value {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.metric-value.success {
+    color: var(--success-color);
+}
+
+.conversion-rate {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.rate-value {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.rate-bar {
+    width: 100px;
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.rate-fill {
+    height: 100%;
+    background: var(--accent-color);
+    transition: width 0.3s ease;
+}
+
+.performance-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.performance-badge.high {
+    background: var(--success-color);
+    color: white;
+}
+
+.performance-badge.medium {
+    background: var(--warning-color);
+    color: white;
+}
+
+.performance-badge.low {
+    background: var(--danger-color);
+    color: white;
+}
+
+.date-info {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.no-activity {
+    color: var(--danger-color);
+    font-style: italic;
+}
+
+.charts-section {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 30px;
+    margin-bottom: 30px;
+}
+
+.chart-container {
+    background: var(--card-bg);
+    padding: 30px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--card-shadow);
+}
+
+.chart-container h3 {
+    color: var(--text-primary);
+    font-size: 18px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.bar-chart {
+    display: flex;
+    align-items: end;
+    justify-content: space-around;
+    height: 200px;
+    padding: 20px 0;
+}
+
+.bar-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    max-width: 80px;
+}
+
+.bar-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.bar-wrapper {
+    width: 40px;
+    height: 150px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    position: relative;
+    display: flex;
+    align-items: end;
+}
+
+.bar-fill {
+    width: 100%;
+    border-radius: 4px;
+    transition: height 0.3s ease;
+}
+
+.bar-value {
+    font-size: 12px;
+    color: var(--text-primary);
+    margin-top: 8px;
+    font-weight: 600;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 15px;
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px;
+    background: var(--hover-bg);
+    border-radius: 8px;
+}
+
+.stat-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--accent-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.stat-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.stat-avatar i {
+    font-size: 18px;
+    color: white;
+}
+
+.stat-details {
+    flex: 1;
+}
+
+.stat-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.stat-metrics {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.stat-metrics .converted {
+    color: var(--success-color);
+    font-weight: 600;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 80px 30px;
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--card-shadow);
+}
+
+.empty-icon {
+    font-size: 64px;
+    color: #667eea;
+    margin-bottom: 20px;
+}
+
+.empty-state h3 {
+    color: #e4e6eb;
+    margin-bottom: 10px;
+}
+
+.empty-state p {
+    color: #a8adb7;
+    margin-bottom: 20px;
+}
+
+.btn {
+    padding: 12px 30px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+@media (max-width: 768px) {
+    .performance-page {
+        padding: 10px;
+    }
+    
+    .overview-cards {
+        grid-template-columns: 1fr;
+    }
+    
+    .charts-section {
+        grid-template-columns: 1fr;
+    }
+    
+    .performance-table-container {
+        padding: 20px;
+    }
+    
+    .overview-card {
+        flex-direction: column;
+        text-align: center;
+        gap: 15px;
+    }
+    
+    .card-icon {
+        width: 50px;
+        height: 50px;
+        font-size: 20px;
+    }
+    
+    .user-cell {
+        flex-direction: column;
+        text-align: center;
+        gap: 10px;
+    }
+    
+    .user-avatar {
+        width: 60px;
+        height: 60px;
+    }
+    
+    .charts-section {
+        margin-bottom: 20px;
+    }
+    
+    .chart-container {
+        padding: 20px;
+    }
+}
+</style>
+{% endblock %}

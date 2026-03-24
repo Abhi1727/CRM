@@ -1,0 +1,526 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block title %}Lead Transfer History - CRM Pro{% endblock %}
+
+{% block page_title %}Lead Transfer History{% endblock %}
+
+{% block content %}
+<div class="transfer-history-page">
+    <div class="page-header">
+        <h2><i class="fas fa-history"></i> Lead Transfer History</h2>
+        <p>View complete assignment history and transfer records</p>
+    </div>
+
+    {% if leads_with_history %}
+    <div class="history-container">
+        {% for lead_data in leads_with_history %}
+        <div class="lead-history-card">
+            <div class="lead-header">
+                <div class="lead-info">
+                    <h3>{{ lead_data.lead.name }}</h3>
+                    <div class="lead-meta">
+                        <span class="lead-status status-{{ lead_data.lead.status }}">{{ lead_data.lead.get_status_display }}</span>
+                        <span class="lead-contact">
+                            {% if lead_data.lead.mobile %}
+                            <i class="fas fa-phone"></i> {{ lead_data.lead.mobile }}
+                            {% endif %}
+                            {% if lead_data.lead.email %}
+                            <i class="fas fa-envelope"></i> {{ lead_data.lead.email }}
+                            {% endif %}
+                        </span>
+                    </div>
+                </div>
+                <div class="current-assignment">
+                    <div class="current-user">
+                        {% if lead_data.lead.assigned_user %}
+                        <div class="user-avatar">
+                            {% if lead_data.lead.assigned_user.profile_picture %}
+                                <img src="{{ lead_data.lead.assigned_user.profile_picture.url }}" alt="{{ lead_data.lead.assigned_user.username }}">
+                            {% else %}
+                                <i class="fas fa-user-circle"></i>
+                            {% endif %}
+                        </div>
+                        <div class="user-details">
+                            <div class="user-name">{{ lead_data.lead.assigned_user.first_name|default:lead_data.lead.assigned_user.username }}</div>
+                            <div class="user-role">{{ lead_data.lead.assigned_user.get_role_display }}</div>
+                        </div>
+                        {% else %}
+                        <div class="unassigned">
+                            <i class="fas fa-user-slash"></i>
+                            <span>Unassigned</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="assignment-timeline">
+                <h4><i class="fas fa-exchange-alt"></i> Assignment History</h4>
+                <div class="timeline">
+                    {% for assignment in lead_data.history %}
+                    <div class="timeline-item">
+                        <div class="timeline-marker">
+                            <div class="marker-dot"></div>
+                            <div class="marker-line"></div>
+                        </div>
+                        <div class="timeline-content">
+                            <div class="assignment-header">
+                                <div class="assignment-action">
+                                    {% if assignment.action == 'assignment_with_remarks' or assignment.action == 'bulk_assignment_with_remarks' %}
+                                    <span class="action-type assignment">Lead Assigned</span>
+                                    {% else %}
+                                    <span class="action-type assignment">Lead Assigned</span>
+                                    {% endif %}
+                                </div>
+                                <div class="assignment-time">
+                                    <i class="fas fa-clock"></i>
+                                    {{ assignment.assigned_at|date:"M d, Y H:i" }}
+                                </div>
+                            </div>
+                            
+                            <div class="assignment-details">
+                                <div class="assignment-transfer">
+                                    <div class="transfer-from">
+                                        <span class="label">From:</span>
+                                        {% if assignment.from.user %}
+                                        <span class="user">{{ assignment.from.user_name|default:assignment.from.user }}</span>
+                                        {% else %}
+                                        <span class="user unassigned">Unassigned</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="transfer-arrow">
+                                        <i class="fas fa-arrow-right"></i>
+                                    </div>
+                                    <div class="transfer-to">
+                                        <span class="label">To:</span>
+                                        <span class="user">{{ assignment.to.user_name|default:assignment.to.user }}</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="assignment-by">
+                                    <span class="label">Assigned by:</span>
+                                    <span class="user">{{ assignment.by.user_name|default:assignment.by.user }}</span>
+                                    <span class="role">{{ assignment.assigned_by_name|default:assignment.assigned_by }}</span>
+                                </div>
+                                
+                                {% if assignment.remarks %}
+                                <div class="assignment-remarks">
+                                    <span class="label">Remarks:</span>
+                                    <p>{{ assignment.remarks }}</p>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">
+            <i class="fas fa-history"></i>
+        </div>
+        <h3>No Transfer History Found</h3>
+        <p>No leads have been transferred yet or you don't have permission to view transfer history.</p>
+        <a href="{% url 'dashboard:leads_all' %}" class="btn btn-primary">View Leads</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.transfer-history-page {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.page-header {
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    padding: 30px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+    border: 1px solid #2d3139;
+}
+
+.page-header h2 {
+    color: #e4e6eb;
+    font-size: 24px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.page-header p {
+    color: #a8adb7;
+    margin: 0;
+}
+
+.history-container {
+    display: grid;
+    gap: 30px;
+}
+
+.lead-history-card {
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    border-radius: 12px;
+    border: 1px solid #2d3139;
+    overflow: hidden;
+}
+
+.lead-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 25px 30px;
+    background: rgba(102, 126, 234, 0.05);
+    border-bottom: 1px solid #2d3139;
+}
+
+.lead-info h3 {
+    color: #e4e6eb;
+    font-size: 20px;
+    margin-bottom: 8px;
+}
+
+.lead-meta {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.lead-status {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-sale_done { background: rgba(39, 174, 96, 0.2); color: #27ae60; }
+.status-interested_follow_up { background: rgba(52, 152, 219, 0.2); color: #3498db; }
+.status-lead { background: rgba(149, 165, 166, 0.2); color: #95a5a6; }
+
+.lead-contact {
+    display: flex;
+    gap: 15px;
+    font-size: 14px;
+    color: #a8adb7;
+}
+
+.lead-contact i {
+    margin-right: 5px;
+}
+
+.current-assignment {
+    display: flex;
+    align-items: center;
+}
+
+.current-user {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.user-avatar {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.user-avatar i {
+    font-size: 20px;
+    color: white;
+}
+
+.user-details {
+    text-align: right;
+}
+
+.user-name {
+    font-weight: 600;
+    color: #e4e6eb;
+    margin-bottom: 2px;
+}
+
+.user-role {
+    font-size: 12px;
+    color: #a8adb7;
+}
+
+.unassigned {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #e74c3c;
+    font-weight: 600;
+}
+
+.assignment-timeline {
+    padding: 30px;
+}
+
+.assignment-timeline h4 {
+    color: #e4e6eb;
+    font-size: 18px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.timeline {
+    position: relative;
+    padding-left: 30px;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 15px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #2d3139;
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 30px;
+}
+
+.timeline-item:last-child .marker-line {
+    display: none;
+}
+
+.timeline-marker {
+    position: absolute;
+    left: -30px;
+    top: 5px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.marker-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #667eea;
+    border: 2px solid #1a1d24;
+    z-index: 2;
+}
+
+.marker-line {
+    width: 2px;
+    height: 100%;
+    background: #2d3139;
+    margin-top: 5px;
+}
+
+.timeline-content {
+    background: rgba(102, 126, 234, 0.05);
+    border: 1px solid rgba(102, 126, 234, 0.2);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.assignment-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.action-type {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.action-type.assignment {
+    background: rgba(52, 152, 219, 0.2);
+    color: #3498db;
+}
+
+.assignment-time {
+    font-size: 12px;
+    color: #a8adb7;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.assignment-details {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.assignment-transfer {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.transfer-from,
+.transfer-to {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.label {
+    font-size: 12px;
+    color: #a8adb7;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.user {
+    font-weight: 600;
+    color: #e4e6eb;
+}
+
+.user.unassigned {
+    color: #e74c3c;
+    font-style: italic;
+}
+
+.transfer-arrow {
+    color: #667eea;
+    font-size: 16px;
+}
+
+.assignment-by {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.assignment-by .role {
+    font-size: 12px;
+    color: #a8adb7;
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+}
+
+.assignment-remarks {
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    border-left: 3px solid #667eea;
+}
+
+.assignment-remarks p {
+    margin: 0;
+    color: #e4e6eb;
+    font-style: italic;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 80px 30px;
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    border-radius: 12px;
+    border: 1px solid #2d3139;
+}
+
+.empty-icon {
+    font-size: 64px;
+    color: #667eea;
+    margin-bottom: 20px;
+}
+
+.empty-state h3 {
+    color: #e4e6eb;
+    margin-bottom: 10px;
+}
+
+.empty-state p {
+    color: #a8adb7;
+    margin-bottom: 20px;
+}
+
+.btn {
+    padding: 12px 30px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+@media (max-width: 768px) {
+    .lead-header {
+        flex-direction: column;
+        gap: 20px;
+        align-items: stretch;
+    }
+    
+    .lead-meta {
+        flex-direction: column;
+        align-items: start;
+        gap: 10px;
+    }
+    
+    .current-assignment {
+        justify-content: center;
+    }
+    
+    .assignment-transfer {
+        flex-direction: column;
+        align-items: start;
+        gap: 10px;
+    }
+    
+    .transfer-arrow {
+        transform: rotate(90deg);
+    }
+    
+    .assignment-by {
+        flex-direction: column;
+        align-items: start;
+        gap: 5px;
+    }
+}
+</style>
+{% endblock %}

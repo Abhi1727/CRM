@@ -1,0 +1,14 @@
+🚨 URGENT ESCALATION
+
+Lead: {{ lead.name }}
+Overdue by: {{ overdue_hours }} hours
+Assigned to: {{ assigned_user.get_full_name|default:assigned_user.username }}
+Priority: {{ priority|title }}
+
+Lead Mobile: {{ lead.mobile }}
+Due: {{ followup_datetime }}
+
+IMMEDIATE ACTION REQUIRED!
+View: {{ site_url }}/dashboard/leads/{{ lead.id }}/
+
+This is an internal escalation alert. Reply STOP to unsubscribe.

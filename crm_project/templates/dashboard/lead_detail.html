@@ -1,0 +1,58 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block page_title %}Lead Detail{% endblock %}
+
+{% block content %}
+<div class="lead-detail-page">
+    <div class="page-header">
+        <h2>{{ lead.name }}</h2>
+        <button class="btn btn-primary"><i class="fas fa-edit"></i> Edit Lead</button>
+    </div>
+    
+    <div class="lead-info-card">
+        <h3>Contact Information</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <label>Phone:</label>
+                <span>{{ lead.phone }}</span>
+            </div>
+            <div class="info-item">
+                <label>Email:</label>
+                <span>{{ lead.email|default:"Not provided" }}</span>
+            </div>
+            <div class="info-item">
+                <label>Company:</label>
+                <span>{{ lead.company|default:"Not provided" }}</span>
+            </div>
+            <div class="info-item">
+                <label>Status:</label>
+                <span class="status-badge">{{ lead.get_status_display }}</span>
+            </div>
+            <div class="info-item">
+                <label>Assigned To:</label>
+                <span>{{ lead.assigned_to|default:"Unassigned" }}</span>
+            </div>
+            <div class="info-item">
+                <label>Follow Up Date:</label>
+                <span>{{ lead.follow_up_date|default:"Not set" }}</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="lead-activities">
+        <h3>Activities</h3>
+        {% for activity in activities %}
+        <div class="activity-item">
+            <div class="activity-header">
+                <strong>{{ activity.activity_type }}</strong>
+                <span>{{ activity.created_at|date:"M d, Y H:i" }}</span>
+            </div>
+            <p>{{ activity.description }}</p>
+            <small>by {{ activity.user }}</small>
+        </div>
+        {% empty %}
+        <p>No activities yet</p>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

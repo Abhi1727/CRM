@@ -1,0 +1,469 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block title %}Users - CRM Pro{% endblock %}
+
+{% block page_title %}Users{% endblock %}
+
+{% block content %}
+<div class="users-page">
+    <div class="page-header">
+        <div class="header-content">
+            <h2><i class="fas fa-users"></i> User Management</h2>
+            <p>Manage users and their roles in the CRM system</p>
+        </div>
+        <div class="header-actions">
+            <a href="{% url 'accounts:create_user' %}" class="btn btn-primary">
+                <i class="fas fa-user-plus"></i> Add User
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters-section">
+        <form method="get" class="filters-form">
+            <div class="filter-group">
+                <label for="search">Search</label>
+                <input type="text" name="search" id="search" placeholder="Search by name, email..." value="{{ request.GET.search }}" autocomplete="off">
+            </div>
+            
+            <div class="filter-group">
+                <label for="role">Role</label>
+                <select name="role" id="role">
+                    <option value="">All Roles</option>
+                    {% for role_value, role_label in role_choices %}
+                    <option value="{{ role_value }}" {% if request.GET.role == role_value %}selected{% endif %}>{{ role_label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label for="status">Status</label>
+                <select name="status" id="status">
+                    <option value="">All Status</option>
+                    {% for status_value, status_label in status_choices %}
+                    <option value="{{ status_value }}" {% if request.GET.status == status_value %}selected{% endif %}>{{ status_label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="filter-actions">
+                <button type="submit" class="btn btn-secondary">
+                    <i class="fas fa-filter"></i> Filter
+                </button>
+                <a href="{% url 'accounts:user_list' %}" class="btn btn-outline">
+                    <i class="fas fa-times"></i> Clear
+                </a>
+            </div>
+        </form>
+    </div>
+
+    <!-- Users Table -->
+    <div class="users-table-container">
+        {% if users %}
+        <div class="table-responsive">
+            <table class="users-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Role</th>
+                        <th>Contact</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user_obj in users %}
+                    <tr>
+                        <td class="user-info">
+                            <div class="user-avatar">
+                                {% if user_obj.profile_picture %}
+                                    <img src="{{ user_obj.profile_picture.url }}" alt="{{ user_obj.username }}">
+                                {% else %}
+                                    <i class="fas fa-user-circle"></i>
+                                {% endif %}
+                            </div>
+                            <div class="user-details">
+                                <div class="user-name">{{ user_obj.first_name|default:user_obj.username }} {{ user_obj.last_name }}</div>
+                                <div class="user-email">{{ user_obj.email }}</div>
+                                {% if user_obj.manager %}
+                                <div class="user-hierarchy">Manager: {{ user_obj.manager.first_name|default:user_obj.manager.username }}</div>
+                                {% elif user_obj.team_lead %}
+                                <div class="user-hierarchy">Team Lead: {{ user_obj.team_lead.first_name|default:user_obj.team_lead.username }}</div>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <span class="role-badge role-{{ user_obj.role }}">{{ user_obj.get_role_display }}</span>
+                        </td>
+                        <td>
+                            <div class="contact-info">
+                                {% if user_obj.phone %}
+                                <div><i class="fas fa-phone"></i> {{ user_obj.phone }}</div>
+                                {% endif %}
+                                {% if user_obj.mobile %}
+                                <div><i class="fas fa-mobile"></i> {{ user_obj.mobile }}</div>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <span class="status-badge status-{{ user_obj.account_status }}">{{ user_obj.get_account_status_display }}</span>
+                        </td>
+                        <td>
+                            <div class="date-info">{{ user_obj.created_at|date:"M d, Y" }}</div>
+                        </td>
+                        <td>
+                            <div class="action-buttons">
+                                <a href="{% url 'accounts:edit_user' user_obj.id %}" class="btn btn-sm btn-outline">
+                                    <i class="fas fa-edit"></i> Edit
+                                </a>
+                                {% if user.role == 'owner' or user.role == 'manager' %}
+                                <a href="{% url 'accounts:user_performance' %}" class="btn btn-sm btn-outline">
+                                    <i class="fas fa-chart-bar"></i> Stats
+                                </a>
+                                {% endif %}
+                                {% if user.role == 'owner' %}
+                                    {% if user_obj != user and not user_obj.is_superuser %}
+                                        <button onclick="confirmDelete('{{ user_obj.id }}', '{{ user_obj.get_full_name|default:user_obj.username|escapejs }}')" class="btn btn-sm btn-danger">
+                                            <i class="fas fa-trash"></i> Delete
+                                        </button>
+                                    {% endif %}
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">
+                <i class="fas fa-users"></i>
+            </div>
+            <h3>No Users Found</h3>
+            <p>No users match the current filters.</p>
+            <a href="{% url 'accounts:user_list' %}" class="btn btn-secondary">Clear Filters</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.users-page {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 30px;
+    padding: 30px;
+    background: var(--card-bg);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--card-shadow);
+}
+
+.header-content h2 {
+    color: var(--text-primary);
+    font-size: 24px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.header-content p {
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.filters-section {
+    background: var(--card-bg);
+    backdrop-filter: blur(10px);
+    padding: 25px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--card-shadow);
+}
+
+.filters-form {
+    display: flex;
+    gap: 20px;
+    align-items: end;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    min-width: 150px;
+}
+
+.filter-group label {
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.filter-group input,
+.filter-group select {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.users-table-container {
+    background: var(--card-bg);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    box-shadow: var(--card-shadow);
+}
+
+.table-responsive {
+    overflow-x: auto;
+}
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.users-table th {
+    background: var(--sidebar-bg);
+    color: white;
+    padding: 15px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.users-table td {
+    padding: 20px 15px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.users-table tr:hover {
+    background: var(--hover-bg);
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.user-avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 2px solid var(--border-color);
+    box-shadow: 0 2px 8px rgba(156, 39, 176, 0.3);
+}
+
+.user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.user-avatar i {
+    font-size: 24px;
+    color: white;
+}
+
+.user-details {
+    flex: 1;
+}
+
+.user-name {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text-primary);
+}
+
+.user-email {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+.user-hierarchy {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.role-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.role-owner { background: var(--accent-color); color: white; }
+.role-manager { background: var(--accent-hover); color: white; }
+.role-team_lead { background: linear-gradient(135deg, #7b1fa2 0%, #4a148c 100%); color: white; }
+.role-agent { background: linear-gradient(135deg, #ce93d8 0%, #ab47bc 100%); color: white; }
+
+.status-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.status-active { background: var(--success-color); color: white; }
+.status-inactive { background: var(--bg-tertiary); color: var(--text-secondary); }
+.status-suspended { background: var(--danger-color); color: white; }
+
+.contact-info div {
+    margin-bottom: 4px;
+    font-size: 13px;
+}
+
+.contact-info i {
+    width: 20px;
+    color: var(--text-secondary);
+}
+
+.action-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-primary {
+    background: var(--accent-color);
+    color: white;
+    border: 1px solid var(--accent-color);
+}
+
+.btn-secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid var(--accent-color);
+    color: var(--accent-color);
+}
+
+.btn-outline:hover {
+    background: var(--accent-color);
+    color: white;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 30px;
+    color: var(--accent-color);
+}
+
+.empty-icon {
+    font-size: 64px;
+    color: var(--accent-color);
+    margin-bottom: 20px;
+}
+
+.empty-state h3 {
+    margin-bottom: 10px;
+    color: var(--text-primary);
+}
+
+.empty-state p {
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+}
+
+@media (max-width: 768px) {
+    .page-header {
+        flex-direction: column;
+        gap: 20px;
+        align-items: stretch;
+    }
+    
+    .filters-form {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .filter-group {
+        min-width: auto;
+    }
+    
+    .filter-actions {
+        justify-content: stretch;
+    }
+    
+    .filter-actions .btn {
+        flex: 1;
+    }
+    
+    .user-info {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .action-buttons {
+        flex-direction: column;
+    }
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function confirmDelete(userId, userName) {
+    if (confirm(`Are you sure you want to delete "${userName}"? This action cannot be undone and the user will no longer be able to login.`)) {
+        window.location.href = `/accounts/users/${userId}/delete/`;
+    }
+}
+</script>
+{% endblock %}

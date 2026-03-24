@@ -1,0 +1,748 @@
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth import login, authenticate, logout
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.db.models import Count, Sum, Q
+from django.utils import timezone
+from django.http import JsonResponse
+from django.conf import settings
+import os
+from .models import User
+from dashboard.models import Lead
+from .permissions import role_required, can_manage_user_required, hierarchy_required
+from .forms import UserCreationForm, UserAssignmentForm
+
+def login_view(request):
+    if request.user.is_authenticated:
+        return redirect('dashboard:home')
+    
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        
+        # Debug information
+        print(f"Login attempt - Username: {username}")
+        print(f"Login attempt - Password provided: {'Yes' if password else 'No'}")
+        
+        user = authenticate(request, username=username, password=password)
+        
+        if user is not None:
+            print(f"Authentication successful for: {user.username}")
+            
+            # Check if user is blocked/inactive
+            if not user.is_active or user.account_status == 'inactive':
+                messages.error(request, 'Your account has been blocked by administrator. Please contact your admin.')
+                return redirect('accounts:login')
+            
+            login(request, user)
+            messages.success(request, f'Welcome back, {user.first_name or user.username}!')
+            return redirect('dashboard:home')
+        else:
+            print(f"Authentication failed for: {username}")
+            # Check if user exists
+            try:
+                user_obj = User.objects.get(username=username)
+                print(f"User exists: {user_obj.username}, Active: {user_obj.is_active}")
+                print(f"Has password: {user_obj.has_usable_password()}")
+                
+                # Check if user is blocked/inactive
+                if not user_obj.is_active or user_obj.account_status == 'inactive':
+                    messages.error(request, 'Your account has been blocked by administrator. Please contact your admin.')
+                else:
+                    messages.error(request, 'Invalid username or password.')
+            except User.DoesNotExist:
+                print(f"User does not exist: {username}")
+                messages.error(request, 'Invalid username or password.')
+    
+    return render(request, 'accounts/login.html')
+
+@login_required
+def logout_view(request):
+    logout(request)
+    messages.info(request, 'You have been logged out successfully.')
+    return redirect('accounts:login')
+
+@login_required
+@hierarchy_required
+def user_list(request):
+    """List users based on hierarchy"""
+    users = request.hierarchy_context['accessible_users']
+    
+    # Apply filters
+    search = request.GET.get('search', '')
+    role_filter = request.GET.get('role', '')
+    status_filter = request.GET.get('status', '')
+    
+    if search:
+        users = users.filter(
+            Q(username__icontains=search) |
+            Q(first_name__icontains=search) |
+            Q(last_name__icontains=search) |
+            Q(email__icontains=search)
+        )
+    
+    if role_filter:
+        users = users.filter(role=role_filter)
+    
+    if status_filter:
+        users = users.filter(account_status=status_filter)
+    
+    # Get role and status choices
+    role_choices = User.ROLE_CHOICES
+    status_choices = User.ACCOUNT_STATUS_CHOICES
+    
+    context = {
+        'users': users,
+        'role_choices': role_choices,
+        'status_choices': status_choices,
+        'page_title': 'Users',
+    }
+    return render(request, 'accounts/user_list.html', context)
+
+@login_required
+@role_required('owner', 'manager', 'team_lead')
+def create_user(request):
+    """Create new user based on hierarchy rules"""
+    if request.method == 'POST':
+        form = UserCreationForm(request.POST, request.FILES)
+        if form.is_valid():
+            user = form.save(commit=False)
+            user.created_by = request.user
+            user.save()
+            messages.success(request, f'User "{user.username}" has been created successfully.')
+            return redirect('accounts:user_list')
+    else:
+        form = UserCreationForm()
+    
+    context = {
+        'form': form,
+        'page_title': 'Create User',
+    }
+    return render(request, 'accounts/create_user.html', context)
+
+@login_required
+@can_manage_user_required
+def edit_user(request, user_id):
+    """Edit user details"""
+    target_user = get_object_or_404(User, id=user_id)
+    
+    if request.method == 'POST':
+        # Update fields that are allowed to be edited
+        target_user.first_name = request.POST.get('first_name', target_user.first_name)
+        target_user.last_name = request.POST.get('last_name', target_user.last_name)
+        target_user.email = request.POST.get('email', target_user.email)
+        target_user.phone = request.POST.get('phone', target_user.phone)
+        target_user.mobile = request.POST.get('mobile', target_user.mobile)
+        target_user.account_status = request.POST.get('account_status', target_user.account_status)
+        
+        if request.FILES.get('profile_picture'):
+            target_user.profile_picture = request.FILES.get('profile_picture')
+        
+        target_user.save()
+        messages.success(request, f'User "{target_user.username}" has been updated successfully.')
+        return redirect('accounts:user_list')
+    
+    context = {
+        'form': UserAssignmentForm(instance=target_user),
+        'target_user': target_user,
+        'page_title': f'Edit {target_user.username}',
+    }
+    return render(request, 'accounts/edit_user.html', context)
+
+@login_required
+@role_required('owner')
+def delete_user(request, user_id):
+    """Delete user with hierarchy-based permissions"""
+    target_user = get_object_or_404(User, id=user_id)
+    
+    # Check if current user can delete target user
+    if not can_delete_user(request.user, target_user):
+        messages.error(request, 'You do not have permission to delete this user.')
+        return redirect('accounts:user_list')
+    
+    # Prevent deletion of admin/superuser
+    if target_user.is_superuser:
+        messages.error(request, 'Admin users cannot be deleted.')
+        return redirect('accounts:user_list')
+    
+    # Prevent self-deletion
+    if target_user == request.user:
+        messages.error(request, 'You cannot delete your own account.')
+        return redirect('accounts:user_list')
+    
+    if request.method == 'POST':
+        # Store user info for message
+        username = target_user.username
+        full_name = target_user.get_full_name() or username
+        
+        # Soft delete by deactivating account and setting status to inactive
+        target_user.is_active = False
+        target_user.account_status = 'inactive'
+        target_user.save()
+        
+        # Note: We preserve all user data including leads, comments, and history
+        # Only login access is blocked - no data is deleted or reassigned
+        
+        messages.success(request, f'User "{full_name}" has been deleted successfully and can no longer login.')
+        return redirect('accounts:user_list')
+    
+    context = {
+        'target_user': target_user,
+        'page_title': f'Delete {target_user.username}',
+    }
+    return render(request, 'accounts/delete_user.html', context)
+
+def can_delete_user(current_user, target_user):
+    """Check if current user can delete target user based on hierarchy"""
+    # Cannot delete admin/superuser
+    if target_user.is_superuser:
+        return False
+    
+    # Cannot delete self
+    if current_user == target_user:
+        return False
+    
+    # Owner can delete anyone except admin
+    if current_user.role == 'owner':
+        return True
+    
+    # Manager can delete their team leads and agents
+    if current_user.role == 'manager':
+        return (target_user.manager == current_user or 
+                (target_user.team_lead and target_user.team_lead.manager == current_user))
+    
+    # Team Lead can delete their agents only
+    if current_user.role == 'team_lead':
+        return target_user.team_lead == current_user
+    
+    return False
+
+def color_scheme_test(request):
+    """Display color scheme testing page"""
+    return render(request, 'color_scheme_test.html')
+
+@login_required
+@role_required('owner')
+def apply_color_scheme(request, scheme):
+    """Apply selected color scheme to application"""
+    
+    # Define color schemes
+    color_schemes = {
+        'midnight': {
+            'sidebar_primary': '#1a1d29',
+            'sidebar_secondary': '#2d3142',
+            'header_primary': '#2d3142',
+            'header_secondary': '#3e4451',
+            'content_bg': '#f8f9fa',
+            'content_border': '#e9ecef',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#667eea',
+            'button_secondary': '#764ba2'
+        },
+        'ocean': {
+            'sidebar_primary': '#1e3c72',
+            'sidebar_secondary': '#2a5298',
+            'header_primary': '#2a5298',
+            'header_secondary': '#3e6db5',
+            'content_bg': '#f0f4f8',
+            'content_border': '#d6e3f0',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#1e3c72',
+            'button_secondary': '#3e6db5'
+        },
+        'forest': {
+            'sidebar_primary': '#2d5016',
+            'sidebar_secondary': '#3a6218',
+            'header_primary': '#3a6218',
+            'header_secondary': '#4a7c1f',
+            'content_bg': '#f5f7f0',
+            'content_border': '#e0e6d0',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#3a6218',
+            'button_secondary': '#4a7c1f'
+        },
+        'royal': {
+            'sidebar_primary': '#4a148c',
+            'sidebar_secondary': '#6a1b9a',
+            'header_primary': '#6a1b9a',
+            'header_secondary': '#7b1fa2',
+            'content_bg': '#faf5ff',
+            'content_border': '#e8d5f2',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#6a1b9a',
+            'button_secondary': '#7b1fa2'
+        },
+        'charcoal': {
+            'sidebar_primary': '#212121',
+            'sidebar_secondary': '#424242',
+            'header_primary': '#424242',
+            'header_secondary': '#616161',
+            'content_bg': '#fafafa',
+            'content_border': '#e0e0e0',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#424242',
+            'button_secondary': '#616161'
+        },
+        'amber': {
+            'sidebar_primary': '#bf360c',
+            'sidebar_secondary': '#e65100',
+            'header_primary': '#e65100',
+            'header_secondary': '#ff6e40',
+            'content_bg': '#fff8f0',
+            'content_border': '#ffe0b2',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#e65100',
+            'button_secondary': '#ff6e40'
+        }
+    }
+    
+    if scheme not in color_schemes:
+        messages.error(request, 'Invalid color scheme selected.')
+        return redirect('accounts:color_scheme_test')
+    
+    # Create CSS file with new colors
+    css_content = generate_theme_css(color_schemes[scheme])
+    
+    # Write to CSS file
+    css_file_path = os.path.join(settings.BASE_DIR, 'static', 'css', 'theme.css')
+    
+    try:
+        with open(css_file_path, 'w') as f:
+            f.write(css_content)
+        
+        messages.success(request, f'Color scheme "{scheme}" has been applied successfully!')
+    except Exception as e:
+        messages.error(request, f'Error applying color scheme: {str(e)}')
+    
+    return redirect('accounts:color_scheme_test')
+
+def generate_theme_css(colors):
+    """Generate CSS content for theme"""
+    return f"""
+/* Generated Theme CSS */
+
+:root {{
+    --sidebar-primary: {colors['sidebar_primary']};
+    --sidebar-secondary: {colors['sidebar_secondary']};
+    --header-primary: {colors['header_primary']};
+    --header-secondary: {colors['header_secondary']};
+    --content-bg: {colors['content_bg']};
+    --content-border: {colors['content_border']};
+    --text-primary: {colors['text_primary']};
+    --text-secondary: {colors['text_secondary']};
+    --button-primary: {colors['button_primary']};
+    --button-secondary: {colors['button_secondary']};
+}}
+
+/* Sidebar Styles */
+.sidebar {{
+    background: linear-gradient(180deg, var(--sidebar-primary) 0%, var(--sidebar-secondary) 100%) !important;
+}}
+
+.sidebar-header {{
+    background: rgba(255, 255, 255, 0.1) !important;
+}}
+
+/* Header Styles */
+.top-bar {{
+    background: linear-gradient(90deg, var(--header-primary) 0%, var(--header-secondary) 100%) !important;
+}}
+
+/* Content Area */
+.content {{
+    background: var(--content-bg) !important;
+}}
+
+/* Button Styles */
+.btn-primary {{
+    background: linear-gradient(135deg, var(--button-primary) 0%, var(--button-secondary) 100%) !important;
+    border: none !important;
+}}
+
+/* Text Colors */
+body, .text-primary {{
+    color: var(--text-primary) !important;
+}}
+
+.text-secondary {{
+    color: var(--text-secondary) !important;
+}}
+
+/* Border Colors */
+.table td, .card {{
+    border-color: var(--content-border) !important;
+    border-style: solid !important;
+    border-width: 1px !important;
+}}
+"""
+
+# Additional functions that were in original file
+@login_required
+@hierarchy_required
+def assign_lead(request):
+    """Assign leads to team members following hierarchy rules"""
+    if request.method == 'POST':
+        lead_id = request.POST.get('lead_id')
+        assigned_user_id = request.POST.get('assigned_user_id')
+        
+        if lead_id and assigned_user_id:
+            from dashboard.models import Lead
+            lead = get_object_or_404(Lead, id_lead=lead_id)
+            assigned_user = get_object_or_404(User, id=assigned_user_id)
+            
+            # Check if user can assign this lead
+            if lead.can_be_assigned_by(request.user):
+                try:
+                    lead.assign_to_user(assigned_user, request.user)
+                    messages.success(request, f'Lead "{lead.name}" has been assigned to {assigned_user.get_full_name() or assigned_user.username}.')
+                except PermissionError as e:
+                    messages.error(request, str(e))
+            else:
+                messages.error(request, 'You do not have permission to assign this lead.')
+        else:
+            messages.error(request, 'Please select both a lead and a user.')
+    
+    # Get leads and users for dropdowns
+    from dashboard.models import Lead
+    leads = request.hierarchy_context['accessible_leads'].filter(assigned_user__isnull=True)
+    users = request.hierarchy_context['accessible_users'].filter(is_active=True)
+    
+    context = {
+        'leads': leads,
+        'users': users,
+        'page_title': 'Assign Lead',
+    }
+    return render(request, 'accounts/assign_lead.html', context)
+
+@login_required
+@hierarchy_required
+def get_users_by_role(request):
+    """AJAX endpoint to get users filtered by role"""
+    role = request.GET.get('role', '')
+    
+    users = request.hierarchy_context['accessible_users']
+    if role:
+        users = users.filter(role=role)
+    
+    user_data = []
+    for user in users:
+        user_data.append({
+            'id': user.id,
+            'name': user.get_full_name() or user.username,
+            'username': user.username,
+            'role': user.get_role_display(),
+        })
+    
+    return JsonResponse({'users': user_data})
+
+@login_required
+@hierarchy_required
+def bulk_assign_leads(request):
+    """Bulk assign multiple leads to team members"""
+    if request.method == 'POST':
+        lead_ids = request.POST.getlist('lead_ids')
+        assigned_user_id = request.POST.get('assigned_user_id')
+        
+        if lead_ids and assigned_user_id:
+            from dashboard.models import Lead
+            assigned_user = get_object_or_404(User, id=assigned_user_id)
+            leads = Lead.objects.filter(id_lead__in=lead_ids)
+            
+            success_count = 0
+            error_count = 0
+            
+            for lead in leads:
+                if lead.can_be_assigned_by(request.user):
+                    try:
+                        lead.assign_to_user(assigned_user, request.user)
+                        success_count += 1
+                    except PermissionError:
+                        error_count += 1
+                else:
+                    error_count += 1
+            
+            if success_count > 0:
+                messages.success(request, f'{success_count} leads have been assigned successfully.')
+            if error_count > 0:
+                messages.error(request, f'{error_count} leads could not be assigned due to permission restrictions.')
+        else:
+            messages.error(request, 'Please select leads and a user to assign them to.')
+    
+    # Get leads and users for form
+    from dashboard.models import Lead
+    leads = request.hierarchy_context['accessible_leads'].filter(assigned_user__isnull=True)
+    users = request.hierarchy_context['accessible_users'].filter(is_active=True)
+    
+    context = {
+        'leads': leads,
+        'users': users,
+        'page_title': 'Bulk Assign Leads',
+    }
+    return render(request, 'accounts/bulk_assign_leads.html', context)
+
+@login_required
+@hierarchy_required
+def lead_transfer_history(request):
+    """View lead transfer history"""
+    from dashboard.models import LeadHistory
+    
+    # Get transfer history for accessible leads
+    history = LeadHistory.objects.filter(
+        lead__in=request.hierarchy_context['accessible_leads']
+    ).filter(
+        action__in=['assignment', 'transfer']
+    ).select_related('lead', 'user').order_by('-created_at')
+    
+    context = {
+        'history': history,
+        'page_title': 'Lead Transfer History',
+    }
+    return render(request, 'accounts/lead_transfer_history.html', context)
+
+@login_required
+@hierarchy_required
+def user_performance(request):
+    """Show user performance metrics based on hierarchy"""
+    from dashboard.models import Lead
+    from django.db.models import Count, Q
+    
+    # Get users for whom to show performance
+    users = request.hierarchy_context['accessible_users']
+    
+    performance_data = []
+    for user in users:
+        leads = request.hierarchy_context['accessible_leads'].filter(assigned_user=user)
+        
+        performance = {
+            'user': user,
+            'total_leads': leads.count(),
+            'sale_done': leads.filter(status='sale_done').count(),
+            'interested_follow_up': leads.filter(status='interested_follow_up').count(),
+            'not_interested': leads.filter(status='not_interested').count(),
+            'conversion_rate': 0,
+        }
+        
+        if performance['total_leads'] > 0:
+            performance['conversion_rate'] = round((performance['sale_done'] / performance['total_leads']) * 100, 2)
+        
+        performance_data.append(performance)
+    
+    context = {
+        'performance_data': performance_data,
+        'page_title': 'User Performance',
+    }
+    return render(request, 'accounts/user_performance.html', context)
+
+@login_required
+@hierarchy_required
+def team_hierarchy(request):
+    """Show complete team hierarchy"""
+    # Get all users in the company
+    company_users = User.objects.filter(company_id=request.user.company_id)
+    
+    # Build hierarchy structure
+    hierarchy_data = []
+    
+    # Add owner
+    owners = company_users.filter(role='owner')
+    if owners.exists():
+        owner = owners.first()
+        hierarchy_data.append({
+            'user': owner,
+            'agents': []
+        })
+        
+        # Add managers under owner
+        managers = company_users.filter(manager=owner)
+        for manager in managers:
+            manager_data = {
+                'user': manager,
+                'agents': []
+            }
+            
+            # Add team leads under manager
+            team_leads = company_users.filter(team_lead=manager)
+            for team_lead in team_leads:
+                team_lead_data = {
+                    'user': team_lead,
+                    'agents': []
+                }
+                
+                # Add agents under team lead
+                agents = company_users.filter(team_lead=team_lead)
+                team_lead_data['agents'] = list(agents)
+                
+                manager_data['agents'].append(team_lead_data)
+            
+            # Add direct agents under manager
+            direct_agents = company_users.filter(manager=manager, team_lead__isnull=True)
+            manager_data['agents'].extend(list(direct_agents))
+            
+            hierarchy_data[0]['agents'].append(manager_data)
+    
+    context = {
+        'hierarchy_data': hierarchy_data,
+        'current_user': request.user,
+        'page_title': 'Team Hierarchy',
+    }
+    return render(request, 'accounts/team_hierarchy.html', context)
+    
+    # Define color schemes
+    color_schemes = {
+        'midnight': {
+            'sidebar_primary': '#1a1d29',
+            'sidebar_secondary': '#2d3142',
+            'header_primary': '#2d3142',
+            'header_secondary': '#3e4451',
+            'content_bg': '#f8f9fa',
+            'content_border': '#e9ecef',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#667eea',
+            'button_secondary': '#764ba2'
+        },
+        'ocean': {
+            'sidebar_primary': '#1e3c72',
+            'sidebar_secondary': '#2a5298',
+            'header_primary': '#2a5298',
+            'header_secondary': '#3e6db5',
+            'content_bg': '#f0f4f8',
+            'content_border': '#d6e3f0',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#1e3c72',
+            'button_secondary': '#3e6db5'
+        },
+        'forest': {
+            'sidebar_primary': '#2d5016',
+            'sidebar_secondary': '#3a6218',
+            'header_primary': '#3a6218',
+            'header_secondary': '#4a7c1f',
+            'content_bg': '#f5f7f0',
+            'content_border': '#e0e6d0',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#3a6218',
+            'button_secondary': '#4a7c1f'
+        },
+        'royal': {
+            'sidebar_primary': '#4a148c',
+            'sidebar_secondary': '#6a1b9a',
+            'header_primary': '#6a1b9a',
+            'header_secondary': '#7b1fa2',
+            'content_bg': '#faf5ff',
+            'content_border': '#e8d5f2',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#6a1b9a',
+            'button_secondary': '#7b1fa2'
+        },
+        'charcoal': {
+            'sidebar_primary': '#212121',
+            'sidebar_secondary': '#424242',
+            'header_primary': '#424242',
+            'header_secondary': '#616161',
+            'content_bg': '#fafafa',
+            'content_border': '#e0e0e0',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#424242',
+            'button_secondary': '#616161'
+        },
+        'amber': {
+            'sidebar_primary': '#bf360c',
+            'sidebar_secondary': '#e65100',
+            'header_primary': '#e65100',
+            'header_secondary': '#ff6e40',
+            'content_bg': '#fff8f0',
+            'content_border': '#ffe0b2',
+            'text_primary': '#2c3e50',
+            'text_secondary': '#7f8c8d',
+            'button_primary': '#e65100',
+            'button_secondary': '#ff6e40'
+        }
+    }
+    
+    if scheme not in color_schemes:
+        messages.error(request, 'Invalid color scheme selected.')
+        return redirect('accounts:color_scheme_test')
+    
+    # Create CSS file with new colors
+    css_content = generate_theme_css(color_schemes[scheme])
+    
+    # Write to CSS file
+    css_file_path = os.path.join(settings.BASE_DIR, 'static', 'css', 'theme.css')
+    
+    try:
+        with open(css_file_path, 'w') as f:
+            f.write(css_content)
+        
+        messages.success(request, f'Color scheme "{scheme}" has been applied successfully!')
+    except Exception as e:
+        messages.error(request, f'Error applying color scheme: {str(e)}')
+    
+    return redirect('accounts:color_scheme_test')
+
+def generate_theme_css(colors):
+    """Generate CSS content for theme"""
+    return f"""
+/* Generated Theme CSS */
+
+:root {{
+    --sidebar-primary: {colors['sidebar_primary']};
+    --sidebar-secondary: {colors['sidebar_secondary']};
+    --header-primary: {colors['header_primary']};
+    --header-secondary: {colors['header_secondary']};
+    --content-bg: {colors['content_bg']};
+    --content-border: {colors['content_border']};
+    --text-primary: {colors['text_primary']};
+    --text-secondary: {colors['text_secondary']};
+    --button-primary: {colors['button_primary']};
+    --button-secondary: {colors['button_secondary']};
+}}
+
+/* Sidebar Styles */
+.sidebar {{
+    background: linear-gradient(180deg, var(--sidebar-primary) 0%, var(--sidebar-secondary) 100%) !important;
+}}
+
+.sidebar-header {{
+    background: rgba(255, 255, 255, 0.1) !important;
+}}
+
+/* Header Styles */
+.top-bar {{
+    background: linear-gradient(90deg, var(--header-primary) 0%, var(--header-secondary) 100%) !important;
+}}
+
+/* Content Area */
+.content {{
+    background: var(--content-bg) !important;
+}}
+
+/* Button Styles */
+.btn-primary {{
+    background: linear-gradient(135deg, var(--button-primary) 0%, var(--button-secondary) 100%) !important;
+    border: none !important;
+}}
+
+/* Text Colors */
+body, .text-primary {{
+    color: var(--text-primary) !important;
+}}
+
+.text-secondary {{
+    color: var(--text-secondary) !important;
+}}
+
+/* Border Colors */
+.table td, .card {{
+    border-color: var(--content-border) !important;
+}}
+"""

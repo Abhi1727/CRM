@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Team Summary - {{ date_range }}</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+        .content {
+            background: white;
+            padding: 30px;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px;
+        }
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        .performance-section {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .team-member {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .member-name {
+            font-weight: 600;
+            color: #333;
+        }
+        .member-stats {
+            display: flex;
+            gap: 15px;
+        }
+        .member-stat {
+            text-align: center;
+        }
+        .stat-value {
+            font-weight: bold;
+            color: #667eea;
+        }
+        .stat-desc {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        .alert-section {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .alert-item {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+        .alert-icon {
+            color: #f39c12;
+            margin-right: 10px;
+            font-size: 1.2rem;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #666;
+            font-size: 12px;
+        }
+        .overdue-alert {
+            background: #fdf2f2;
+            border-left-color: #e74c3c;
+        }
+        .good-performance {
+            background: #d4edda;
+            border-left-color: #28a745;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 Daily Team Summary</h1>
+        <p>{{ date_range }}</p>
+        <p>Team Performance Report</p>
+    </div>
+    
+    <div class="content">
+        <p>Hello {{ recipient.get_full_name|default:recipient.username }},</p>
+        
+        <p>Here's your team's daily follow-up performance summary for <strong>{{ date_range }}</strong>:</p>
+        
+        <div class="summary-grid">
+            <div class="stat-card">
+                <div class="stat-number">{{ team_members }}</div>
+                <div class="stat-label">Team Members</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ total_followups }}</div>
+                <div class="stat-label">Total Follow-ups</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ completed_followups }}</div>
+                <div class="stat-label">Completed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ completion_rate|floatformat:1 }}%</div>
+                <div class="stat-label">Completion Rate</div>
+            </div>
+        </div>
+        
+        {% if overdue_followups > 0 %}
+        <div class="alert-section overdue-alert">
+            <h3>⚠️ Overdue Follow-ups Alert</h3>
+            <p>You have <strong>{{ overdue_followups }}</strong> overdue follow-up(s) requiring immediate attention:</p>
+            
+            {% for overdue_item in overdue_items %}
+            <div class="alert-item">
+                <span class="alert-icon">🔴</span>
+                <div>
+                    <strong>{{ overdue_item.name }}</strong> - {{ overdue_item.assigned_user__username }}<br>
+                    <small>Overdue by {{ overdue_item.overdue_hours }} hours</small>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <div class="performance-section">
+            <h3>🏆 Team Performance</h3>
+            
+            {% for member in top_performers %}
+            <div class="team-member {% if forloop.counter <= 3 %}good-performance{% endif %}">
+                <div>
+                    <div class="member-name">{{ member.user }}</div>
+                    <small>{{ member.role|title }}</small>
+                </div>
+                <div class="member-stats">
+                    <div class="member-stat">
+                        <div class="stat-value">{{ member.completed }}</div>
+                        <div class="stat-desc">Completed</div>
+                    </div>
+                    <div class="member-stat">
+                        <div class="stat-value">{{ member.conversion_rate|floatformat:1 }}%</div>
+                        <div class="stat-desc">Rate</div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        {% if recommendations %}
+        <div class="alert-section">
+            <h3>💡 Recommendations</h3>
+            {% for recommendation in recommendations %}
+            <div class="alert-item">
+                <span class="alert-icon">💡</span>
+                <span>{{ recommendation }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <div class="action-buttons" style="text-align: center; margin: 30px 0;">
+            <a href="{{ site_url }}/dashboard/team-dashboard/" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+                View Team Dashboard
+            </a>
+        </div>
+        
+        <p><strong>Note:</strong> This is an internal team summary for management purposes only.</p>
+    </div>
+    
+    <div class="footer">
+        <p>This is an automated daily team summary from the CRM System.</p>
+        <p>Generated on {{ timestamp }}</p>
+        <p>To change your notification preferences, visit your <a href="{{ site_url }}/dashboard/settings/">Settings</a>.</p>
+    </div>
+</body>
+</html>

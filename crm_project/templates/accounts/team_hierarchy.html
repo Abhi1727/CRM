@@ -1,0 +1,721 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block title %}Team Hierarchy - CRM Pro{% endblock %}
+
+{% block page_title %}Team Hierarchy{% endblock %}
+
+{% block content %}
+<div class="team-hierarchy-page">
+    <div class="page-header">
+        <div class="header-content">
+            <h2><i class="fas fa-sitemap"></i> Team Hierarchy</h2>
+            <p>Click on managers to view their team leads and agents</p>
+        </div>
+    </div>
+
+    <div class="hierarchy-container">
+        {% if current_user.role == 'owner' %}
+            <!-- Owner View - Shows all managers and their teams -->
+            <div class="hierarchy-level">
+                <div class="level-header">
+                    <h3><i class="fas fa-crown"></i> Owner</h3>
+                </div>
+                <div class="owner-card">
+                    <div class="user-card owner">
+                        <div class="user-avatar">
+                            {% if current_user.profile_picture %}
+                                <img src="{{ current_user.profile_picture.url }}" alt="{{ current_user.get_full_name }}">
+                            {% else %}
+                                <div class="avatar-placeholder">{{ current_user.get_full_name|make_list|first|upper }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="user-info">
+                            <h4>{{ current_user.get_full_name|default:current_user.username }}</h4>
+                            <span class="role-badge owner">Owner</span>
+                            <p class="user-email">{{ current_user.email }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {% if hierarchy_data %}
+                <div class="managers-section">
+                    <h3><i class="fas fa-user-tie"></i> Managers</h3>
+                    {% for manager_data in hierarchy_data %}
+                        <div class="manager-section">
+                            <div class="user-card manager clickable" onclick="toggleManagerSection({{ forloop.counter0 }})">
+                                <div class="user-avatar">
+                                    {% if manager_data.user.profile_picture %}
+                                        <img src="{{ manager_data.user.profile_picture.url }}" alt="{{ manager_data.user.get_full_name }}">
+                                    {% else %}
+                                        <div class="avatar-placeholder">{{ manager_data.user.get_full_name|make_list|first|upper }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="user-info">
+                                    <h4>{{ manager_data.user.get_full_name|default:manager_data.user.username }}</h4>
+                                    <span class="role-badge manager">Manager</span>
+                                    <p class="user-email">{{ manager_data.user.email }}</p>
+                                    <div class="stats">
+                                        <span class="stat">{{ manager_data.team_leads|length }} Team Leads</span>
+                                        <span class="stat">{{ manager_data.direct_agents|length }} Direct Agents</span>
+                                    </div>
+                                    <div class="expand-icon">
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="manager-details" id="manager-section-{{ forloop.counter0 }}" style="display: none;">
+                                <!-- Team Leads under Manager -->
+                                {% if manager_data.team_leads %}
+                                    <div class="team-leads-section">
+                                        <h4><i class="fas fa-users"></i> Team Leads</h4>
+                                        {% for team_lead_data in manager_data.team_leads %}
+                                            <div class="team-lead-card">
+                                                <div class="user-card team-lead clickable" onclick="toggleTeamLeadSection('{{ forloop.parent0 }}-{{ forloop.counter0 }}')">
+                                                    <div class="user-avatar">
+                                                        {% if team_lead_data.user.profile_picture %}
+                                                            <img src="{{ team_lead_data.user.profile_picture.url }}" alt="{{ team_lead_data.user.get_full_name }}">
+                                                        {% else %}
+                                                            <div class="avatar-placeholder">{{ team_lead_data.user.get_full_name|make_list|first|upper }}</div>
+                                                        {% endif %}
+                                                    </div>
+                                                    <div class="user-info">
+                                                        <h5>{{ team_lead_data.user.get_full_name|default:team_lead_data.user.username }}</h5>
+                                                        <span class="role-badge team-lead">Team Lead</span>
+                                                        <p class="user-email">{{ team_lead_data.user.email }}</p>
+                                                        <div class="stats">
+                                                            <span class="stat">{{ team_lead_data.agents|length }} Agents</span>
+                                                        </div>
+                                                        <div class="expand-icon">
+                                                            <i class="fas fa-chevron-down"></i>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Agents under Team Lead -->
+                                                <div class="agents-section" id="teamlead-section-{{ forloop.parent0 }}-{{ forloop.counter0 }}" style="display: none;">
+                                                    {% if team_lead_data.agents %}
+                                                        <h6><i class="fas fa-user"></i> Agents</h6>
+                                                        <div class="agents-list">
+                                                            {% for agent in team_lead_data.agents %}
+                                                                <div class="user-card agent">
+                                                                    <div class="user-avatar small">
+                                                                        {% if agent.profile_picture %}
+                                                                            <img src="{{ agent.profile_picture.url }}" alt="{{ agent.get_full_name }}">
+                                                                        {% else %}
+                                                                            <div class="avatar-placeholder small">{{ agent.get_full_name|make_list|first|upper }}</div>
+                                                                        {% endif %}
+                                                                    </div>
+                                                                    <div class="user-info">
+                                                                        <h6>{{ agent.get_full_name|default:agent.username }}</h6>
+                                                                        <span class="role-badge agent">Agent</span>
+                                                                        <p class="user-email">{{ agent.email }}</p>
+                                                                        <div class="stats">
+                                                                            <span class="stat">{{ agent.leads_assigned_count }} Leads</span>
+                                                                            <span class="stat">{{ agent.leads_converted_count }} Converted</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            {% endfor %}
+                                                        </div>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+
+                                <!-- Direct Agents under Manager -->
+                                {% if manager_data.direct_agents %}
+                                    <div class="direct-agents-section">
+                                        <h4><i class="fas fa-user"></i> Direct Agents (No Team Lead)</h4>
+                                        <div class="agents-list">
+                                            {% for agent in manager_data.direct_agents %}
+                                                <div class="user-card agent">
+                                                    <div class="user-avatar small">
+                                                        {% if agent.profile_picture %}
+                                                            <img src="{{ agent.profile_picture.url }}" alt="{{ agent.get_full_name }}">
+                                                        {% else %}
+                                                            <div class="avatar-placeholder small">{{ agent.get_full_name|make_list|first|upper }}</div>
+                                                        {% endif %}
+                                                    </div>
+                                                    <div class="user-info">
+                                                        <h6>{{ agent.get_full_name|default:agent.username }}</h6>
+                                                        <span class="role-badge agent">Agent</span>
+                                                        <p class="user-email">{{ agent.email }}</p>
+                                                        <div class="stats">
+                                                            <span class="stat">{{ agent.leads_assigned_count }} Leads</span>
+                                                            <span class="stat">{{ agent.leads_converted_count }} Converted</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+        {% elif current_user.role == 'manager' %}
+            <!-- Manager View - Shows their team leads and agents -->
+            {% if hierarchy_data %}
+                {% for manager_data in hierarchy_data %}
+                    <div class="hierarchy-level">
+                        <div class="level-header">
+                            <h3><i class="fas fa-user-tie"></i> Your Team</h3>
+                        </div>
+                        <div class="manager-card">
+                            <div class="user-card manager">
+                                <div class="user-avatar">
+                                    {% if manager_data.user.profile_picture %}
+                                        <img src="{{ manager_data.user.profile_picture.url }}" alt="{{ manager_data.user.get_full_name }}">
+                                    {% else %}
+                                        <div class="avatar-placeholder">{{ manager_data.user.get_full_name|make_list|first|upper }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="user-info">
+                                    <h4>{{ manager_data.user.get_full_name|default:manager_data.user.username }}</h4>
+                                    <span class="role-badge manager">Manager (You)</span>
+                                    <p class="user-email">{{ manager_data.user.email }}</p>
+                                    <div class="stats">
+                                        <span class="stat">{{ manager_data.team_leads|length }} Team Leads</span>
+                                        <span class="stat">{{ manager_data.direct_agents|length }} Direct Agents</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Team Leads under Manager -->
+                            {% if manager_data.team_leads %}
+                                <div class="team-leads-section">
+                                    <h4><i class="fas fa-users"></i> Your Team Leads</h4>
+                                    {% for team_lead_data in manager_data.team_leads %}
+                                        <div class="team-lead-card">
+                                            <div class="user-card team-lead clickable" onclick="toggleTeamLeadSection('manager-{{ forloop.counter0 }}')">
+                                                <div class="user-avatar">
+                                                    {% if team_lead_data.user.profile_picture %}
+                                                        <img src="{{ team_lead_data.user.profile_picture.url }}" alt="{{ team_lead_data.user.get_full_name }}">
+                                                    {% else %}
+                                                        <div class="avatar-placeholder">{{ team_lead_data.user.get_full_name|make_list|first|upper }}</div>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="user-info">
+                                                    <h5>{{ team_lead_data.user.get_full_name|default:team_lead_data.user.username }}</h5>
+                                                    <span class="role-badge team-lead">Team Lead</span>
+                                                    <p class="user-email">{{ team_lead_data.user.email }}</p>
+                                                    <div class="stats">
+                                                        <span class="stat">{{ team_lead_data.agents|length }} Agents</span>
+                                                    </div>
+                                                    <div class="expand-icon">
+                                                        <i class="fas fa-chevron-down"></i>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Agents under Team Lead -->
+                                            <div class="agents-section" id="teamlead-section-manager-{{ forloop.counter0 }}" style="display: none;">
+                                                {% if team_lead_data.agents %}
+                                                    <h6><i class="fas fa-user"></i> Agents</h6>
+                                                    <div class="agents-list">
+                                                        {% for agent in team_lead_data.agents %}
+                                                            <div class="user-card agent">
+                                                                <div class="user-avatar small">
+                                                                    {% if agent.profile_picture %}
+                                                                        <img src="{{ agent.profile_picture.url }}" alt="{{ agent.get_full_name }}">
+                                                                    {% else %}
+                                                                        <div class="avatar-placeholder small">{{ agent.get_full_name|make_list|first|upper }}</div>
+                                                                    {% endif %}
+                                                                </div>
+                                                                <div class="user-info">
+                                                                    <h6>{{ agent.get_full_name|default:agent.username }}</h6>
+                                                                    <span class="role-badge agent">Agent</span>
+                                                                    <p class="user-email">{{ agent.email }}</p>
+                                                                    <div class="stats">
+                                                                        <span class="stat">{{ agent.leads_assigned_count }} Leads</span>
+                                                                        <span class="stat">{{ agent.leads_converted_count }} Converted</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        {% endfor %}
+                                                    </div>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            <!-- Direct Agents under Manager -->
+                            {% if manager_data.direct_agents %}
+                                <div class="direct-agents-section">
+                                    <h4><i class="fas fa-user"></i> Your Direct Agents</h4>
+                                    <div class="agents-list">
+                                        {% for agent in manager_data.direct_agents %}
+                                            <div class="user-card agent">
+                                                <div class="user-avatar small">
+                                                    {% if agent.profile_picture %}
+                                                        <img src="{{ agent.profile_picture.url }}" alt="{{ agent.get_full_name }}">
+                                                    {% else %}
+                                                        <div class="avatar-placeholder small">{{ agent.get_full_name|make_list|first|upper }}</div>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="user-info">
+                                                    <h6>{{ agent.get_full_name|default:agent.username }}</h6>
+                                                    <span class="role-badge agent">Agent</span>
+                                                    <p class="user-email">{{ agent.email }}</p>
+                                                    <div class="stats">
+                                                        <span class="stat">{{ agent.leads_assigned_count }} Leads</span>
+                                                        <span class="stat">{{ agent.leads_converted_count }} Converted</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+        {% elif current_user.role == 'team_lead' %}
+            <!-- Team Lead View - Shows their agents -->
+            {% if hierarchy_data %}
+                {% for team_lead_data in hierarchy_data %}
+                    <div class="hierarchy-level">
+                        <div class="level-header">
+                            <h3><i class="fas fa-users"></i> Your Team</h3>
+                        </div>
+                        <div class="team-lead-card">
+                            <div class="user-card team-lead">
+                                <div class="user-avatar">
+                                    {% if team_lead_data.user.profile_picture %}
+                                        <img src="{{ team_lead_data.user.profile_picture.url }}" alt="{{ team_lead_data.user.get_full_name }}">
+                                    {% else %}
+                                        <div class="avatar-placeholder">{{ team_lead_data.user.get_full_name|make_list|first|upper }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="user-info">
+                                    <h4>{{ team_lead_data.user.get_full_name|default:team_lead_data.user.username }}</h4>
+                                    <span class="role-badge team-lead">Team Lead (You)</span>
+                                    <p class="user-email">{{ team_lead_data.user.email }}</p>
+                                    <div class="stats">
+                                        <span class="stat">{{ team_lead_data.agents|length }} Agents</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Agents under Team Lead -->
+                            {% if team_lead_data.agents %}
+                                <div class="agents-section">
+                                    <h4><i class="fas fa-user"></i> Your Agents</h4>
+                                    <div class="agents-list">
+                                        {% for agent in team_lead_data.agents %}
+                                            <div class="user-card agent">
+                                                <div class="user-avatar small">
+                                                    {% if agent.profile_picture %}
+                                                        <img src="{{ agent.profile_picture.url }}" alt="{{ agent.get_full_name }}">
+                                                    {% else %}
+                                                        <div class="avatar-placeholder small">{{ agent.get_full_name|make_list|first|upper }}</div>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="user-info">
+                                                    <h6>{{ agent.get_full_name|default:agent.username }}</h6>
+                                                    <span class="role-badge agent">Agent</span>
+                                                    <p class="user-email">{{ agent.email }}</p>
+                                                    <div class="stats">
+                                                        <span class="stat">{{ agent.leads_assigned_count }} Leads</span>
+                                                        <span class="stat">{{ agent.leads_converted_count }} Converted</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+        {% else %}
+            <!-- Agent View - Shows themselves -->
+            {% if hierarchy_data %}
+                {% for agent_data in hierarchy_data %}
+                    <div class="hierarchy-level">
+                        <div class="level-header">
+                            <h3><i class="fas fa-user"></i> Your Profile</h3>
+                        </div>
+                        <div class="user-card agent">
+                            <div class="user-avatar">
+                                {% if agent_data.user.profile_picture %}
+                                    <img src="{{ agent_data.user.profile_picture.url }}" alt="{{ agent_data.user.get_full_name }}">
+                                {% else %}
+                                    <div class="avatar-placeholder">{{ agent_data.user.get_full_name|make_list|first|upper }}</div>
+                                {% endif %}
+                            </div>
+                            <div class="user-info">
+                                <h4>{{ agent_data.user.get_full_name|default:agent_data.user.username }}</h4>
+                                <span class="role-badge agent">Agent (You)</span>
+                                <p class="user-email">{{ agent_data.user.email }}</p>
+                                <div class="stats">
+                                    <span class="stat">{{ agent_data.user.leads_assigned_count }} Leads Assigned</span>
+                                    <span class="stat">{{ agent_data.user.leads_converted_count }} Leads Converted</span>
+                                </div>
+                                {% if agent_data.user.manager %}
+                                    <p class="reporting-to">Reporting to: {{ agent_data.user.manager.get_full_name|default:agent_data.user.manager.username }} (Manager)</p>
+                                {% endif %}
+                                {% if agent_data.user.team_lead %}
+                                    <p class="reporting-to">Team Lead: {{ agent_data.user.team_lead.get_full_name|default:agent_data.user.team_lead.username }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function toggleManagerSection(managerId) {
+    const section = document.getElementById('manager-section-' + managerId);
+    const icon = event.currentTarget.querySelector('.expand-icon i');
+    
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    } else {
+        section.style.display = 'none';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    }
+}
+
+function toggleTeamLeadSection(teamLeadId) {
+    const section = document.getElementById('teamlead-section-' + teamLeadId);
+    const icon = event.currentTarget.querySelector('.expand-icon i');
+    
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    } else {
+        section.style.display = 'none';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    }
+}
+</script>
+
+<style>
+.team-hierarchy-page {
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.hierarchy-container {
+    margin-top: 30px;
+}
+
+.hierarchy-level {
+    margin-bottom: 40px;
+}
+
+.level-header {
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.level-header h3 {
+    color: #495057;
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.level-header i {
+    margin-right: 10px;
+    color: #667eea;
+}
+
+.managers-section h3 {
+    color: #495057;
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+
+.managers-section h3 i {
+    margin-right: 10px;
+    color: #007bff;
+}
+
+.manager-section {
+    margin-bottom: 20px;
+}
+
+.user-card {
+    display: flex;
+    align-items: center;
+    padding: 20px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    margin-bottom: 15px;
+    border-left: 4px solid #667eea;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    position: relative;
+}
+
+.user-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+.user-card.clickable {
+    cursor: pointer;
+}
+
+.user-card.clickable:hover {
+    background: #f8f9fa;
+}
+
+.user-card.owner {
+    border-left-color: #28a745;
+}
+
+.user-card.manager {
+    border-left-color: #007bff;
+}
+
+.user-card.team-lead {
+    border-left-color: #fd7e14;
+}
+
+.user-card.agent {
+    border-left-color: #6c757d;
+}
+
+.user-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    overflow: hidden;
+    margin-right: 20px;
+    flex-shrink: 0;
+}
+
+.user-avatar.small {
+    width: 60px;
+    height: 60px;
+    margin-right: 15px;
+}
+
+.user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.avatar-placeholder {
+    width: 100%;
+    height: 100%;
+    background: var(--accent-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 2rem;
+    font-weight: bold;
+}
+
+.avatar-placeholder.small {
+    font-size: 1.5rem;
+}
+
+.user-info {
+    flex: 1;
+}
+
+.user-info h4 {
+    margin: 0 0 5px 0;
+    color: var(--text-primary);
+    font-size: 1.3rem;
+}
+
+.user-info h5 {
+    margin: 0 0 5px 0;
+    color: var(--text-primary);
+    font-size: 1.1rem;
+}
+
+.user-info h6 {
+    margin: 0 0 5px 0;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.role-badge.owner {
+    background: var(--success-color);
+    color: white;
+}
+
+.role-badge.manager {
+    background: var(--info-color);
+    color: white;
+}
+
+.role-badge.team-lead {
+    background: var(--warning-color);
+    color: white;
+}
+
+.role-badge.agent {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.user-email {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 0 0 10px 0;
+}
+
+.stats {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.stat {
+    background: var(--bg-tertiary);
+    padding: 5px 10px;
+    border-radius: 15px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.expand-icon {
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--accent-color);
+    font-size: 1.2rem;
+    transition: transform 0.2s ease;
+}
+
+.reporting-to {
+    margin-top: 10px;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+.manager-details {
+    margin-left: 20px;
+    padding-left: 20px;
+    border-left: 2px solid var(--border-color);
+    margin-top: 15px;
+}
+
+.team-leads-section,
+.direct-agents-section,
+.agents-section {
+    margin-top: 25px;
+    padding: 20px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.team-leads-section h4,
+.direct-agents-section h4,
+.agents-section h6 {
+    margin: 0 0 15px 0;
+    color: var(--text-primary);
+    font-size: 1.1rem;
+}
+
+.team-leads-section h4 i,
+.direct-agents-section h4 i,
+.agents-section h6 i {
+    margin-right: 8px;
+    color: var(--accent-color);
+}
+
+.agents-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 15px;
+}
+
+.team-lead-card {
+    background: var(--card-bg);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: var(--card-shadow);
+    margin-bottom: 15px;
+}
+
+.manager-card {
+    background: var(--card-bg);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: var(--card-shadow);
+}
+
+.owner-card {
+    background: var(--card-bg);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: var(--card-shadow);
+}
+
+@media (max-width: 768px) {
+    .team-hierarchy-page {
+        padding: 10px;
+    }
+    
+    .user-card {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .user-avatar {
+        margin-right: 0;
+        margin-bottom: 15px;
+    }
+    
+    .agents-list {
+        grid-template-columns: 1fr;
+    }
+    
+    .stats {
+        justify-content: center;
+    }
+    
+    .expand-icon {
+        position: static;
+        transform: none;
+        margin-top: 10px;
+    }
+}
+</style>
+{% endblock %}

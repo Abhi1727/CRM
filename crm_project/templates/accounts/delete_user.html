@@ -1,0 +1,296 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block title %}Delete User - CRM Pro{% endblock %}
+
+{% block page_title %}Delete User{% endblock %}
+
+{% block content %}
+<div class="delete-user-page">
+    <div class="delete-container">
+        <div class="warning-card">
+            <div class="warning-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            
+            <h2>Delete User Account</h2>
+            
+            <div class="user-preview">
+                <div class="user-avatar">
+                    {% if target_user.profile_picture %}
+                        <img src="{{ target_user.profile_picture.url }}" alt="{{ target_user.username }}">
+                    {% else %}
+                        <i class="fas fa-user-circle"></i>
+                    {% endif %}
+                </div>
+                <div class="user-info">
+                    <h3>{{ target_user.get_full_name|default:target_user.username }}</h3>
+                    <p class="user-email">{{ target_user.email }}</p>
+                    <span class="role-badge role-{{ target_user.role }}">{{ target_user.get_role_display }}</span>
+                </div>
+            </div>
+            
+            <div class="warning-message">
+                <h4>⚠️ Important Warning</h4>
+                <p>You are about to delete this user account. This action will:</p>
+                <ul>
+                    <li><i class="fas fa-ban"></i> Deactivate the user account immediately</li>
+                    <li><i class="fas fa-lock"></i> Prevent the user from logging in</li>
+                    <li><i class="fas fa-exchange-alt"></i> Reassign all their leads back to unassigned</li>
+                    <li><i class="fas fa-user-times"></i> Remove their access to the CRM system</li>
+                </ul>
+                <p class="irreversible"><strong>This action cannot be undone!</strong></p>
+            </div>
+            
+            <form method="post" class="delete-form">
+                {% csrf_token %}
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Yes, Delete User
+                    </button>
+                    <a href="{% url 'accounts:user_list' %}" class="btn btn-secondary">
+                        <i class="fas fa-times"></i> Cancel
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+.delete-user-page {
+    padding: 40px 20px;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.delete-container {
+    display: flex;
+    justify-content: center;
+}
+
+.warning-card {
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    border: 1px solid #2d3139;
+    border-radius: 12px;
+    padding: 40px;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.warning-icon {
+    font-size: 64px;
+    color: #dc3545;
+    margin-bottom: 20px;
+}
+
+.warning-card h2 {
+    color: #e4e6eb;
+    margin-bottom: 30px;
+    font-size: 28px;
+}
+
+.user-preview {
+    display: flex;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 30px;
+    border: 1px solid #2d3139;
+}
+
+.user-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    overflow: hidden;
+    margin-right: 20px;
+    flex-shrink: 0;
+}
+
+.user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.user-avatar i {
+    font-size: 80px;
+    color: #667eea;
+}
+
+.user-info {
+    text-align: left;
+    flex: 1;
+}
+
+.user-info h3 {
+    color: #e4e6eb;
+    margin: 0 0 5px 0;
+    font-size: 20px;
+}
+
+.user-email {
+    color: #a8adb7;
+    margin: 0 0 10px 0;
+    font-size: 14px;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.role-owner {
+    background: #d4edda;
+    color: #155724;
+}
+
+.role-manager {
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+.role-team_lead {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.role-agent {
+    background: #f8f9fa;
+    color: #6c757d;
+}
+
+.warning-message {
+    background: rgba(220, 53, 69, 0.1);
+    border: 1px solid rgba(220, 53, 69, 0.3);
+    border-radius: 8px;
+    padding: 25px;
+    margin-bottom: 30px;
+    text-align: left;
+}
+
+.warning-message h4 {
+    color: #dc3545;
+    margin: 0 0 15px 0;
+    font-size: 18px;
+}
+
+.warning-message p {
+    color: #e4e6eb;
+    margin: 0 0 15px 0;
+    line-height: 1.6;
+}
+
+.warning-message ul {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 20px 0;
+}
+
+.warning-message li {
+    color: #a8adb7;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    line-height: 1.5;
+}
+
+.warning-message li i {
+    margin-right: 10px;
+    color: #dc3545;
+    width: 16px;
+}
+
+.irreversible {
+    color: #dc3545 !important;
+    font-weight: bold;
+    background: rgba(220, 53, 69, 0.1);
+    padding: 10px;
+    border-radius: 4px;
+    border-left: 4px solid #dc3545;
+}
+
+.delete-form {
+    margin-top: 30px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+}
+
+.btn {
+    padding: 12px 30px;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 150px;
+    justify-content: center;
+}
+
+.btn-danger {
+    background: #dc3545;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c82333;
+    transform: translateY(-1px);
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+    transform: translateY(-1px);
+}
+
+@media (max-width: 768px) {
+    .delete-user-page {
+        padding: 20px 10px;
+    }
+    
+    .warning-card {
+        padding: 30px 20px;
+    }
+    
+    .user-preview {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .user-avatar {
+        margin-right: 0;
+        margin-bottom: 15px;
+    }
+    
+    .user-info {
+        text-align: center;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+    
+    .btn {
+        width: 100%;
+    }
+}
+</style>
+{% endblock %}

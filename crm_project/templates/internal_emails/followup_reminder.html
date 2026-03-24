@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Internal Follow-up Reminder</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+        .content {
+            background: white;
+            padding: 30px;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .reminder-details {
+            background: #f8f9fa;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .lead-info {
+            background: #e8f4fd;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 6px;
+        }
+        .priority-urgent {
+            border-left-color: #e74c3c;
+            background: #fdf2f2;
+        }
+        .priority-high {
+            border-left-color: #f39c12;
+            background: #fef9e7;
+        }
+        .priority-medium {
+            border-left-color: #3498db;
+            background: #e8f4fd;
+        }
+        .priority-low {
+            border-left-color: #95a5a6;
+            background: #f4f6f6;
+        }
+        .action-buttons {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            margin: 0 10px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #666;
+            font-size: 12px;
+        }
+        .team-notes {
+            background: #fff3cd;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 6px;
+            border-left: 4px solid #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📋 Internal Follow-up Reminder</h1>
+        <p>This is an internal team notification</p>
+    </div>
+    
+    <div class="content">
+        <p>Hello {{ user.get_full_name|default:user.username }},</p>
+        
+        <p>You have a follow-up reminder scheduled for:</p>
+        
+        <div class="reminder-details priority-{{ priority }}">
+            <h3>📅 {{ followup_time }}</h3>
+            <p><strong>Priority:</strong> {{ priority|title }}</p>
+            <p><strong>Type:</strong> {{ reminder.reminder_type|title }}</p>
+        </div>
+        
+        <div class="lead-info">
+            <h4>👤 Lead Information</h4>
+            <p><strong>Name:</strong> {{ lead.name }}</p>
+            <p><strong>Mobile:</strong> {{ lead.mobile }}</p>
+            {% if lead.email %}<p><strong>Email:</strong> {{ lead.email }}</p>{% endif %}
+            {% if lead.followup_remarks %}<p><strong>Notes:</strong> {{ lead.followup_remarks }}</p>{% endif %}
+        </div>
+        
+        {% if team_notes %}
+        <div class="team-notes">
+            <h4>📝 Team Notes</h4>
+            <p>{{ team_notes }}</p>
+        </div>
+        {% endif %}
+        
+        <div class="action-buttons">
+            <a href="{{ site_url }}/dashboard/internal-reminders/" class="btn btn-primary">
+                View Reminders
+            </a>
+            <a href="{{ site_url }}/dashboard/leads/{{ lead.id }}/" class="btn btn-secondary">
+                View Lead
+            </a>
+        </div>
+        
+        <p><strong>Important:</strong> This is an internal notification for team coordination only. Do not forward this to clients.</p>
+    </div>
+    
+    <div class="footer">
+        <p>This is an automated internal reminder from the CRM System.</p>
+        <p>If you believe this was sent in error, please contact your system administrator.</p>
+        <p>Generated: {{ timestamp }}</p>
+    </div>
+</body>
+</html>

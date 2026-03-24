@@ -1,0 +1,16 @@
+📊 Daily Team Summary - {{ date_range }}
+
+Team: {{ team_members }} members
+Follow-ups: {{ total_followups }}
+Completed: {{ completed_followups }}
+Rate: {{ completion_rate|floatformat:1 }}%
+
+{% if overdue_followups > 0 %}
+⚠️ {{ overdue_followups }} overdue follow-ups
+{% endif %}
+
+Top performer: {{ top_performer.user }} ({{ top_performer.completed }} completed)
+
+View dashboard: {{ site_url }}/dashboard/team-dashboard/
+
+Reply STOP to unsubscribe.

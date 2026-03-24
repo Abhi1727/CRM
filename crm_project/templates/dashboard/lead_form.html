@@ -1,0 +1,108 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block page_title %}{{ page_title|default:"Add Lead" }}{% endblock %}
+
+{% block content %}
+<div class="leads-page">
+    <div class="page-header">
+        <h2>{{ page_title|default:"Add Lead" }}</h2>
+    </div>
+
+    <div class="leads-table-container" style="padding: 20px; max-width: 700px;">
+        <form method="post">
+            {% csrf_token %}
+
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="id_name">Name</label>
+                    {{ form.name }}
+                </div>
+                <div class="form-group">
+                    <label for="id_mobile">Mobile</label>
+                    {{ form.mobile }}
+                </div>
+                <div class="form-group">
+                    <label for="id_email">Email</label>
+                    {{ form.email }}
+                </div>
+                <div class="form-group">
+                    <label for="id_status">Status</label>
+                    {{ form.status }}
+                </div>
+                <div class="form-group">
+                    <label for="id_lead_source">Lead Source</label>
+                    {{ form.lead_source }}
+                </div>
+                <div class="form-group">
+                    <label for="id_course_name">Course / Product</label>
+                    {{ form.course_name }}
+                </div>
+                <div class="form-group">
+                    <label for="id_exp_revenue">Expected Revenue</label>
+                    {{ form.exp_revenue }}
+                </div>
+                <div class="form-group">
+                    <label for="id_followup_datetime">Follow-up Date &amp; Time</label>
+                    {{ form.followup_datetime }}
+                </div>
+                <div class="form-group form-group-full">
+                    <label for="id_followup_remarks">Follow-up Remarks</label>
+                    {{ form.followup_remarks }}
+                </div>
+            </div>
+
+            {% if form.errors %}
+            <div class="alert alert-error" style="margin-top: 20px;">
+                Please fix the errors below.
+            </div>
+            {% endif %}
+
+            <div style="margin-top: 25px; display: flex; gap: 10px;">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Save Lead
+                </button>
+                <a href="{% url 'dashboard:leads_all' %}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.form-group-full {
+    grid-column: 1 / -1;
+}
+
+.form-group label {
+    font-size: 13px;
+    color: #a8adb7;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #2d3139;
+    background: #0f1419;
+    color: #e4e6eb;
+}
+
+.form-group textarea {
+    min-height: 80px;
+}
+</style>
+{% endblock %}

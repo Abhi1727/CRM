@@ -1,0 +1,23 @@
+from django.urls import path
+from . import views
+
+app_name = 'accounts'
+
+urlpatterns = [
+    path('login/', views.login_view, name='login'),
+    path('logout/', views.logout_view, name='logout'),
+    
+    # User management
+    path('users/', views.user_list, name='user_list'),
+    path('users/create/', views.create_user, name='create_user'),
+    path('users/<int:user_id>/edit/', views.edit_user, name='edit_user'),
+    path('users/<int:user_id>/delete/', views.delete_user, name='delete_user'),
+    path('users/performance/', views.user_performance, name='user_performance'),
+    path('team-hierarchy/', views.team_hierarchy, name='team_hierarchy'),
+    
+    # Lead assignment
+    path('assign-lead/', views.assign_lead, name='assign_lead'),
+    path('bulk-assign/', views.bulk_assign_leads, name='bulk_assign'),
+    path('get-users-by-role/', views.get_users_by_role, name='get_users_by_role'),
+    path('transfer-history/', views.lead_transfer_history, name='transfer_history'),
+]

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}CRM System{% endblock %}</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Theme Toggle for Login Pages -->
+    <div class="theme-toggle-login" id="themeToggleLogin" title="Toggle theme">
+        <i class="fas fa-moon" id="themeIconLogin"></i>
+    </div>
+    
+    {% block content %}{% endblock %}
+    
+    <script>
+        // Theme Toggle Functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const themeToggle = document.getElementById('themeToggleLogin');
+            const themeIcon = document.getElementById('themeIconLogin');
+            
+            // Initialize theme from localStorage or system preference
+            function initializeTheme() {
+                const savedTheme = localStorage.getItem('theme');
+                const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                
+                if (savedTheme) {
+                    setTheme(savedTheme);
+                } else if (systemPrefersDark) {
+                    setTheme('dark');
+                } else {
+                    setTheme('light');
+                }
+            }
+            
+            function setTheme(theme) {
+                const root = document.documentElement;
+                
+                if (theme === 'dark') {
+                    root.setAttribute('data-theme', 'dark');
+                    if (themeIcon) themeIcon.className = 'fas fa-sun';
+                    localStorage.setItem('theme', 'dark');
+                } else {
+                    root.removeAttribute('data-theme');
+                    if (themeIcon) themeIcon.className = 'fas fa-moon';
+                    localStorage.setItem('theme', 'light');
+                }
+            }
+            
+            // Theme toggle event listener
+            if (themeToggle) {
+                themeToggle.addEventListener('click', function() {
+                    const currentTheme = document.documentElement.getAttribute('data-theme');
+                    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                    setTheme(newTheme);
+                });
+            }
+            
+            // Listen for system theme changes
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+                if (!localStorage.getItem('theme')) {
+                    setTheme(e.matches ? 'dark' : 'light');
+                }
+            });
+            
+            // Initialize theme on page load
+            initializeTheme();
+        });
+    </script>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

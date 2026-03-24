@@ -1,0 +1,541 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block title %}Assign Lead - CRM Pro{% endblock %}
+
+{% block page_title %}Assign Lead{% endblock %}
+
+{% block content %}
+<div class="assign-lead-page">
+    <div class="page-header">
+        <h2><i class="fas fa-user-plus"></i> Assign Lead</h2>
+        <p>Assign this lead to a team member</p>
+    </div>
+
+    {% if lead %}
+    <div class="lead-preview">
+        <div class="lead-card">
+            <div class="lead-header">
+                <h3>{{ lead.name }}</h3>
+                <span class="lead-status status-{{ lead.status }}">{{ lead.get_status_display }}</span>
+            </div>
+            
+            <div class="lead-info">
+                <div class="info-row">
+                    <label><i class="fas fa-phone"></i> Contact:</label>
+                    <span>{{ lead.mobile|default:lead.email }}</span>
+                </div>
+                
+                {% if lead.course_name %}
+                <div class="info-row">
+                    <label><i class="fas fa-graduation-cap"></i> Course:</label>
+                    <span>{{ lead.course_name }}</span>
+                </div>
+                {% endif %}
+                
+                {% if lead.lead_source %}
+                <div class="info-row">
+                    <label><i class="fas fa-bullhorn"></i> Source:</label>
+                    <span>{{ lead.lead_source }}</span>
+                </div>
+                {% endif %}
+                
+                <div class="info-row">
+                    <label><i class="fas fa-calendar"></i> Created:</label>
+                    <span>{{ lead.created_at|date:"M d, Y H:i" }}</span>
+                </div>
+                
+                {% if lead.assigned_user %}
+                <div class="info-row">
+                    <label><i class="fas fa-user"></i> Currently Assigned:</label>
+                    <span>{{ lead.assigned_user.first_name|default:lead.assigned_user.username }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="no-lead-selected">
+        <div class="info-message">
+            <i class="fas fa-info-circle"></i>
+            <h3>No Lead Selected</h3>
+            <p>Please select a lead to assign from the leads list, or use the form below to assign any available lead.</p>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="assignment-form">
+        <form method="post">
+            {% csrf_token %}
+            {% if not lead %}
+            <div class="form-section">
+                <h3><i class="fas fa-exclamation-triangle"></i> No Lead Selected</h3>
+                <div class="info-message">
+                    <p>Please select a lead from the leads list first, then use the "Assign" button to access this page.</p>
+                    <a href="{% url 'dashboard:leads_all' %}" class="btn btn-primary">
+                        <i class="fas fa-list"></i> Go to Leads List
+                    </a>
+                </div>
+            </div>
+            {% else %}
+            <input type="hidden" name="lead_id" value="{{ lead.id_lead }}">
+            {% endif %}
+            
+            <div class="form-section">
+                <h3><i class="fas fa-users"></i> Select Team Member</h3>
+                
+                {% if users %}
+                <div class="users-grid">
+                    {% for user_obj in users %}
+                    <div class="user-option">
+                        <label class="user-card">
+                            <input type="radio" name="assigned_user" value="{{ user_obj.id }}" {% if lead and lead.assigned_user == user_obj %}checked{% endif %}>
+                            <div class="user-avatar">
+                                {% if user_obj.profile_picture %}
+                                    <img src="{{ user_obj.profile_picture.url }}" alt="{{ user_obj.username }}">
+                                {% else %}
+                                    <i class="fas fa-user-circle"></i>
+                                {% endif %}
+                            </div>
+                            <div class="user-details">
+                                <div class="user-name">{{ user_obj.first_name|default:user_obj.username }} {{ user_obj.last_name }}</div>
+                                <div class="user-role">{{ user_obj.get_role_display }}</div>
+                                <div class="user-stats">
+                                    <span class="stat">{{ user_obj.leads_assigned_count }} leads</span>
+                                    <span class="stat">{{ user_obj.leads_converted_count }} converted</span>
+                                </div>
+                            </div>
+                            <div class="user-select">
+                                <div class="radio-indicator"></div>
+                            </div>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="no-users">
+                    <i class="fas fa-users-slash"></i>
+                    <h4>No Team Members Available</h4>
+                    <p>There are no users available for assignment.</p>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="form-section">
+                <h3><i class="fas fa-comment"></i> Assignment Remarks</h3>
+                <textarea name="remarks" placeholder="Add any notes about this assignment..." rows="4">{{ request.GET.remarks }}</textarea>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" {% if not users %}disabled{% endif %}>
+                    <i class="fas fa-user-plus"></i> Assign Lead
+                </button>
+                <a href="{{ request.META.HTTP_REFERER|default:'dashboard:leads_all' }}" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.form-group {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    color: #e4e6eb;
+    font-weight: 600;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.form-group select {
+    background: #0f1419;
+    border: 1px solid #2d3139;
+    color: #e4e6eb;
+    padding: 12px 15px;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.form-group select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.no-lead-selected {
+    margin-bottom: 30px;
+}
+
+.info-message {
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    padding: 30px;
+    border-radius: 12px;
+    border: 1px solid #2d3139;
+    text-align: center;
+    color: #e4e6eb;
+}
+
+.info-message i {
+    font-size: 48px;
+    color: #667eea;
+    margin-bottom: 20px;
+}
+
+.info-message h3 {
+    margin-bottom: 10px;
+    color: #e4e6eb;
+}
+
+.info-message p {
+    color: #a8adb7;
+    margin-bottom: 0;
+}
+
+.assign-lead-page {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.page-header {
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    padding: 30px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+    border: 1px solid #2d3139;
+}
+
+.page-header h2 {
+    color: #e4e6eb;
+    font-size: 24px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.page-header p {
+    color: #a8adb7;
+    margin: 0;
+}
+
+.lead-preview {
+    margin-bottom: 30px;
+}
+
+.lead-card {
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    padding: 25px;
+    border-radius: 12px;
+    border: 1px solid #2d3139;
+}
+
+.lead-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.lead-header h3 {
+    color: #e4e6eb;
+    font-size: 20px;
+    margin: 0;
+}
+
+.lead-status {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-sale_done { background: rgba(39, 174, 96, 0.2); color: #27ae60; }
+.status-interested_follow_up { background: rgba(52, 152, 219, 0.2); color: #3498db; }
+.status-lead { background: rgba(149, 165, 166, 0.2); color: #95a5a6; }
+
+.lead-info {
+    display: grid;
+    gap: 12px;
+}
+
+.info-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.info-row label {
+    color: #a8adb7;
+    font-size: 14px;
+    min-width: 100px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.info-row span {
+    color: #e4e6eb;
+    font-weight: 500;
+}
+
+.assignment-form {
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    padding: 30px;
+    border-radius: 12px;
+    border: 1px solid #2d3139;
+}
+
+.form-section {
+    margin-bottom: 30px;
+}
+
+.form-section h3 {
+    color: #e4e6eb;
+    font-size: 18px;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #2d3139;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.users-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.user-option {
+    position: relative;
+}
+
+.user-card {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 20px;
+    background: rgba(102, 126, 234, 0.05);
+    border: 2px solid transparent;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.user-card:hover {
+    background: rgba(102, 126, 234, 0.1);
+    border-color: rgba(102, 126, 234, 0.3);
+}
+
+.user-card input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.user-card input[type="radio"]:checked + .user-avatar,
+.user-card input[type="radio"]:checked + .user-avatar + .user-details + .user-select .radio-indicator {
+    border-color: #667eea;
+    background: #667eea;
+}
+
+.user-avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 3px solid #2d3139;
+    transition: all 0.3s ease;
+}
+
+.user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.user-avatar i {
+    font-size: 20px;
+    color: white;
+}
+
+.user-details {
+    flex: 1;
+}
+
+.user-name {
+    font-weight: 600;
+    color: #e4e6eb;
+    margin-bottom: 4px;
+}
+
+.user-role {
+    font-size: 12px;
+    color: #a8adb7;
+    margin-bottom: 6px;
+}
+
+.user-stats {
+    display: flex;
+    gap: 12px;
+}
+
+.user-stats .stat {
+    font-size: 11px;
+    color: #a8adb7;
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+}
+
+.user-select {
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.radio-indicator {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #2d3139;
+    border-radius: 50%;
+    background: transparent;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.radio-indicator::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    width: 8px;
+    height: 8px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.3s ease;
+}
+
+.user-card input[type="radio"]:checked ~ .user-select .radio-indicator::after {
+    transform: translate(-50%, -50%) scale(1);
+}
+
+textarea {
+    width: 100%;
+    background: #0f1419;
+    border: 1px solid #2d3139;
+    color: #e4e6eb;
+    padding: 12px 15px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    transition: all 0.3s ease;
+}
+
+textarea:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.no-users {
+    text-align: center;
+    padding: 60px 30px;
+    color: #e4e6eb;
+}
+
+.no-users i {
+    font-size: 48px;
+    color: #667eea;
+    margin-bottom: 20px;
+}
+
+.no-users h4 {
+    margin-bottom: 10px;
+    color: #e4e6eb;
+}
+
+.no-users p {
+    color: #a8adb7;
+    margin-bottom: 0;
+}
+
+.form-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: flex-end;
+    padding-top: 20px;
+    border-top: 1px solid #2d3139;
+}
+
+.btn {
+    padding: 12px 30px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-secondary {
+    background: #2d3139;
+    color: #e4e6eb;
+}
+
+.btn-secondary:hover {
+    background: #3d4149;
+}
+
+@media (max-width: 768px) {
+    .users-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+    
+    .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+</style>
+{% endblock %}

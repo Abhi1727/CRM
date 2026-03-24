@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Dashboard - CRM System{% endblock %}</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="dashboard-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2><i class="fas fa-chart-line"></i> CRM Pro</h2>
+                <button class="sidebar-toggle" id="sidebarToggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+            
+            <div class="user-info">
+                <div class="user-avatar">
+                    {% if user.profile_picture %}
+                        <img src="{{ user.profile_picture.url }}" alt="{{ user.username }}">
+                    {% else %}
+                        <i class="fas fa-user-circle"></i>
+                    {% endif %}
+                </div>
+                <div class="user-details">
+                    <h3>{{ user.first_name|default:user.username }}</h3>
+                    <span class="user-role">{{ role }}</span>
+                    {% if user.manager %}
+                    <small class="user-hierarchy">Manager: {{ user.manager.first_name|default:user.manager.username }}</small>
+                    {% elif user.team_lead %}
+                    <small class="user-hierarchy">Team Lead: {{ user.team_lead.first_name|default:user.team_lead.username }}</small>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                {% if user.role == 'agent' %}
+                <!-- Agent Simplified Menu -->
+                <ul>
+                    <li><a href="{% url 'dashboard:home' %}"><i class="fas fa-chart-line"></i> <span>Dashboard</span></a></li>
+                    
+                    <li class="has-submenu">
+                        <a href="javascript:void(0);" class="submenu-toggle">
+                            <i class="fas fa-user-tie"></i> 
+                            <span>My Leads</span>
+                            <i class="fas fa-chevron-down arrow"></i>
+                        </a>
+                        <ul class="submenu">
+                            <li><a href="{% url 'dashboard:leads_working' %}"><i class="fas fa-briefcase"></i> My Leads</a></li>
+                            <li><a href="{% url 'dashboard:leads_converted' %}"><i class="fas fa-check-circle"></i> Converted</a></li>
+                        </ul>
+                    </li>
+                    
+                    <li><a href="{% url 'dashboard:reports' %}"><i class="fas fa-analytics"></i> <span>My Performance</span></a></li>
+                    <li><a href="{% url 'dashboard:settings' %}"><i class="fas fa-cog"></i> <span>Settings</span></a></li>
+                    <li><a href="{% url 'accounts:logout' %}"><i class="fas fa-sign-out-alt"></i> <span>Logout</span></a></li>
+                </ul>
+                {% else %}
+                <!-- Manager/Owner/Team Lead Full Menu -->
+                <ul>
+                    <li><a href="{% url 'dashboard:home' %}"><i class="fas fa-chart-line"></i> <span>Dashboard</span></a></li>
+                    
+                    <li class="has-submenu">
+                        <a href="javascript:void(0);" class="submenu-toggle">
+                            <i class="fas fa-user-tie"></i> 
+                            <span>Lead Management</span>
+                            <i class="fas fa-chevron-down arrow"></i>
+                        </a>
+                        <ul class="submenu">
+                            <li><a href="{% url 'dashboard:leads_all' %}"><i class="fas fa-list"></i> All Leads</a></li>
+                            <li><a href="{% url 'dashboard:leads_fresh' %}"><i class="fas fa-sparkles"></i> New Leads</a></li>
+                            {% if user.role != 'owner' %}
+                            <li><a href="{% url 'dashboard:leads_working' %}"><i class="fas fa-briefcase"></i> My Leads</a></li>
+                            {% endif %}
+                            <li><a href="{% url 'dashboard:leads_transferred' %}"><i class="fas fa-exchange-alt"></i> Transferred</a></li>
+                            <li><a href="{% url 'dashboard:leads_converted' %}"><i class="fas fa-check-circle"></i> Converted</a></li>
+                            <!-- <li><a href="{% url 'dashboard:leads_team' %}"><i class="fas fa-users"></i> Team Leads</a></li> -->
+                        </ul>
+                    </li>
+                    
+                    {% if user.role != 'agent' %}
+                    <li class="has-submenu">
+                        <a href="javascript:void(0);" class="submenu-toggle">
+                            <i class="fas fa-users-cog"></i> 
+                            <span>Team Management</span>
+                            <i class="fas fa-chevron-down arrow"></i>
+                        </a>
+                        <ul class="submenu">
+                            <li><a href="{% url 'accounts:user_list' %}"><i class="fas fa-users"></i> All Users</a></li>
+                            <li><a href="{% url 'accounts:create_user' %}"><i class="fas fa-user-plus"></i> Add User</a></li>
+                            <li><a href="{% url 'accounts:team_hierarchy' %}"><i class="fas fa-sitemap"></i> Team Hierarchy</a></li>
+                            <li><a href="{% url 'accounts:user_performance' %}"><i class="fas fa-chart-bar"></i> Performance</a></li>
+                        </ul>
+                    </li>
+                    
+                    <!-- Lead Assignment section commented out -->
+                    <!--
+                    <li class="has-submenu">
+                        <a href="javascript:void(0);" class="submenu-toggle">
+                            <i class="fas fa-exchange-alt"></i> 
+                            <span>Lead Assignment</span>
+                            <i class="fas fa-chevron-down arrow"></i>
+                        </a>
+                        <ul class="submenu">
+                            <li><a href="{% url 'accounts:assign_lead' %}"><i class="fas fa-user-plus"></i> Assign Lead</a></li>
+                            <li><a href="{% url 'accounts:bulk_assign' %}"><i class="fas fa-users"></i> Bulk Assign</a></li>
+                            <li><a href="{% url 'accounts:transfer_history' %}"><i class="fas fa-history"></i> Transfer History</a></li>
+                        </ul>
+                    </li>
+                    -->
+                    {% endif %}
+                    
+                    <li><a href="{% url 'dashboard:reports' %}"><i class="fas fa-analytics"></i> <span>Analytics</span></a></li>
+                    <li><a href="{% url 'dashboard:settings' %}"><i class="fas fa-cog"></i> <span>Settings</span></a></li>
+                    <li><a href="{% url 'accounts:logout' %}"><i class="fas fa-sign-out-alt"></i> <span>Logout</span></a></li>
+                </ul>
+                {% endif %}
+            </nav>
+        </aside>
+        
+        <!-- Main Content -->
+        <div class="main-content">
+            <header class="top-bar">
+                <div class="top-bar-left">
+                    <button class="mobile-toggle" id="mobileToggle">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <h1>{% block page_title %}Dashboard{% endblock %}</h1>
+                </div>
+                <div class="top-bar-right">
+                    <div class="theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="fas fa-moon" id="themeIcon"></i>
+                    </div>
+                    <div class="notifications">
+                        <i class="fas fa-bell"></i>
+                        <span class="badge">3</span>
+                    </div>
+                    <div class="user-menu">
+                        <span>{{ user.first_name|default:user.username }}</span>
+                    </div>
+                </div>
+            </header>
+            
+            {% if messages %}
+            <div class="messages-container">
+                {% for message in messages %}
+                    <div class="alert alert-{{ message.tags }}">
+                        {{ message }}
+                        <button class="close-alert">&times;</button>
+                    </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            
+            <main class="content">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+    
+    <script src="{% static 'js/dashboard.js' %}"></script>
+    
+    <!-- INLINE THEME TOGGLE - ENSURES IT WORKS -->
+    <script>
+        // Immediate theme toggle - runs as soon as DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Inline theme toggle initializing...');
+            
+            const themeToggle = document.getElementById('themeToggle');
+            const themeIcon = document.getElementById('themeIcon');
+            
+            console.log('Found theme toggle:', themeToggle);
+            
+            if (themeToggle) {
+                // Add multiple event listeners for maximum compatibility
+                themeToggle.onclick = function(e) {
+                    e.preventDefault();
+                    console.log('Theme toggle clicked (onclick)!');
+                    toggleThemeInline();
+                };
+                
+                themeToggle.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    console.log('Theme toggle clicked (addEventListener)!');
+                    toggleThemeInline();
+                });
+                
+                // Make it globally clickable
+                themeToggle.style.cursor = 'pointer';
+                themeToggle.style.pointerEvents = 'auto';
+                
+                console.log('Theme toggle listeners added');
+            }
+            
+            // Inline toggle function
+            window.toggleThemeInline = function() {
+                console.log('Inline toggle called');
+                const html = document.documentElement;
+                const isDark = html.hasAttribute('data-theme');
+                
+                if (isDark) {
+                    html.removeAttribute('data-theme');
+                    localStorage.setItem('theme', 'light');
+                    if (themeIcon) themeIcon.className = 'fas fa-moon';
+                    document.body.style.backgroundColor = '#ffffff';
+                    document.body.style.color = '#212529';
+                    console.log('Switched to light mode');
+                } else {
+                    html.setAttribute('data-theme', 'dark');
+                    localStorage.setItem('theme', 'dark');
+                    if (themeIcon) themeIcon.className = 'fas fa-sun';
+                    document.body.style.backgroundColor = '#1a0f1f';
+                    document.body.style.color = '#f0e6ff';
+                    console.log('Switched to dark mode');
+                }
+            };
+            
+            // Initialize theme
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                if (themeIcon) themeIcon.className = 'fas fa-sun';
+                document.body.style.backgroundColor = '#1a0f1f';
+                document.body.style.color = '#f0e6ff';
+            }
+            
+            console.log('Inline theme toggle ready');
+        });
+        
+        // Also make it available immediately
+        window.toggleThemeNow = function() {
+            const html = document.documentElement;
+            const themeIcon = document.getElementById('themeIcon');
+            const isDark = html.hasAttribute('data-theme');
+            
+            if (isDark) {
+                html.removeAttribute('data-theme');
+                localStorage.setItem('theme', 'light');
+                if (themeIcon) themeIcon.className = 'fas fa-moon';
+                document.body.style.backgroundColor = '#ffffff';
+                document.body.style.color = '#212529';
+            } else {
+                html.setAttribute('data-theme', 'dark');
+                localStorage.setItem('theme', 'dark');
+                if (themeIcon) themeIcon.className = 'fas fa-sun';
+                document.body.style.backgroundColor = '#1a0f1f';
+                document.body.style.color = '#f0e6ff';
+            }
+        };
+    </script>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

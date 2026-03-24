@@ -1,0 +1,874 @@
+{% extends "dashboard/base_dashboard.html" %}
+{% load static %}
+
+{% block title %}Internal Reminders - CRM System{% endblock %}
+
+{% block extra_css %}
+<style>
+.reminders-container {
+    display: grid;
+    grid-template-columns: 1fr 350px;
+    gap: 20px;
+    padding: 20px;
+}
+
+.reminders-main {
+    background: rgba(15, 20, 25, 0.95);
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.reminders-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.stats-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    padding: 20px;
+    color: white;
+    text-align: center;
+}
+
+.stats-card h3 {
+    font-size: 2rem;
+    margin: 10px 0;
+}
+
+.stats-card p {
+    opacity: 0.9;
+    margin: 0;
+}
+
+.reminder-item {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(102, 126, 234, 0.2);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    transition: all 0.3s ease;
+}
+
+.reminder-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+}
+
+.reminder-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.reminder-title {
+    font-weight: 600;
+    color: #fff;
+    font-size: 1.1rem;
+}
+
+.reminder-priority {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.priority-urgent {
+    background: #e74c3c;
+    color: white;
+}
+
+.priority-high {
+    background: #f39c12;
+    color: white;
+}
+
+.priority-medium {
+    background: #3498db;
+    color: white;
+}
+
+.priority-low {
+    background: #95a5a6;
+    color: white;
+}
+
+.reminder-lead {
+    color: #b8c5d6;
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+}
+
+.reminder-time {
+    color: #8b9dc3;
+    font-size: 0.85rem;
+    margin-bottom: 10px;
+}
+
+.reminder-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.btn-reminder {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.btn-acknowledge {
+    background: #27ae60;
+    color: white;
+}
+
+.btn-acknowledge:hover {
+    background: #229954;
+}
+
+.btn-snooze {
+    background: #f39c12;
+    color: white;
+}
+
+.btn-snooze:hover {
+    background: #e67e22;
+}
+
+.btn-escalate {
+    background: #e74c3c;
+    color: white;
+}
+
+.btn-escalate:hover {
+    background: #c0392b;
+}
+
+.btn-cancel {
+    background: #95a5a6;
+    color: white;
+}
+
+.btn-cancel:hover {
+    background: #7f8c8d;
+}
+
+.filter-section {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.filter-group {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.filter-group label {
+    color: #b8c5d6;
+    font-weight: 500;
+}
+
+.filter-group select {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: white;
+    min-width: 120px;
+}
+
+.filter-group select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+.create-reminder-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 20px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    width: 100%;
+    margin-bottom: 20px;
+}
+
+.create-reminder-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+}
+
+.modal-content {
+    background: linear-gradient(135deg, #1a1f2e 0%, #2d3748 100%);
+    margin: 5% auto;
+    padding: 30px;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    border: 1px solid rgba(102, 126, 234, 0.3);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.modal-header h2 {
+    color: white;
+    margin: 0;
+}
+
+.close {
+    color: #aaa;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: color 0.3s ease;
+}
+
+.close:hover {
+    color: #fff;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #b8c5d6;
+    font-weight: 500;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    border-radius: 6px;
+    color: white;
+    font-size: 14px;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    border-radius: 6px;
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: #b8c5d6;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #8b9dc3;
+}
+
+.empty-state i {
+    font-size: 4rem;
+    margin-bottom: 20px;
+    opacity: 0.5;
+}
+
+.empty-state h3 {
+    margin-bottom: 10px;
+    color: #b8c5d6;
+}
+
+@media (max-width: 1024px) {
+    .reminders-container {
+        grid-template-columns: 1fr;
+    }
+    
+    .reminders-sidebar {
+        order: -1;
+    }
+}
+
+@media (max-width: 768px) {
+    .reminders-container {
+        padding: 10px;
+    }
+    
+    .filter-group {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .reminder-actions {
+        flex-direction: column;
+    }
+    
+    .btn-reminder {
+        width: 100%;
+        justify-content: center;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="reminders-container">
+    <div class="reminders-main">
+        <div class="filter-section">
+            <div class="filter-group">
+                <label for="statusFilter">Status:</label>
+                <select id="statusFilter">
+                    <option value="all">All</option>
+                    <option value="pending">Pending</option>
+                    <option value="sent">Sent</option>
+                    <option value="acknowledged">Acknowledged</option>
+                </select>
+                
+                <label for="priorityFilter">Priority:</label>
+                <select id="priorityFilter">
+                    <option value="all">All</option>
+                    <option value="urgent">Urgent</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                </select>
+                
+                <button class="btn-reminder btn-acknowledge" onclick="refreshReminders()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </div>
+        
+        <div id="remindersList" class="loading">
+            <i class="fas fa-spinner fa-spin fa-2x"></i>
+            <p>Loading reminders...</p>
+        </div>
+    </div>
+    
+    <div class="reminders-sidebar">
+        <button class="create-reminder-btn" onclick="openCreateModal()">
+            <i class="fas fa-plus"></i> Create Reminder
+        </button>
+        
+        <div class="stats-card">
+            <h3 id="pendingCount">0</h3>
+            <p>Pending Reminders</p>
+        </div>
+        
+        <div class="stats-card">
+            <h3 id="overdueCount">0</h3>
+            <p>Overdue Follow-ups</p>
+        </div>
+        
+        <div class="stats-card">
+            <h3 id="todayCount">0</h3>
+            <p>Today's Reminders</p>
+        </div>
+    </div>
+</div>
+
+<!-- Create Reminder Modal -->
+<div id="createReminderModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Create Internal Reminder</h2>
+            <span class="close" onclick="closeCreateModal()">&times;</span>
+        </div>
+        
+        <form id="createReminderForm">
+            <div class="form-group">
+                <label for="leadSelect">Lead:</label>
+                <select id="leadSelect" required>
+                    <option value="">Select a lead...</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="reminderType">Type:</label>
+                <select id="reminderType" required>
+                    <option value="followup">Follow-up Reminder</option>
+                    <option value="task">Task Reminder</option>
+                    <option value="meeting">Meeting Reminder</option>
+                    <option value="deadline">Deadline Reminder</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="priority">Priority:</label>
+                <select id="priority" required>
+                    <option value="low">Low</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="reminderBefore">Remind Before (minutes):</label>
+                <input type="number" id="reminderBefore" value="30" min="5" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="notificationChannels">Notification Channels:</label>
+                <select id="notificationChannels" required>
+                    <option value="in_app">In-App Only</option>
+                    <option value="email">Email Only</option>
+                    <option value="sms">SMS Only</option>
+                    <option value="email_sms">Email + SMS</option>
+                    <option value="all">All Channels</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="teamNotes">Team Notes:</label>
+                <textarea id="teamNotes" placeholder="Additional context for the team..."></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="escalateToTeamLead"> Escalate to Team Lead
+                </label>
+            </div>
+            
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="escalateToManager"> Escalate to Manager
+                </label>
+            </div>
+            
+            <div class="form-actions">
+                <button type="button" class="btn-secondary" onclick="closeCreateModal()">Cancel</button>
+                <button type="submit" class="btn-primary">Create Reminder</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let reminders = [];
+let currentFilters = {
+    status: 'all',
+    priority: 'all'
+};
+
+// Load reminders on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadReminders();
+    loadLeads();
+    setupEventListeners();
+});
+
+function setupEventListeners() {
+    // Filter change listeners
+    document.getElementById('statusFilter').addEventListener('change', function() {
+        currentFilters.status = this.value;
+        filterReminders();
+    });
+    
+    document.getElementById('priorityFilter').addEventListener('change', function() {
+        currentFilters.priority = this.value;
+        filterReminders();
+    });
+    
+    // Form submission
+    document.getElementById('createReminderForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        createReminder();
+    });
+}
+
+async function loadReminders() {
+    try {
+        const response = await fetch('/dashboard/api/internal/reminders/');
+        const data = await response.json();
+        
+        if (data.success) {
+            reminders = data.data;
+            updateStats();
+            filterReminders();
+        } else {
+            showError('Failed to load reminders');
+        }
+    } catch (error) {
+        console.error('Error loading reminders:', error);
+        showError('Error loading reminders');
+    }
+}
+
+async function loadLeads() {
+    try {
+        const response = await fetch('/dashboard/api/internal/followups/team/');
+        const data = await response.json();
+        
+        if (data.success) {
+            const leadSelect = document.getElementById('leadSelect');
+            // This would need to be adjusted based on your actual API response
+            leadSelect.innerHTML = '<option value="">Select a lead...</option>';
+        }
+    } catch (error) {
+        console.error('Error loading leads:', error);
+    }
+}
+
+function filterReminders() {
+    const filtered = reminders.filter(reminder => {
+        const statusMatch = currentFilters.status === 'all' || reminder.status === currentFilters.status;
+        const priorityMatch = currentFilters.priority === 'all' || reminder.priority === currentFilters.priority;
+        return statusMatch && priorityMatch;
+    });
+    
+    displayReminders(filtered);
+}
+
+function displayReminders(remindersToShow) {
+    const container = document.getElementById('remindersList');
+    
+    if (remindersToShow.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-bell-slash"></i>
+                <h3>No reminders found</h3>
+                <p>Try adjusting your filters or create a new reminder.</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = remindersToShow.map(reminder => `
+        <div class="reminder-item">
+            <div class="reminder-header">
+                <div class="reminder-title">${reminder.title}</div>
+                <span class="reminder-priority priority-${reminder.priority}">${reminder.priority}</span>
+            </div>
+            <div class="reminder-lead">
+                <i class="fas fa-user"></i> ${reminder.lead.name} (${reminder.lead.mobile})
+            </div>
+            <div class="reminder-time">
+                <i class="fas fa-clock"></i> ${formatDateTime(reminder.scheduled_datetime)}
+            </div>
+            ${reminder.team_notes ? `<div class="reminder-time"><i class="fas fa-sticky-note"></i> ${reminder.team_notes}</div>` : ''}
+            <div class="reminder-actions">
+                ${reminder.status === 'sent' ? `
+                    <button class="btn-reminder btn-acknowledge" onclick="acknowledgeReminder(${reminder.id})">
+                        <i class="fas fa-check"></i> Acknowledge
+                    </button>
+                ` : ''}
+                <button class="btn-reminder btn-snooze" onclick="snoozeReminder(${reminder.id})">
+                    <i class="fas fa-clock"></i> Snooze
+                </button>
+                <button class="btn-reminder btn-escalate" onclick="escalateReminder(${reminder.id})">
+                    <i class="fas fa-exclamation-triangle"></i> Escalate
+                </button>
+                ${reminder.status === 'pending' ? `
+                    <button class="btn-reminder btn-cancel" onclick="cancelReminder(${reminder.id})">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                ` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function updateStats() {
+    const pending = reminders.filter(r => r.status === 'pending').length;
+    const today = reminders.filter(r => {
+        const reminderDate = new Date(r.scheduled_datetime);
+        const todayDate = new Date();
+        return reminderDate.toDateString() === todayDate.toDateString();
+    }).length;
+    
+    document.getElementById('pendingCount').textContent = pending;
+    document.getElementById('todayCount').textContent = today;
+    
+    // Load overdue count from API
+    loadOverdueCount();
+}
+
+async function loadOverdueCount() {
+    try {
+        const response = await fetch('/dashboard/api/internal/followups/overdue/');
+        const data = await response.json();
+        
+        if (data.success) {
+            document.getElementById('overdueCount').textContent = data.count;
+        }
+    } catch (error) {
+        console.error('Error loading overdue count:', error);
+    }
+}
+
+async function acknowledgeReminder(reminderId) {
+    try {
+        const response = await fetch(`/dashboard/api/internal/reminders/${reminderId}/acknowledge/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess('Reminder acknowledged successfully');
+            loadReminders();
+        } else {
+            showError(data.error || 'Failed to acknowledge reminder');
+        }
+    } catch (error) {
+        console.error('Error acknowledging reminder:', error);
+        showError('Error acknowledging reminder');
+    }
+}
+
+async function snoozeReminder(reminderId) {
+    const minutes = prompt('Snooze for how many minutes?', '30');
+    if (!minutes) return;
+    
+    try {
+        const response = await fetch(`/dashboard/api/internal/reminders/${reminderId}/snooze/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ minutes: parseInt(minutes) })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess(data.message);
+            loadReminders();
+        } else {
+            showError(data.error || 'Failed to snooze reminder');
+        }
+    } catch (error) {
+        console.error('Error snoozing reminder:', error);
+        showError('Error snoozing reminder');
+    }
+}
+
+async function escalateReminder(reminderId) {
+    const level = prompt('Escalation level (1=Team Lead, 2=Manager, 3=Owner)?', '1');
+    if (!level) return;
+    
+    try {
+        const response = await fetch(`/dashboard/api/internal/reminders/${reminderId}/escalate/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ level: parseInt(level) })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess(data.message);
+            loadReminders();
+        } else {
+            showError(data.error || 'Failed to escalate reminder');
+        }
+    } catch (error) {
+        console.error('Error escalating reminder:', error);
+        showError('Error escalating reminder');
+    }
+}
+
+async function cancelReminder(reminderId) {
+    if (!confirm('Are you sure you want to cancel this reminder?')) return;
+    
+    try {
+        const response = await fetch(`/dashboard/api/internal/reminders/${reminderId}/delete/`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess(data.message);
+            loadReminders();
+        } else {
+            showError(data.error || 'Failed to cancel reminder');
+        }
+    } catch (error) {
+        console.error('Error cancelling reminder:', error);
+        showError('Error cancelling reminder');
+    }
+}
+
+async function createReminder() {
+    const formData = {
+        lead_id: document.getElementById('leadSelect').value,
+        reminder_type: document.getElementById('reminderType').value,
+        priority: document.getElementById('priority').value,
+        reminder_before_minutes: parseInt(document.getElementById('reminderBefore').value),
+        notification_channels: document.getElementById('notificationChannels').value,
+        team_notes: document.getElementById('teamNotes').value,
+        escalate_to_team_lead: document.getElementById('escalateToTeamLead').checked,
+        escalate_to_manager: document.getElementById('escalateToManager').checked,
+    };
+    
+    try {
+        const response = await fetch('/dashboard/api/internal/reminders/create/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess('Reminder created successfully');
+            closeCreateModal();
+            loadReminders();
+            document.getElementById('createReminderForm').reset();
+        } else {
+            showError(data.error || 'Failed to create reminder');
+        }
+    } catch (error) {
+        console.error('Error creating reminder:', error);
+        showError('Error creating reminder');
+    }
+}
+
+function refreshReminders() {
+    loadReminders();
+}
+
+function openCreateModal() {
+    document.getElementById('createReminderModal').style.display = 'block';
+}
+
+function closeCreateModal() {
+    document.getElementById('createReminderModal').style.display = 'none';
+}
+
+function formatDateTime(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleString();
+}
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+function showSuccess(message) {
+    // Simple success notification - you can replace with a better notification system
+    alert('Success: ' + message);
+}
+
+function showError(message) {
+    // Simple error notification - you can replace with a better notification system
+    alert('Error: ' + message);
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('createReminderModal');
+    if (event.target === modal) {
+        closeCreateModal();
+    }
+}
+</script>
+{% endblock %}

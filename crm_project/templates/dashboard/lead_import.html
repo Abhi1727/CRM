@@ -1,0 +1,289 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block page_title %}Import Leads{% endblock %}
+
+{% block content %}
+<div class="import-page">
+    <div class="page-header">
+        <h2>Import Leads</h2>
+        <a href="{% url 'dashboard:leads_all' %}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Leads
+        </a>
+    </div>
+    
+    <div class="import-container">
+        <div class="import-info">
+            <h3>Import Instructions</h3>
+            <div class="info-section">
+                <h4>📁 Supported File Formats</h4>
+                <ul>
+                    <li>CSV files (.csv)</li>
+                    <li>Excel files (.xlsx, .xls)</li>
+                    <li>Maximum file size: 10MB</li>
+                </ul>
+            </div>
+            
+            <div class="info-section">
+                <h4>📋 Required Columns</h4>
+                <ul>
+                    <li><strong>name</strong> - Lead's full name</li>
+                    <li><strong>mobile</strong> - Primary mobile number</li>
+                </ul>
+            </div>
+            
+            <div class="info-section">
+                <h4>🔧 Optional Columns</h4>
+                <ul>
+                    <li><strong>email</strong> - Email address</li>
+                    <li><strong>alt_mobile</strong> - Alternative mobile</li>
+                    <li><strong>whatsapp_no</strong> - WhatsApp number</li>
+                    <li><strong>alt_email</strong> - Alternative email</li>
+                    <li><strong>address</strong> - Street address</li>
+                    <li><strong>city</strong> - City</li>
+                    <li><strong>state</strong> - State/Province</li>
+                    <li><strong>postalcode</strong> - Postal code</li>
+                    <li><strong>country</strong> - Country</li>
+                    <li><strong>status</strong> - Lead status (default: 'lead')</li>
+                    <li><strong>status_description</strong> - Status notes</li>
+                    <li><strong>lead_source</strong> - Source of lead</li>
+                    <li><strong>lead_source_description</strong> - Source details</li>
+                    <li><strong>refered_by</strong> - Referral information</li>
+                    <li><strong>campaign_id</strong> - Campaign identifier</li>
+                    <li><strong>course_name</strong> - Course/product name</li>
+                    <li><strong>course_amount</strong> - Course amount</li>
+                    <li><strong>exp_revenue</strong> - Expected revenue</li>
+                    <li><strong>exp_close_date</strong> - Expected close date (YYYY-MM-DD)</li>
+                    <li><strong>followup_datetime</strong> - Follow-up date and time</li>
+                    <li><strong>followup_remarks</strong> - Follow-up notes</li>
+                    <li><strong>description</strong> - General description</li>
+                    <li><strong>birthdate</strong> - Birth date (YYYY-MM-DD)</li>
+                </ul>
+            </div>
+            
+            <div class="info-section">
+                <h4>⚠️ Important Notes</h4>
+                <ul>
+                    <li>Duplicate mobile numbers or emails will be skipped</li>
+                    <li>Invalid dates will be ignored</li>
+                    <li><strong>New leads will be unassigned by default</strong> - you can assign them later</li>
+                    <li>Make sure your file has proper headers in first row</li>
+                    <li><strong>Encoding Issues:</strong> If you get encoding errors, try saving your CSV as UTF-8</li>
+                    <li><strong>File Format:</strong> CSV files should use comma (,) as separator</li>
+                    <li><strong>Special Characters:</strong> Avoid special characters in mobile numbers</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="import-form">
+            <h3>Upload File</h3>
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                
+                <div class="form-group">
+                    <label for="{{ form.file.id_for_label }}">Select File:</label>
+                    {{ form.file }}
+                    {% if form.file.errors %}
+                        <div class="error-message">
+                            {{ form.file.errors }}
+                        </div>
+                    {% endif %}
+                    <small class="form-help">{{ form.file.help_text }}</small>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-upload"></i> Import Leads
+                    </button>
+                    <a href="{% url 'dashboard:leads_all' %}" class="btn btn-outline">
+                        Cancel
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+.import-page {
+    padding: 0;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.page-header h2 {
+    font-size: 26px;
+    color: #e4e6eb;
+    font-weight: 600;
+}
+
+.import-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+}
+
+.import-info, .import-form {
+    background: #1a1d24;
+    border: 1px solid #2d3139;
+    border-radius: 12px;
+    padding: 30px;
+}
+
+.import-info h3, .import-form h3 {
+    margin: 0 0 20px 0;
+    color: #e4e6eb;
+    font-size: 20px;
+}
+
+.info-section {
+    margin-bottom: 25px;
+}
+
+.info-section h4 {
+    margin: 0 0 10px 0;
+    color: #667eea;
+    font-size: 16px;
+}
+
+.info-section ul {
+    margin: 0;
+    padding-left: 20px;
+    color: #a8adb7;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.info-section li {
+    margin-bottom: 5px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #e4e6eb;
+}
+
+.form-group input[type="file"] {
+    width: 100%;
+    padding: 12px 15px;
+    background: #2d3139;
+    border: 1px solid #40444d;
+    border-radius: 8px;
+    color: #e4e6eb;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.form-group input[type="file"]:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.form-help {
+    display: block;
+    margin-top: 5px;
+    color: #a8adb7;
+    font-size: 12px;
+}
+
+.error-message {
+    color: #e74c3c;
+    font-size: 14px;
+    margin-top: 5px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: flex-end;
+}
+
+.btn-primary {
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-outline {
+    padding: 12px 24px;
+    background: transparent;
+    border: 1px solid #667eea;
+    border-radius: 8px;
+    color: #667eea;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-outline:hover {
+    background: #667eea;
+    color: white;
+}
+
+.btn-secondary {
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-secondary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(108, 117, 125, 0.4);
+}
+
+@media (max-width: 968px) {
+    .import-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .page-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: flex-start;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+}
+</style>
+{% endblock %}

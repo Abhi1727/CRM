@@ -1,0 +1,45 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block page_title %}Profile{% endblock %}
+
+{% block content %}
+<div class="profile-page">
+    <div class="profile-card">
+        <div class="profile-header">
+            <div class="profile-avatar-large">
+                {% if user.profile_picture %}
+                    <img src="{{ user.profile_picture.url }}" alt="{{ user.username }}">
+                {% else %}
+                    <i class="fas fa-user-circle"></i>
+                {% endif %}
+            </div>
+            <h2>{{ user.get_full_name|default:user.username }}</h2>
+            <p class="profile-role">{{ user.get_role_display }}</p>
+        </div>
+        
+        <div class="profile-info">
+            <div class="info-row">
+                <label><i class="fas fa-user"></i> Username:</label>
+                <span>{{ user.username }}</span>
+            </div>
+            <div class="info-row">
+                <label><i class="fas fa-envelope"></i> Email:</label>
+                <span>{{ user.email }}</span>
+            </div>
+            <div class="info-row">
+                <label><i class="fas fa-phone"></i> Phone:</label>
+                <span>{{ user.phone|default:"Not set" }}</span>
+            </div>
+            <div class="info-row">
+                <label><i class="fas fa-calendar"></i> Joined:</label>
+                <span>{{ user.date_joined|date:"M d, Y" }}</span>
+            </div>
+        </div>
+        
+        <div class="profile-actions">
+            <button class="btn btn-primary"><i class="fas fa-edit"></i> Edit Profile</button>
+            <button class="btn btn-secondary"><i class="fas fa-key"></i> Change Password</button>
+        </div>
+    </div>
+</div>
+{% endblock %}

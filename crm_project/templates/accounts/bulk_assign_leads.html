@@ -1,0 +1,904 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block title %}Bulk Assign Leads - CRM Pro{% endblock %}
+
+{% block page_title %}Bulk Assign Leads{% endblock %}
+
+{% block content %}
+<div class="bulk-assign-page">
+    <div class="page-header">
+        <h2><i class="fas fa-users"></i> Bulk Assign Leads</h2>
+        <p>Assign multiple leads to team members following hierarchy rules</p>
+    </div>
+
+    <div class="assignment-container">
+        <form method="post" id="bulk-assign-form">
+            {% csrf_token %}
+            
+            <!-- Role Selection -->
+            <div class="selection-section">
+                <h3><i class="fas fa-user-tag"></i> Select Role</h3>
+                <div class="role-selection-container">
+                    <div class="role-filter-group">
+                        <label for="role-filter">Choose Role to Assign Leads:</label>
+                        <select id="role-filter" class="role-select" required>
+                            <option value="">-- Select Role --</option>
+                            {% for role_value, role_label in available_roles %}
+                            <option value="{{ role_value }}">{{ role_label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="role-selection-info">
+                        <i class="fas fa-info-circle"></i>
+                        <span>Select a role to view available team members for assignment</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Team Member Selection -->
+            <div class="selection-section" id="user-selection-section" style="display: none;">
+                <h3><i class="fas fa-user-plus"></i> Select Team Member</h3>
+                <div class="user-selection-grid" id="user-selection-grid">
+                    <!-- Users will be loaded dynamically here -->
+                </div>
+                <div class="loading-indicator" id="users-loading" style="display: none;">
+                    <i class="fas fa-spinner fa-spin"></i> Loading users...
+                </div>
+                <div class="no-users-message" id="no-users-message" style="display: none;">
+                    <i class="fas fa-users-slash"></i> No users found for the selected role.
+                </div>
+            </div>
+
+            <!-- Lead Selection -->
+            <div class="selection-section">
+                <h3><i class="fas fa-list"></i> Select Leads to Assign</h3>
+                
+                <!-- Filters -->
+                <div class="lead-filters">
+                    <div class="filter-group">
+                        <label for="status-filter">Status</label>
+                        <select id="status-filter" class="filter-select">
+                            <option value="">All Status</option>
+                            {% for status_code, status_name in dashboard_lead_status_choices %}
+                            <option value="{{ status_code }}">{{ status_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="search-filter">Search</label>
+                        <input type="text" id="search-filter" class="filter-input" placeholder="Search leads..." autocomplete="off">
+                    </div>
+                    
+                    <div class="filter-actions">
+                        <button type="button" id="select-all" class="btn btn-sm btn-secondary">
+                            <i class="fas fa-check-square"></i> Select All
+                        </button>
+                        <button type="button" id="clear-selection" class="btn btn-sm btn-outline">
+                            <i class="fas fa-times"></i> Clear
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Leads List -->
+                <div class="leads-list-container">
+                    <div class="leads-grid">
+                        {% for lead in leads %}
+                        <div class="lead-item" data-status="{{ lead.status }}" data-search="{{ lead.name|lower }} {{ lead.email|lower }}">
+                            <label class="lead-card">
+                                <input type="checkbox" name="lead_ids" value="{{ lead.id }}" class="lead-checkbox">
+                                <div class="lead-info">
+                                    <div class="lead-header">
+                                        <h4>{{ lead.name }}</h4>
+                                        <span class="lead-status status-{{ lead.status }}">{{ lead.get_status_display }}</span>
+                                    </div>
+                                    <div class="lead-details">
+                                        <div class="contact-info">
+                                            {% if lead.mobile %}
+                                            <span><i class="fas fa-phone"></i> {{ lead.mobile }}</span>
+                                            {% endif %}
+                                            {% if lead.email %}
+                                            <span><i class="fas fa-envelope"></i> {{ lead.email }}</span>
+                                            {% endif %}
+                                        </div>
+                                        {% if lead.course_name %}
+                                        <div class="course-info">
+                                            <i class="fas fa-graduation-cap"></i> {{ lead.course_name }}
+                                        </div>
+                                        {% endif %}
+                                        <div class="assignment-info">
+                                            {% if lead.assigned_user %}
+                                            <span class="assigned-to">
+                                                <i class="fas fa-user"></i> {{ lead.assigned_user.first_name|default:lead.assigned_user.username }}
+                                            </span>
+                                            {% else %}
+                                            <span class="unassigned">
+                                                <i class="fas fa-user-slash"></i> Unassigned
+                                            </span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Assignment Details -->
+            <div class="assignment-section">
+                <h3><i class="fas fa-cog"></i> Assignment Details</h3>
+                
+                <div class="assignment-summary">
+                    <div class="summary-item">
+                        <label>Selected Leads:</label>
+                        <span id="selected-count">0</span>
+                    </div>
+                    <div class="summary-item">
+                        <label>Target User:</label>
+                        <span id="target-user">Not selected</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="remarks">Assignment Remarks</label>
+                    <textarea name="remarks" id="remarks" placeholder="Add any notes about this bulk assignment..." rows="3"></textarea>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="assign-btn" disabled>
+                    <i class="fas fa-users"></i> Assign Selected Leads
+                </button>
+                <a href="{% url 'dashboard:leads_all' %}" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.bulk-assign-page {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.page-header {
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    padding: 30px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+    border: 1px solid #2d3139;
+}
+
+.page-header h2 {
+    color: #e4e6eb;
+    font-size: 24px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.page-header p {
+    color: #a8adb7;
+    margin: 0;
+}
+
+.assignment-container {
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    padding: 30px;
+    border-radius: 12px;
+    border: 1px solid #2d3139;
+}
+
+.selection-section {
+    margin-bottom: 40px;
+}
+
+.selection-section h3 {
+    color: #e4e6eb;
+    font-size: 18px;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #2d3139;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.role-selection-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.role-filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.role-filter-group label {
+    color: #e4e6eb;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.role-select {
+    background: #0f1419;
+    border: 2px solid #2d3139;
+    color: #e4e6eb;
+    padding: 12px 15px;
+    border-radius: 8px;
+    font-size: 15px;
+    transition: all 0.3s ease;
+    max-width: 300px;
+}
+
+.role-select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.role-selection-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #a8adb7;
+    font-size: 14px;
+    padding: 10px 15px;
+    background: rgba(102, 126, 234, 0.05);
+    border-radius: 6px;
+    border-left: 3px solid #667eea;
+}
+
+.loading-indicator {
+    text-align: center;
+    padding: 40px;
+    color: #a8adb7;
+    font-size: 16px;
+}
+
+.loading-indicator i {
+    margin-right: 10px;
+    color: #667eea;
+}
+
+.no-users-message {
+    text-align: center;
+    padding: 40px;
+    color: #a8adb7;
+    font-size: 16px;
+}
+
+.no-users-message i {
+    margin-right: 10px;
+    color: #e74c3c;
+}
+
+.user-selection-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.user-option {
+    position: relative;
+}
+
+.user-card {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 20px;
+    background: rgba(102, 126, 234, 0.05);
+    border: 2px solid transparent;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.user-card:hover {
+    background: rgba(102, 126, 234, 0.1);
+    border-color: rgba(102, 126, 234, 0.3);
+}
+
+.user-card input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.user-card input[type="radio"]:checked + .user-avatar,
+.user-card input[type="radio"]:checked + .user-avatar + .user-details + .user-select .radio-indicator {
+    border-color: #667eea;
+    background: #667eea;
+}
+
+.user-avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 3px solid #2d3139;
+    transition: all 0.3s ease;
+}
+
+.user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.user-avatar i {
+    font-size: 20px;
+    color: white;
+}
+
+.user-details {
+    flex: 1;
+}
+
+.user-name {
+    font-weight: 600;
+    color: #e4e6eb;
+    margin-bottom: 4px;
+}
+
+.user-role {
+    font-size: 12px;
+    color: #a8adb7;
+    margin-bottom: 6px;
+}
+
+.user-stats {
+    display: flex;
+    gap: 12px;
+}
+
+.user-stats .stat {
+    font-size: 11px;
+    color: #a8adb7;
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+}
+
+.user-select {
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.radio-indicator {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #2d3139;
+    border-radius: 50%;
+    background: transparent;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.radio-indicator::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    width: 8px;
+    height: 8px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.3s ease;
+}
+
+.user-card input[type="radio"]:checked ~ .user-select .radio-indicator::after {
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.lead-filters {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+    align-items: end;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    min-width: 150px;
+}
+
+.filter-group label {
+    color: #e4e6eb;
+    font-weight: 600;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.filter-select,
+.filter-input {
+    background: #0f1419;
+    border: 1px solid #2d3139;
+    color: #e4e6eb;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.leads-list-container {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #2d3139;
+    border-radius: 8px;
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.leads-grid {
+    display: grid;
+    gap: 15px;
+}
+
+.lead-item {
+    border: 1px solid #2d3139;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.lead-item:hover {
+    border-color: #667eea;
+}
+
+.lead-card {
+    display: flex;
+    cursor: pointer;
+    padding: 0;
+}
+
+.lead-checkbox {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.lead-info {
+    flex: 1;
+    padding: 15px;
+}
+
+.lead-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.lead-header h4 {
+    color: #e4e6eb;
+    margin: 0;
+    font-size: 16px;
+}
+
+.lead-status {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-sale_done { background: rgba(39, 174, 96, 0.2); color: #27ae60; }
+.status-interested_follow_up { background: rgba(52, 152, 219, 0.2); color: #3498db; }
+.status-lead { background: rgba(149, 165, 166, 0.2); color: #95a5a6; }
+
+.lead-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.contact-info {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.contact-info span {
+    font-size: 13px;
+    color: #a8adb7;
+}
+
+.course-info {
+    font-size: 13px;
+    color: #667eea;
+}
+
+.assignment-info span {
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 10px;
+}
+
+.assigned-to {
+    background: rgba(39, 174, 96, 0.2);
+    color: #27ae60;
+}
+
+.unassigned {
+    background: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+}
+
+.assignment-section {
+    margin-bottom: 30px;
+}
+
+.assignment-summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+    padding: 20px;
+    background: rgba(102, 126, 234, 0.05);
+    border-radius: 8px;
+}
+
+.summary-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.summary-item label {
+    color: #a8adb7;
+    font-weight: 600;
+}
+
+.summary-item span {
+    color: #e4e6eb;
+    font-weight: 600;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    color: #e4e6eb;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.form-group textarea {
+    width: 100%;
+    background: #0f1419;
+    border: 1px solid #2d3139;
+    color: #e4e6eb;
+    padding: 12px 15px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    transition: all 0.3s ease;
+}
+
+.form-group textarea:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.form-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: flex-end;
+    padding-top: 20px;
+    border-top: 1px solid #2d3139;
+}
+
+.btn {
+    padding: 12px 30px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-secondary {
+    background: #2d3139;
+    color: #e4e6eb;
+}
+
+.btn-secondary:hover {
+    background: #3d4149;
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid #2d3139;
+    color: #e4e6eb;
+}
+
+.btn-outline:hover {
+    background: #2d3139;
+}
+
+.btn-sm {
+    padding: 8px 16px;
+    font-size: 13px;
+}
+
+@media (max-width: 768px) {
+    .user-selection-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .lead-filters {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .filter-actions {
+        justify-content: stretch;
+    }
+    
+    .filter-actions .btn {
+        flex: 1;
+    }
+    
+    .assignment-summary {
+        grid-template-columns: 1fr;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+    
+    .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const checkboxes = document.querySelectorAll('.lead-checkbox');
+    const selectedCount = document.getElementById('selected-count');
+    const assignBtn = document.getElementById('assign-btn');
+    const targetUserSpan = document.getElementById('target-user');
+    const selectAllBtn = document.getElementById('select-all');
+    const clearSelectionBtn = document.getElementById('clear-selection');
+    const statusFilter = document.getElementById('status-filter');
+    const searchFilter = document.getElementById('search-filter');
+    const leadItems = document.querySelectorAll('.lead-item');
+    const roleFilter = document.getElementById('role-filter');
+    const userSelectionSection = document.getElementById('user-selection-section');
+    const userSelectionGrid = document.getElementById('user-selection-grid');
+    const usersLoading = document.getElementById('users-loading');
+    const noUsersMessage = document.getElementById('no-users-message');
+
+    // Load users by role
+    function loadUsersByRole(role) {
+        if (!role) {
+            userSelectionSection.style.display = 'none';
+            return;
+        }
+
+        userSelectionSection.style.display = 'block';
+        usersLoading.style.display = 'block';
+        userSelectionGrid.style.display = 'none';
+        noUsersMessage.style.display = 'none';
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', `{% url 'accounts:get_users_by_role' %}?role=${encodeURIComponent(role)}`, true);
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    displayUsers(response.users);
+                } catch (e) {
+                    console.error('Error parsing response:', e);
+                    showNoUsers();
+                }
+            } else {
+                showNoUsers();
+            }
+        };
+        
+        xhr.onerror = function() {
+            showNoUsers();
+        };
+        
+        xhr.send();
+    }
+
+    function displayUsers(users) {
+        usersLoading.style.display = 'none';
+        
+        if (users.length === 0) {
+            showNoUsers();
+            return;
+        }
+
+        userSelectionGrid.style.display = 'grid';
+        userSelectionGrid.innerHTML = '';
+
+        users.forEach(function(user) {
+            const userOption = createUserOption(user);
+            userSelectionGrid.appendChild(userOption);
+        });
+
+        // Add event listeners to new user radios
+        const userRadios = userSelectionGrid.querySelectorAll('input[name="assigned_user"]');
+        userRadios.forEach(radio => {
+            radio.addEventListener('change', updateTargetUser);
+        });
+    }
+
+    function showNoUsers() {
+        usersLoading.style.display = 'none';
+        userSelectionGrid.style.display = 'none';
+        noUsersMessage.style.display = 'block';
+    }
+
+    function createUserOption(user) {
+        const userOption = document.createElement('div');
+        userOption.className = 'user-option';
+        
+        const avatarHtml = user.profile_picture 
+            ? `<img src="${user.profile_picture}" alt="${user.username}">`
+            : '<i class="fas fa-user-circle"></i>';
+
+        userOption.innerHTML = `
+            <label class="user-card">
+                <input type="radio" name="assigned_user" value="${user.id}" required>
+                <div class="user-avatar">
+                    ${avatarHtml}
+                </div>
+                <div class="user-details">
+                    <div class="user-name">${user.first_name} ${user.last_name}</div>
+                    <div class="user-role">${user.role_display}</div>
+                    <div class="user-stats">
+                        <span class="stat">${user.leads_assigned_count} leads</span>
+                        <span class="stat">${user.leads_converted_count} converted</span>
+                    </div>
+                </div>
+                <div class="user-select">
+                    <div class="radio-indicator"></div>
+                </div>
+            </label>
+        `;
+        
+        return userOption;
+    }
+
+    // Role filter change listener
+    roleFilter.addEventListener('change', function() {
+        const selectedRole = this.value;
+        loadUsersByRole(selectedRole);
+        updateAssignButton();
+    });
+
+    // Update selected count
+    function updateSelectedCount() {
+        const checked = document.querySelectorAll('.lead-checkbox:checked');
+        selectedCount.textContent = checked.length;
+        updateAssignButton();
+    }
+
+    // Update assign button state
+    function updateAssignButton() {
+        const checked = document.querySelectorAll('.lead-checkbox:checked');
+        const userSelected = document.querySelector('input[name="assigned_user"]:checked');
+        const roleSelected = roleFilter.value;
+        assignBtn.disabled = checked.length === 0 || !userSelected || !roleSelected;
+    }
+
+    // Update target user display
+    function updateTargetUser() {
+        const selectedUser = document.querySelector('input[name="assigned_user"]:checked');
+        if (selectedUser) {
+            const userCard = selectedUser.closest('.user-card');
+            const userName = userCard.querySelector('.user-name').textContent;
+            targetUserSpan.textContent = userName;
+        } else {
+            targetUserSpan.textContent = 'Not selected';
+        }
+        updateAssignButton();
+    }
+
+    // Checkbox change listeners
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', updateSelectedCount);
+    });
+
+    // Select all button
+    selectAllBtn.addEventListener('click', function() {
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = true;
+        });
+        updateSelectedCount();
+    });
+
+    // Clear selection button
+    clearSelectionBtn.addEventListener('click', function() {
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        updateSelectedCount();
+    });
+
+    // Filter functionality
+    function filterLeads() {
+        const statusValue = statusFilter.value.toLowerCase();
+        const searchValue = searchFilter.value.toLowerCase();
+
+        leadItems.forEach(item => {
+            const status = item.dataset.status;
+            const searchText = item.dataset.search;
+            
+            const statusMatch = !statusValue || status === statusValue;
+            const searchMatch = !searchValue || searchText.includes(searchValue);
+            
+            item.style.display = statusMatch && searchMatch ? 'block' : 'none';
+        });
+    }
+
+    statusFilter.addEventListener('change', filterLeads);
+    searchFilter.addEventListener('input', filterLeads);
+
+    // Initialize
+    updateSelectedCount();
+    updateTargetUser();
+});
+</script>
+{% endblock %}

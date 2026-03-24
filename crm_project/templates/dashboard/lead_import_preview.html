@@ -1,0 +1,402 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block page_title %}Import Preview{% endblock %}
+
+{% block extra_css %}
+<style>
+.import-preview {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    margin: 20px 0;
+}
+
+.summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.summary-card {
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    color: white;
+    font-weight: 500;
+}
+
+.summary-card.total {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.summary-card.new {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+}
+
+.summary-card.exact-duplicates {
+    background: linear-gradient(135deg, #dc3545 0%, #e74c3c 100%);
+}
+
+.summary-card.potential-duplicates {
+    background: linear-gradient(135deg, #fd7e14 0%, #f39c12 100%);
+}
+
+.summary-card.related {
+    background: linear-gradient(135deg, #ffc107 0%, #f1c40f 100%);
+}
+
+.summary-card h3 {
+    margin: 0 0 10px 0;
+    font-size: 2rem;
+}
+
+.summary-card p {
+    margin: 0;
+    font-size: 0.9rem;
+    opacity: 0.9;
+}
+
+.preview-table {
+    overflow-x: auto;
+    margin-bottom: 20px;
+}
+
+.preview-table table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.preview-table th {
+    background: #f8f9fa;
+    padding: 12px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid #dee2e6;
+    position: sticky;
+    top: 0;
+}
+
+.preview-table td {
+    padding: 12px;
+    border-bottom: 1px solid #dee2e6;
+    vertical-align: top;
+}
+
+.status-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.status-new { background-color: #28a745; }
+.status-exact_duplicate { background-color: #dc3545; }
+.status-potential_duplicate { background-color: #fd7e14; }
+.status-related { background-color: #ffc107; }
+
+.duplicate-info {
+    background: #f8f9fa;
+    padding: 8px;
+    border-radius: 4px;
+    margin-top: 5px;
+    font-size: 0.85rem;
+}
+
+.duplicate-info .duplicate-lead {
+    margin-bottom: 5px;
+    padding: 5px;
+    background: white;
+    border-radius: 3px;
+}
+
+.confidence-badge {
+    background: #6c757d;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    margin-left: 5px;
+}
+
+.action-select {
+    min-width: 120px;
+}
+
+.filter-buttons {
+    margin-bottom: 20px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    padding: 8px 16px;
+    border: 1px solid #dee2e6;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.filter-btn:hover {
+    background: #f8f9fa;
+}
+
+.filter-btn.active {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #dee2e6;
+}
+
+.select-all-container {
+    margin-bottom: 15px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+.row-checkbox {
+    transform: scale(1.2);
+    margin-right: 8px;
+}
+
+@media (max-width: 768px) {
+    .summary-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .filter-buttons {
+        flex-direction: column;
+    }
+    
+    .action-buttons {
+        flex-direction: column;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="import-preview">
+    <div class="page-header">
+        <h2>Import Preview - {{ file_name }}</h2>
+        <div>
+            <a href="{% url 'dashboard:lead_import' %}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Upload
+            </a>
+        </div>
+    </div>
+    
+    <!-- Summary Cards -->
+    <div class="summary-cards">
+        <div class="summary-card total">
+            <h3>{{ summary.total }}</h3>
+            <p>Total Leads</p>
+        </div>
+        <div class="summary-card new">
+            <h3>{{ summary.new }}</h3>
+            <p>New Leads</p>
+        </div>
+        <div class="summary-card exact-duplicates">
+            <h3>{{ summary.exact_duplicates }}</h3>
+            <p>Exact Duplicates</p>
+        </div>
+        <div class="summary-card potential-duplicates">
+            <h3>{{ summary.potential_duplicates }}</h3>
+            <p>Potential Duplicates</p>
+        </div>
+        <div class="summary-card related">
+            <h3>{{ summary.related }}</h3>
+            <p>Related Leads</p>
+        </div>
+    </div>
+    
+    <!-- Filter Buttons -->
+    <div class="filter-buttons">
+        <button class="filter-btn active" onclick="filterRows('all')">All Leads ({{ summary.total }})</button>
+        <button class="filter-btn" onclick="filterRows('new')">New ({{ summary.new }})</button>
+        <button class="filter-btn" onclick="filterRows('exact_duplicate')">Exact Duplicates ({{ summary.exact_duplicates }})</button>
+        <button class="filter-btn" onclick="filterRows('potential_duplicate')">Potential Duplicates ({{ summary.potential_duplicates }})</button>
+        <button class="filter-btn" onclick="filterRows('related')">Related ({{ summary.related }})</button>
+    </div>
+    
+    <!-- Select All Container -->
+    <div class="select-all-container">
+        <label>
+            <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+            <strong>Select all visible leads</strong>
+        </label>
+        <span style="margin-left: 20px; color: #6c757d;">
+            <span id="selectedCount">0</span> leads selected
+        </span>
+    </div>
+    
+    <!-- Preview Table -->
+    <form method="post" action="{% url 'dashboard:lead_import_process' %}" id="importForm">
+        {% csrf_token %}
+        <div class="preview-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 50px;">Select</th>
+                        <th style="width: 100px;">Status</th>
+                        <th>Name</th>
+                        <th>Mobile</th>
+                        <th>Email</th>
+                        <th>Duplicate Details</th>
+                        <th style="width: 150px;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in table_data %}
+                    <tr class="table-row" data-status="{{ row.status }}">
+                        <td>
+                            <input type="checkbox" 
+                                   class="row-checkbox" 
+                                   name="selected_rows" 
+                                   value="{{ row.row_index }}"
+                                   {% if row.selected %}checked{% endif %}
+                                   onchange="updateSelectedCount()">
+                        </td>
+                        <td>
+                            <span class="status-indicator status-{{ row.status }}"></span>
+                            <span>{{ row.get_status_display|default:row.status|title }}</span>
+                        </td>
+                        <td><strong>{{ row.name }}</strong></td>
+                        <td>{{ row.mobile }}</td>
+                        <td>{{ row.email|default:"-" }}</td>
+                        <td>
+                            {% if row.duplicates %}
+                                <div class="duplicate-info">
+                                    {% for duplicate in row.duplicates %}
+                                    <div class="duplicate-lead">
+                                        <strong>{{ duplicate.name }}</strong><br>
+                                        📱 {{ duplicate.mobile }}<br>
+                                        {% if duplicate.email %}✉️ {{ duplicate.email }}<br>{% endif %}
+                                        📊 {{ duplicate.status }}<br>
+                                        📅 {{ duplicate.created_at|date:"Y-m-d" }}
+                                        {% if row.confidence %}
+                                            <span class="confidence-badge">{{ row.confidence|floatformat:2 }} confidence</span>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <span class="text-muted">No duplicates found</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <select class="form-control action-select" name="actions">
+                                <option value="import" {% if row.action == 'import' %}selected{% endif %}>Import</option>
+                                <option value="skip" {% if row.action == 'skip' %}selected{% endif %}>Skip</option>
+                                {% if row.duplicates %}
+                                    <option value="update">Update Existing</option>
+                                    <option value="merge">Merge</option>
+                                {% endif %}
+                            </select>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="action-buttons">
+            <button type="submit" class="btn btn-success">
+                <i class="fas fa-upload"></i> Import Selected Leads
+            </button>
+            <button type="button" class="btn btn-info" onclick="importAllNew()">
+                <i class="fas fa-check-double"></i> Import All New Leads
+            </button>
+            <button type="button" class="btn btn-warning" onclick="selectAllDuplicates()">
+                <i class="fas fa-copy"></i> Select All Duplicates
+            </button>
+            <a href="{% url 'dashboard:lead_import' %}" class="btn btn-secondary">
+                <i class="fas fa-times"></i> Cancel
+            </a>
+        </div>
+    </form>
+</div>
+
+<script>
+function filterRows(status) {
+    const rows = document.querySelectorAll('.table-row');
+    const buttons = document.querySelectorAll('.filter-btn');
+    
+    // Update active button
+    buttons.forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    // Filter rows
+    rows.forEach(row => {
+        if (status === 'all' || row.dataset.status === status) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    updateSelectedCount();
+}
+
+function toggleSelectAll() {
+    const selectAll = document.getElementById('selectAll');
+    const checkboxes = document.querySelectorAll('.table-row:not([style*="display: none"]) .row-checkbox');
+    
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = selectAll.checked;
+    });
+    
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    const checkedBoxes = document.querySelectorAll('.table-row:not([style*="display: none"]) .row-checkbox:checked');
+    document.getElementById('selectedCount').textContent = checkedBoxes.length;
+}
+
+function importAllNew() {
+    const rows = document.querySelectorAll('.table-row');
+    rows.forEach(row => {
+        if (row.dataset.status === 'new') {
+            const checkbox = row.querySelector('.row-checkbox');
+            const actionSelect = row.querySelector('.action-select');
+            checkbox.checked = true;
+            actionSelect.value = 'import';
+        } else {
+            const checkbox = row.querySelector('.row-checkbox');
+            checkbox.checked = false;
+        }
+    });
+    updateSelectedCount();
+}
+
+function selectAllDuplicates() {
+    const rows = document.querySelectorAll('.table-row');
+    rows.forEach(row => {
+        if (row.dataset.status !== 'new') {
+            const checkbox = row.querySelector('.row-checkbox');
+            checkbox.checked = true;
+        }
+    });
+    updateSelectedCount();
+}
+
+// Initialize selected count
+document.addEventListener('DOMContentLoaded', function() {
+    updateSelectedCount();
+});
+</script>
+{% endblock %}

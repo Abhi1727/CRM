@@ -1,0 +1,14 @@
+CRM Alert: Follow-up Reminder
+
+Lead: {{ lead.name }}
+Follow-up: {{ followup_time }}
+Priority: {{ priority|title }}
+
+Lead Mobile: {{ lead.mobile }}
+{% if lead.followup_remarks %}Notes: {{ lead.followup_remarks }}{% endif %}
+
+Quick Actions:
+- View: {{ site_url }}/dashboard/leads/{{ lead.id }}/
+- Reminders: {{ site_url }}/dashboard/internal-reminders/
+
+This is an internal team notification. Reply STOP to unsubscribe.

@@ -1,0 +1,309 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block page_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="assign-page">
+    <div class="page-header">
+        <h2>{{ page_title }}</h2>
+        <a href="{% url 'dashboard:lead_detail' lead.id_lead %}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Lead
+        </a>
+    </div>
+    
+    <div class="assign-container">
+        <div class="lead-info">
+            <h3>Lead Information</h3>
+            <div class="lead-details">
+                <div class="detail-row">
+                    <span class="label">Name:</span>
+                    <span class="value">{{ lead.name|default:"-" }}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="label">Mobile:</span>
+                    <span class="value">{{ lead.mobile|default:"-" }}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="label">Email:</span>
+                    <span class="value">{{ lead.email|default:"-" }}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="label">Status:</span>
+                    <span class="value">
+                        <span class="status-badge status-{{ lead.status }}">{{ lead.get_status_display }}</span>
+                    </span>
+                </div>
+                <div class="detail-row">
+                    <span class="label">Currently Assigned To:</span>
+                    <span class="value">
+                        {% if lead.assigned_user %}
+                            {{ lead.assigned_user.get_full_name|default:lead.assigned_user.username }}
+                        {% else %}
+                            <em>Unassigned</em>
+                        {% endif %}
+                    </span>
+                </div>
+                {% if lead.assigned_at %}
+                <div class="detail-row">
+                    <span class="label">Last Assignment:</span>
+                    <span class="value">{{ lead.assigned_at|date:"M d, Y H:i" }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="assignment-form">
+            <h3>Assign Lead</h3>
+            <form method="post">
+                {% csrf_token %}
+                
+                <div class="form-group">
+                    <label for="{{ form.assigned_user.id_for_label }}">Assign To:</label>
+                    {{ form.assigned_user }}
+                    {% if form.assigned_user.errors %}
+                        <div class="error-message">
+                            {{ form.assigned_user.errors }}
+                        </div>
+                    {% endif %}
+                </div>
+                
+                <div class="form-group">
+                    <label for="{{ form.assignment_notes.id_for_label }}">Assignment Notes (Optional):</label>
+                    {{ form.assignment_notes }}
+                    {% if form.assignment_notes.errors %}
+                        <div class="error-message">
+                            {{ form.assignment_notes.errors }}
+                        </div>
+                    {% endif %}
+                    <small class="form-help">Add any notes about why this lead is being assigned.</small>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-user-plus"></i> Assign Lead
+                    </button>
+                    <a href="{% url 'dashboard:lead_detail' lead.id_lead %}" class="btn btn-outline">
+                        Cancel
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+.assign-page {
+    padding: 0;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.page-header h2 {
+    font-size: 26px;
+    color: #e4e6eb;
+    font-weight: 600;
+}
+
+.assign-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+}
+
+.lead-info, .assignment-form {
+    background: #1a1d24;
+    border: 1px solid #2d3139;
+    border-radius: 12px;
+    padding: 30px;
+}
+
+.lead-info h3, .assignment-form h3 {
+    margin: 0 0 20px 0;
+    color: #e4e6eb;
+    font-size: 20px;
+}
+
+.lead-details {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #2d3139;
+}
+
+.detail-row:last-child {
+    border-bottom: none;
+}
+
+.detail-row .label {
+    font-weight: 600;
+    color: #a8adb7;
+    min-width: 140px;
+}
+
+.detail-row .value {
+    color: #e4e6eb;
+    text-align: right;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: capitalize;
+    background: rgba(102, 126, 234, 0.15);
+    color: #667eea;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #e4e6eb;
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px 15px;
+    background: #2d3139;
+    border: 1px solid #40444d;
+    border-radius: 8px;
+    color: #e4e6eb;
+    font-size: 14px;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+textarea.form-control {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.form-help {
+    display: block;
+    margin-top: 5px;
+    color: #a8adb7;
+    font-size: 12px;
+}
+
+.error-message {
+    color: #e74c3c;
+    font-size: 14px;
+    margin-top: 5px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: flex-end;
+}
+
+.btn-primary {
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-outline {
+    padding: 12px 24px;
+    background: transparent;
+    border: 1px solid #667eea;
+    border-radius: 8px;
+    color: #667eea;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-outline:hover {
+    background: #667eea;
+    color: white;
+}
+
+.btn-secondary {
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-secondary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(108, 117, 125, 0.4);
+}
+
+@media (max-width: 968px) {
+    .assign-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .page-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: flex-start;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+    
+    .detail-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+    
+    .detail-row .value {
+        text-align: left;
+    }
+}
+</style>
+{% endblock %}

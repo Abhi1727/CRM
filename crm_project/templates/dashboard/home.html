@@ -1,0 +1,186 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard-home">
+    <!-- Greeting Section -->
+    <div class="greeting-section">
+        <h2>Good {{ greeting_time }}, {{ user.first_name|default:user.username }}!</h2>
+        <p>Here's what's happening with your store today.</p>
+    </div>
+    
+    <!-- Top Stats -->
+    <div class="top-stats">
+        <div class="stat-box">
+            <div class="stat-label">TOTAL LEADS</div>
+            <div class="stat-value">{{ total_leads|default:0|floatformat:0 }}</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">TODAY FOLLOW UPS</div>
+            <div class="stat-value">{{ today_follow_ups|default:0 }}</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">EXPECTED REVENUE</div>
+            <div class="stat-value">{{ expected_revenue|default:0|floatformat:0 }}</div>
+            <div class="stat-change positive">+2.08 %</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">REVENUE</div>
+            <div class="stat-value">${{ actual_revenue|default:0|floatformat:"0" }}k</div>
+            <div class="stat-change">+0.00 %</div>
+        </div>
+    </div>
+    
+    <!-- Leads By Status (common for all roles) -->
+    <div class="section-header">
+        <h2>Leads By Status</h2>
+    </div>
+    
+    <div class="leads-status-grid">
+        <div class="status-card">
+            <div class="status-label">SALE DONE</div>
+            <div class="status-value">{{ leads_by_status.sale_done.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">INTERESTED- FOLLOW UP</div>
+            <div class="status-value">{{ leads_by_status.interested_follow_up.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">NOT AVAILABLE</div>
+            <div class="status-value">{{ leads_by_status.not_available.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">RNR</div>
+            <div class="status-value">{{ leads_by_status.rnr.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">NOT INTERESTED</div>
+            <div class="status-value">{{ leads_by_status.not_interested.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">OUT OF COUNTRY</div>
+            <div class="status-value">{{ leads_by_status.out_of_country.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">GETTING BETTER DEAL</div>
+            <div class="status-value">{{ leads_by_status.getting_better_deal.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">PRODUCT IS EXPENSIVE</div>
+            <div class="status-value">{{ leads_by_status.product_expensive.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">NOT ELIGIBLE FOR EMI</div>
+            <div class="status-value">{{ leads_by_status.not_eligible_emi.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">WRONG NUMBER</div>
+            <div class="status-value">{{ leads_by_status.wrong_number.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">SWITCHED OFF</div>
+            <div class="status-value">{{ leads_by_status.switched_off.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">CLOSED</div>
+            <div class="status-value">{{ leads_by_status.closed.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">CALL BACK</div>
+            <div class="status-value">{{ leads_by_status.call_back.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">IN FEW MONTHS</div>
+            <div class="status-value">{{ leads_by_status.in_few_months.count|default:0 }}</div>
+        </div>
+        
+        <div class="status-card">
+            <div class="status-label">CONTACTED</div>
+            <div class="status-value">{{ leads_by_status.contacted.count|default:0 }}</div>
+        </div>
+    </div>
+
+    <!-- Role-specific performance sections -->
+    {% if user.role == 'owner' %}
+        <div class="section-header" style="margin-top: 40px;">
+            <h2>Company Overview (Owner)</h2>
+        </div>
+        <div class="top-stats">
+            <div class="stat-box">
+                <div class="stat-label">TOTAL TEAM LEADS</div>
+                <div class="stat-value">{{ hierarchy_context.accessible_users|default_if_none:""|length }}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">TOTAL CONVERTED (SALE DONE)</div>
+                <div class="stat-value">{{ leads_by_status.sale_done.count|default:0 }}</div>
+            </div>
+        </div>
+    {% elif user.role == 'manager' %}
+        <div class="section-header" style="margin-top: 40px;">
+            <h2>Teams Performance (Manager)</h2>
+        </div>
+        <div class="leads-status-grid">
+            {% for team in team_performance %}
+                <div class="status-card">
+                    <div class="status-label">{{ team.team_lead.get_full_name|default:team.team_lead.username }}</div>
+                    <div class="status-value">{{ team.converted }}</div>
+                    <div class="stat-change">Total: {{ team.total_leads }} | Conv: {{ team.conversion_rate|floatformat:1 }}%</div>
+                </div>
+            {% empty %}
+                <p>No team performance data yet.</p>
+            {% endfor %}
+        </div>
+    {% elif user.role == 'team_lead' %}
+        <div class="section-header" style="margin-top: 40px;">
+            <h2>Team Performance (Team Lead)</h2>
+        </div>
+        <div class="leads-status-grid">
+            {% for agent in agent_performance %}
+                <div class="status-card">
+                    <div class="status-label">{{ agent.agent.get_full_name|default:agent.agent.username }}</div>
+                    <div class="status-value">{{ agent.converted }}</div>
+                    <div class="stat-change">Total: {{ agent.total_leads }} | Conv: {{ agent.conversion_rate|floatformat:1 }}%</div>
+                </div>
+            {% empty %}
+                <p>No agents assigned yet.</p>
+            {% endfor %}
+        </div>
+    {% elif user.role == 'agent' %}
+        <div class="section-header" style="margin-top: 40px;">
+            <h2>My Performance (Agent)</h2>
+        </div>
+        <div class="top-stats">
+            <div class="stat-box">
+                <div class="stat-label">MY LEADS</div>
+                <div class="stat-value">{{ my_leads_count|default:0 }}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">SALE DONE</div>
+                <div class="stat-value">{{ converted_leads|default:0 }}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">PENDING</div>
+                <div class="stat-value">{{ pending_leads|default:0 }}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">CONVERSION RATE</div>
+                <div class="stat-value">{{ conversion_rate|default:0|floatformat:1 }}%</div>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,30 @@
+.venv/
+crm_project/.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django/local runtime
+db.sqlite3
+crm_project/db.sqlite3
+*.log
+media/
+crm_project/media/
+staticfiles/
+crm_project/staticfiles/
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build / Python tooling
+*.egg-info/
+.pytest_cache/
+.mypy_cache/

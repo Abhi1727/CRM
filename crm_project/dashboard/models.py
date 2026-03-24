@@ -1,0 +1,509 @@
+from django.db import models
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+
+User = get_user_model()
+
+class Lead(models.Model):
+    STATUS_CHOICES = [
+        ('sale_done', 'Sale Done'),
+        ('interested_follow_up', 'Interested - Follow Up'),
+        ('not_available', 'Not Available'),
+        ('rnr', 'RNR'),
+        ('not_interested', 'Not Interested'),
+        ('out_of_country', 'Out of Country'),
+        ('getting_better_deal', 'Getting Better Deal'),
+        ('product_expensive', 'Product is Expensive'),
+        ('not_eligible_emi', 'Not Eligible for EMI'),
+        ('wrong_number', 'Wrong Number'),
+        ('switched_off', 'Switched Off'),
+        ('closed', 'Closed'),
+        ('call_back', 'Call Back'),
+        ('in_few_months', 'In Few Months'),
+        ('contacted', 'Contacted'),
+        ('lead', 'Lead'),
+    ]
+    
+    # From original database structure
+    id_lead = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=100, null=True, blank=True)
+    mobile = models.CharField(max_length=20, null=True, blank=True)
+    email = models.EmailField(max_length=100, null=True, blank=True)
+    alt_mobile = models.CharField(max_length=100, null=True, blank=True)
+    whatsapp_no = models.CharField(max_length=100, null=True, blank=True)
+    alt_email = models.EmailField(max_length=100, null=True, blank=True)
+    
+    # Address information
+    address = models.CharField(max_length=150, null=True, blank=True)
+    city = models.CharField(max_length=100, null=True, blank=True)
+    state = models.CharField(max_length=100, null=True, blank=True)
+    postalcode = models.CharField(max_length=20, null=True, blank=True)
+    country = models.CharField(max_length=255, null=True, blank=True)
+    
+    # Company and assignment with hierarchy support
+    company_id = models.IntegerField(default=1)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='leads_created')
+    assigned_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_leads')
+    modified_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='modified_leads')
+    
+    # Hierarchy assignment tracking
+    assigned_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assignments_made')
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    assignment_history = models.JSONField(default=dict, blank=True)  # Track assignment changes
+    
+    # Status and conversion
+    status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='lead', null=True, blank=True)
+    status_description = models.TextField(null=True, blank=True)
+    converted = models.BooleanField(default=False)
+    deleted = models.BooleanField(default=False)
+    do_not_call = models.BooleanField(default=False)
+    
+    # Follow-up
+    followup_datetime = models.DateTimeField(null=True, blank=True)
+    followup_remarks = models.TextField(null=True, blank=True)
+    date_reviewed = models.DateField(null=True, blank=True)
+    
+    # Internal reminder fields
+    followup_priority = models.CharField(max_length=10, choices=[
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+        ('urgent', 'Urgent'),
+    ], default='medium')
+    internal_reminder_sent = models.BooleanField(default=False)
+    last_internal_reminder = models.DateTimeField(null=True, blank=True)
+    internal_reminder_count = models.PositiveIntegerField(default=0)
+    team_followup_notes = models.TextField(blank=True, null=True)  # Internal team notes
+    
+    # Course/Product information
+    course_id = models.CharField(max_length=36, null=True, blank=True)
+    course_name = models.CharField(max_length=255, null=True, blank=True)
+    course_amount = models.CharField(max_length=50, null=True, blank=True)
+    
+    # Lead source
+    lead_source = models.CharField(max_length=100, null=True, blank=True)
+    lead_source_description = models.TextField(null=True, blank=True)
+    refered_by = models.CharField(max_length=100, null=True, blank=True)
+    campaign_id = models.CharField(max_length=36, null=True, blank=True)
+    
+    # Revenue and sales
+    exp_revenue = models.CharField(max_length=255, null=True, blank=True)
+    exp_close_date = models.DateField(null=True, blank=True)
+    
+    # Transfer information
+    transfer_from = models.CharField(max_length=255, null=True, blank=True)
+    transfer_by = models.CharField(max_length=255, null=True, blank=True)
+    transfer_date = models.DateTimeField(null=True, blank=True)
+    
+    # Additional fields
+    description = models.TextField(null=True, blank=True)
+    birthdate = models.DateField(null=True, blank=True)
+    team_member = models.TextField(null=True, blank=True)
+    next_step = models.TextField(null=True, blank=True)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Duplicate detection fields
+    duplicate_status = models.CharField(max_length=20, choices=[
+        ('new', 'New'),
+        ('exact_duplicate', 'Exact Duplicate'),
+        ('potential_duplicate', 'Potential Duplicate'),
+        ('related', 'Related Lead')
+    ], default='new')
+    duplicate_info = models.JSONField(default=dict, blank=True)  # Store duplicate detection details
+    
+    def __str__(self):
+        return f"{self.name} - {self.mobile}"
+    
+    class Meta:
+        db_table = 'leads'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['company_id', 'status']),
+            models.Index(fields=['assigned_user', 'status']),
+            models.Index(fields=['created_by', 'created_at']),
+            models.Index(fields=['followup_datetime']),
+            models.Index(fields=['lead_source']),
+            models.Index(fields=['assigned_user', 'company_id']),  # For hierarchy queries
+            models.Index(fields=['created_by', 'company_id']),     # For hierarchy queries
+            models.Index(fields=['status', 'created_at']),         # For filtering
+        ]
+    
+    def can_be_accessed_by(self, user):
+        """Check if user can access this lead based on hierarchy"""
+        return self in user.get_accessible_leads_queryset()
+    
+    def can_be_assigned_by(self, user):
+        """Check if user can assign this lead"""
+        if user.role == 'owner':
+            return True
+        elif user.role == 'manager':
+            # Manager can assign leads in their accessible scope OR leads assigned to their manager (owner)
+            return (self in user.get_accessible_leads_queryset() or 
+                   (self.assigned_user and self.assigned_user.role == 'owner'))
+        elif user.role == 'team_lead':
+            # Team Lead can assign leads in their accessible scope OR leads assigned to their manager
+            return (self in user.get_accessible_leads_queryset() or 
+                   (self.assigned_user and self.assigned_user.role in ['manager', 'owner']))
+        return False
+    
+    def can_be_assigned_to_user(self, target_user, assigning_user):
+        """Check if lead can be assigned to target user by assigning user following hierarchy"""
+        # Owner can assign to anyone in their company
+        if assigning_user.role == 'owner':
+            return target_user.company_id == assigning_user.company_id
+        
+        # Manager can assign to themselves, their team leads and agents
+        elif assigning_user.role == 'manager':
+            return (target_user == assigning_user or
+                   target_user.manager == assigning_user or 
+                   (target_user.team_lead and target_user.team_lead.manager == assigning_user))
+        
+        # Team Lead can assign to themselves or their agents only
+        elif assigning_user.role == 'team_lead':
+            return (target_user == assigning_user or
+                   target_user.team_lead == assigning_user)
+        
+        # Agent cannot assign leads
+        return False
+    
+    def assign_to_user(self, user, assigned_by):
+        """Assign lead to user with hierarchy validation"""
+        if not self.can_be_assigned_by(assigned_by):
+            raise PermissionError("User cannot assign this lead")
+        
+        # Check if this is a transfer (reassignment to different user)
+        is_transfer = self.assigned_user and self.assigned_user != user
+        
+        # Track assignment history
+        old_assignment = {
+            'user': self.assigned_user.id if self.assigned_user else None, 
+            'at': self.assigned_at.isoformat() if self.assigned_at else None
+        }
+        
+        # If this is a transfer, populate transfer fields
+        if is_transfer:
+            self.transfer_from = self.assigned_user.get_full_name() or self.assigned_user.username if self.assigned_user else None
+            self.transfer_by = assigned_by.get_full_name() or assigned_by.username
+            self.transfer_date = timezone.now()
+        
+        self.assigned_user = user
+        self.assigned_by = assigned_by
+        self.assigned_at = timezone.now()
+        
+        # Update assignment history
+        if 'assignments' not in self.assignment_history or not self.assignment_history:
+            self.assignment_history = {'assignments': []}
+        
+        assignment_record = {
+            'from': old_assignment,
+            'to': {'user': user.id, 'at': self.assigned_at.isoformat()},
+            'by': assigned_by.id
+        }
+        
+        if is_transfer:
+            assignment_record['action'] = 'transfer'
+            assignment_record['transfer_from'] = self.transfer_from
+            assignment_record['transfer_by'] = self.transfer_by
+            assignment_record['transfer_date'] = self.transfer_date.isoformat()
+        else:
+            assignment_record['action'] = 'assignment'
+        
+        self.assignment_history['assignments'].append(assignment_record)
+        
+        self.save()
+        return True
+
+class LeadComment(models.Model):
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name='comments')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    comment = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Comment on {self.lead.name} by {self.user}"
+    
+    class Meta:
+        db_table = 'lead_comments'
+        ordering = ['-created_at']
+
+class LeadHistory(models.Model):
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name='history')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    field_name = models.CharField(max_length=100)
+    old_value = models.TextField(null=True, blank=True)
+    new_value = models.TextField(null=True, blank=True)
+    action = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.action} on {self.lead.name} - {self.field_name}"
+    
+    class Meta:
+        db_table = 'lead_history'
+        ordering = ['-created_at']
+        verbose_name_plural = 'Lead Histories'
+
+class CommunicationHistory(models.Model):
+    COMMUNICATION_TYPES = [
+        ('call', 'Call'),
+        ('sms', 'SMS'),
+        ('email', 'Email'),
+        ('whatsapp', 'WhatsApp'),
+    ]
+    
+    DIRECTION_CHOICES = [
+        ('inbound', 'Inbound'),
+        ('outbound', 'Outbound'),
+    ]
+    
+    id_comm_history = models.AutoField(primary_key=True)
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name='communications', db_column='id_lead')
+    communication_type = models.CharField(max_length=50, choices=COMMUNICATION_TYPES, null=True, blank=True)
+    template_details = models.TextField(null=True, blank=True)
+    text_msg = models.TextField(null=True, blank=True)
+    media_details = models.TextField(null=True, blank=True)
+    call_recording = models.TextField(null=True, blank=True)
+    sent_datetime = models.DateTimeField(null=True, blank=True)
+    receive_datetime = models.DateTimeField(null=True, blank=True)
+    direction = models.CharField(max_length=20, choices=DIRECTION_CHOICES, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.communication_type} - {self.lead.name}"
+    
+    class Meta:
+        db_table = 'communication_history'
+        ordering = ['-created_at']
+        verbose_name_plural = 'Communication Histories'
+
+class BackOfficeUpdate(models.Model):
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name='bo_updates')
+    bo_cat = models.CharField(max_length=255, null=True, blank=True)
+    bo_date = models.DateField(null=True, blank=True)
+    bo_status = models.CharField(max_length=255, null=True, blank=True)
+    bo_ref = models.CharField(max_length=255, null=True, blank=True)
+    bo_remarks = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"BO Update - {self.lead.name}"
+    
+    class Meta:
+        db_table = 'back_office_updates'
+        ordering = ['-created_at']
+
+class Company(models.Model):
+    name = models.CharField(max_length=255)
+    email = models.EmailField(null=True, blank=True)
+    phone = models.CharField(max_length=255, null=True, blank=True)
+    address = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return self.name
+    
+    class Meta:
+        db_table = 'companies'
+        verbose_name_plural = 'Companies'
+
+# Keep the old LeadActivity model for compatibility
+class LeadActivity(models.Model):
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name='activities')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    activity_type = models.CharField(max_length=50)
+    description = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.lead.name} - {self.activity_type}"
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name_plural = 'Lead Activities'
+
+class InternalFollowUpReminder(models.Model):
+    PRIORITY_LEVELS = [
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+        ('urgent', 'Urgent'),
+    ]
+    
+    REMINDER_TYPES = [
+        ('followup', 'Follow-up Reminder'),
+        ('task', 'Task Reminder'),
+        ('meeting', 'Meeting Reminder'),
+        ('deadline', 'Deadline Reminder'),
+        ('escalation', 'Escalation Reminder'),
+    ]
+    
+    NOTIFICATION_CHANNELS = [
+        ('in_app', 'In-App Only'),
+        ('email', 'Internal Email Only'),
+        ('sms', 'Internal SMS Only'),
+        ('email_sms', 'Email + SMS'),
+        ('all', 'All Internal Channels'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('sent', 'Sent'),
+        ('acknowledged', 'Acknowledged'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    # Core fields
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name='internal_reminders')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='internal_reminders')  # Team member to notify
+    reminder_type = models.CharField(max_length=20, choices=REMINDER_TYPES, default='followup')
+    priority = models.CharField(max_length=10, choices=PRIORITY_LEVELS, default='medium')
+    
+    # Timing
+    scheduled_datetime = models.DateTimeField()
+    followup_datetime = models.DateTimeField()  # Original lead follow-up time
+    reminder_before_minutes = models.PositiveIntegerField(default=30)  # Minutes before follow-up
+    
+    # Internal notification settings
+    notification_channels = models.CharField(max_length=20, choices=NOTIFICATION_CHANNELS, default='in_app')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    
+    # Internal content (team-focused)
+    title = models.CharField(max_length=200)
+    message = models.TextField()  # Internal message format
+    team_notes = models.TextField(blank=True, null=True)  # Additional team context
+    
+    # Escalation settings
+    escalate_to_manager = models.BooleanField(default=False)
+    escalate_to_team_lead = models.BooleanField(default=False)
+    escalation_minutes = models.PositiveIntegerField(default=60)  # Minutes after reminder to escalate
+    
+    # Tracking
+    sent_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    last_sent_channel = models.CharField(max_length=20, blank=True, null=True)
+    retry_count = models.PositiveIntegerField(default=0)
+    max_retries = models.PositiveIntegerField(default=3)
+    
+    # Hierarchy support
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_internal_reminders')
+    company_id = models.IntegerField(default=1)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'internal_follow_up_reminders'
+        indexes = [
+            models.Index(fields=['scheduled_datetime', 'status']),
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['lead', 'status']),
+            models.Index(fields=['priority', 'scheduled_datetime']),
+            models.Index(fields=['company_id', 'status']),
+        ]
+        ordering = ['scheduled_datetime']
+    
+    def __str__(self):
+        return f"Internal Reminder: {self.title} - {self.user.username}"
+    
+    def get_escalation_users(self):
+        """Get users to escalate to based on hierarchy"""
+        users = []
+        if self.escalate_to_team_lead and self.user.team_lead:
+            users.append(self.user.team_lead)
+        if self.escalate_to_manager and self.user.manager:
+            users.append(self.user.manager)
+        return users
+
+class InternalNotificationTemplate(models.Model):
+    TEMPLATE_TYPES = [
+        ('followup_reminder', 'Follow-up Reminder'),
+        ('overdue_followup', 'Overdue Follow-up'),
+        ('urgent_followup', 'Urgent Follow-up'),
+        ('escalation', 'Escalation Notice'),
+        ('daily_summary', 'Daily Team Summary'),
+        ('weekly_summary', 'Weekly Team Summary'),
+        ('team_performance', 'Team Performance Alert'),
+    ]
+    
+    CHANNEL_TYPES = [
+        ('in_app', 'In-App'),
+        ('email', 'Internal Email'),
+        ('sms', 'Internal SMS'),
+    ]
+    
+    name = models.CharField(max_length=100)
+    template_type = models.CharField(max_length=50, choices=TEMPLATE_TYPES)
+    channel = models.CharField(max_length=10, choices=CHANNEL_TYPES)
+    
+    # Internal template content with placeholders
+    subject_template = models.CharField(max_length=200, blank=True, null=True)  # For internal email
+    body_template = models.TextField()  # Internal message format
+    
+    # Settings
+    is_active = models.BooleanField(default=True)
+    company_id = models.IntegerField(default=1)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'internal_notification_templates'
+        indexes = [
+            models.Index(fields=['template_type', 'channel']),
+            models.Index(fields=['company_id', 'is_active']),
+        ]
+        ordering = ['template_type', 'name']
+    
+    def __str__(self):
+        return f"{self.name} - {self.get_template_type_display()}"
+
+class TeamNotificationPreference(models.Model):
+    INTERNAL_NOTIFICATION_TYPES = [
+        ('followup_reminder', 'My Follow-up Reminders'),
+        ('overdue_followup', 'My Overdue Follow-ups'),
+        ('team_reminder', 'Team Follow-up Alerts'),
+        ('escalation', 'Escalation Notices'),
+        ('daily_summary', 'Daily Team Summary'),
+        ('weekly_summary', 'Weekly Team Summary'),
+        ('performance_alert', 'Performance Alerts'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='team_notification_preferences')
+    notification_type = models.CharField(max_length=50, choices=INTERNAL_NOTIFICATION_TYPES)
+    
+    # Internal channel preferences
+    in_app_enabled = models.BooleanField(default=True)
+    email_enabled = models.BooleanField(default=True)
+    sms_enabled = models.BooleanField(default=False)
+    
+    # Internal timing preferences
+    quiet_hours_start = models.TimeField(null=True, blank=True)
+    quiet_hours_end = models.TimeField(null=True, blank=True)
+    timezone = models.CharField(max_length=50, default='UTC')
+    
+    # Internal frequency preferences
+    daily_summary_enabled = models.BooleanField(default=False)
+    weekly_summary_enabled = models.BooleanField(default=False)
+    team_alerts_enabled = models.BooleanField(default=True)
+    escalation_alerts_enabled = models.BooleanField(default=True)
+    
+    class Meta:
+        db_table = 'team_notification_preferences'
+        unique_together = ['user', 'notification_type']
+        indexes = [
+            models.Index(fields=['user', 'notification_type']),
+        ]
+        ordering = ['user', 'notification_type']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.get_notification_type_display()}"

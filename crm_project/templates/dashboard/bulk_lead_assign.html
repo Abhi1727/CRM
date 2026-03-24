@@ -1,0 +1,363 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block page_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="bulk-assign-page">
+    <div class="page-header">
+        <h2>{{ page_title }}</h2>
+        <a href="{% url 'dashboard:leads_all' %}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Leads
+        </a>
+    </div>
+    
+    <div class="bulk-assign-container">
+        <div class="instructions">
+            <h3>📋 How to Use Bulk Assignment</h3>
+            <ol>
+                <li>Go to the <a href="{% url 'dashboard:leads_all' %}">Leads List</a></li>
+                <li>Select leads using the checkboxes in the first column</li>
+                <li>Click the "Bulk Assign" button that appears</li>
+                <li>Choose the user to assign leads to</li>
+                <li>Add optional assignment notes</li>
+                <li>Click "Assign Leads" to complete the process</li>
+            </ol>
+            
+            <div class="note">
+                <strong>📌 Note:</strong> You can only assign leads to users within your hierarchy. 
+                The system will automatically validate permissions for each lead.
+            </div>
+        </div>
+        
+        <div class="quick-assign">
+            <h3>⚡ Quick Bulk Assignment</h3>
+            <p>If you already have lead IDs, you can use this form:</p>
+            
+            <form method="post">
+                {% csrf_token %}
+                
+                <div class="form-group">
+                    <label for="{{ form.assigned_user.id_for_label }}">Assign To:</label>
+                    {{ form.assigned_user }}
+                    {% if form.assigned_user.errors %}
+                        <div class="error-message">
+                            {{ form.assigned_user.errors }}
+                        </div>
+                    {% endif %}
+                </div>
+                
+                <div class="form-group">
+                    <label for="lead_ids_manual">Lead IDs (comma-separated):</label>
+                    <input type="text" id="lead_ids_manual" name="lead_ids_manual" 
+                           class="form-control" placeholder="e.g., 1,2,3,4,5"
+                           onblur="updateLeadIdsField()" autocomplete="off">
+                    <small class="form-help">Enter the IDs of leads you want to assign, separated by commas.</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="{{ form.assignment_notes.id_for_label }}">Assignment Notes (Optional):</label>
+                    {{ form.assignment_notes }}
+                    {% if form.assignment_notes.errors %}
+                        <div class="error-message">
+                            {{ form.assignment_notes.errors }}
+                        </div>
+                    {% endif %}
+                    <small class="form-help">Add any notes about this bulk assignment.</small>
+                </div>
+                
+                {{ form.lead_ids }}
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-users"></i> Assign Leads
+                    </button>
+                    <a href="{% url 'dashboard:leads_all' %}" class="btn btn-outline">
+                        Cancel
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div class="recent-assignments">
+        <h3>📊 Recent Assignment Activity</h3>
+        <div class="activity-list">
+            <div class="activity-item">
+                <div class="activity-icon">
+                    <i class="fas fa-info-circle"></i>
+                </div>
+                <div class="activity-content">
+                    <p>Bulk assignment activity will appear here once you start assigning leads.</p>
+                    <small>Use the leads list to select and assign multiple leads at once.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function updateLeadIdsField() {
+    const manualIds = document.getElementById('lead_ids_manual').value;
+    document.getElementById('lead_ids').value = manualIds;
+}
+</script>
+
+<style>
+.bulk-assign-page {
+    padding: 0;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.page-header h2 {
+    font-size: 26px;
+    color: #e4e6eb;
+    font-weight: 600;
+}
+
+.bulk-assign-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    margin-bottom: 30px;
+}
+
+.instructions, .quick-assign {
+    background: #1a1d24;
+    border: 1px solid #2d3139;
+    border-radius: 12px;
+    padding: 30px;
+}
+
+.instructions h3, .quick-assign h3 {
+    margin: 0 0 20px 0;
+    color: #e4e6eb;
+    font-size: 20px;
+}
+
+.instructions ol {
+    margin: 0 0 20px 0;
+    padding-left: 20px;
+    color: #a8adb7;
+    font-size: 14px;
+    line-height: 1.8;
+}
+
+.instructions li {
+    margin-bottom: 8px;
+}
+
+.instructions a {
+    color: #667eea;
+    text-decoration: none;
+}
+
+.instructions a:hover {
+    text-decoration: underline;
+}
+
+.note {
+    background: rgba(102, 126, 234, 0.1);
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    border-radius: 8px;
+    padding: 15px;
+    color: #a8adb7;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.note strong {
+    color: #667eea;
+}
+
+.quick-assign p {
+    margin: 0 0 20px 0;
+    color: #a8adb7;
+    font-size: 14px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #e4e6eb;
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px 15px;
+    background: #2d3139;
+    border: 1px solid #40444d;
+    border-radius: 8px;
+    color: #e4e6eb;
+    font-size: 14px;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+textarea.form-control {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.form-help {
+    display: block;
+    margin-top: 5px;
+    color: #a8adb7;
+    font-size: 12px;
+}
+
+.error-message {
+    color: #e74c3c;
+    font-size: 14px;
+    margin-top: 5px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: flex-end;
+}
+
+.recent-assignments {
+    background: #1a1d24;
+    border: 1px solid #2d3139;
+    border-radius: 12px;
+    padding: 30px;
+}
+
+.recent-assignments h3 {
+    margin: 0 0 20px 0;
+    color: #e4e6eb;
+    font-size: 20px;
+}
+
+.activity-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.activity-item {
+    display: flex;
+    gap: 15px;
+    padding: 15px;
+    background: rgba(102, 126, 234, 0.05);
+    border-radius: 8px;
+    border: 1px solid rgba(102, 126, 234, 0.1);
+}
+
+.activity-icon {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #667eea;
+}
+
+.activity-content p {
+    margin: 0 0 5px 0;
+    color: #e4e6eb;
+    font-size: 14px;
+}
+
+.activity-content small {
+    color: #a8adb7;
+    font-size: 12px;
+}
+
+.btn-primary {
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-outline {
+    padding: 12px 24px;
+    background: transparent;
+    border: 1px solid #667eea;
+    border-radius: 8px;
+    color: #667eea;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-outline:hover {
+    background: #667eea;
+    color: white;
+}
+
+.btn-secondary {
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-secondary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(108, 117, 125, 0.4);
+}
+
+@media (max-width: 968px) {
+    .bulk-assign-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .page-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: flex-start;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+}
+</style>
+{% endblock %}

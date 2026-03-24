@@ -1,0 +1,439 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block title %}Edit User - CRM Pro{% endblock %}
+
+{% block page_title %}Edit User{% endblock %}
+
+{% block content %}
+<div class="edit-user-page">
+    <div class="page-header">
+        <h2><i class="fas fa-user-edit"></i> Edit User</h2>
+        <p>Update user information and account settings</p>
+    </div>
+
+    <div class="form-container">
+        <form method="post" class="user-form">
+            {% csrf_token %}
+            
+            <div class="user-preview">
+                <div class="preview-avatar">
+                    {% if target_user.profile_picture %}
+                        <img src="{{ target_user.profile_picture.url }}" alt="{{ target_user.username }}">
+                    {% else %}
+                        <i class="fas fa-user-circle"></i>
+                    {% endif %}
+                </div>
+                <div class="preview-info">
+                    <h3>{{ target_user.first_name|default:target_user.username }} {{ target_user.last_name }}</h3>
+                    <span class="role-badge role-{{ target_user.role }}">{{ target_user.get_role_display }}</span>
+                </div>
+            </div>
+
+            <div class="form-grid">
+                <!-- Basic Information -->
+                <div class="form-section">
+                    <h3><i class="fas fa-info-circle"></i> Basic Information</h3>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="first_name">First Name</label>
+                            <input type="text" name="first_name" id="first_name" value="{{ target_user.first_name }}" required autocomplete="given-name">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="last_name">Last Name</label>
+                            <input type="text" name="last_name" id="last_name" value="{{ target_user.last_name }}" required autocomplete="family-name">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="email">Email Address</label>
+                            <input type="email" name="email" id="email" value="{{ target_user.email }}" required autocomplete="email">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="username">Username</label>
+                            <input type="text" name="username" id="username" value="{{ target_user.username }}" readonly autocomplete="username">
+                            <small class="help-text">Username cannot be changed</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contact Information -->
+                <div class="form-section">
+                    <h3><i class="fas fa-phone"></i> Contact Information</h3>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="phone">Phone Number</label>
+                            <input type="tel" name="phone" id="phone" value="{{ target_user.phone }}" autocomplete="tel">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="mobile">Mobile Number</label>
+                            <input type="tel" name="mobile" id="mobile" value="{{ target_user.mobile }}" autocomplete="mobile">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Account Settings -->
+                <div class="form-section">
+                    <h3><i class="fas fa-cog"></i> Account Settings</h3>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="account_status">Account Status</label>
+                            <select name="account_status" id="account_status">
+                                {% for status_value, status_label in status_choices %}
+                                <option value="{{ status_value }}" {% if target_user.account_status == status_value %}selected{% endif %}>
+                                    {{ status_label }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Current Role</label>
+                            <div class="role-display">
+                                <span class="role-badge role-{{ target_user.role }}">{{ target_user.get_role_display }}</span>
+                                <small class="help-text">Role cannot be changed here</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if target_user.manager %}
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Manager</label>
+                            <div class="hierarchy-info">
+                                {{ target_user.manager.first_name|default:target_user.manager.username }}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if target_user.team_lead %}
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Team Lead</label>
+                            <div class="hierarchy-info">
+                                {{ target_user.team_lead.first_name|default:target_user.team_lead.username }}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Statistics -->
+                <div class="form-section">
+                    <h3><i class="fas fa-chart-bar"></i> Performance Statistics</h3>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value">{{ target_user.leads_assigned_count }}</div>
+                            <div class="stat-label">Leads Assigned</div>
+                        </div>
+                        
+                        <div class="stat-item">
+                            <div class="stat-value">{{ target_user.leads_converted_count }}</div>
+                            <div class="stat-label">Leads Converted</div>
+                        </div>
+                        
+                        <div class="stat-item">
+                            <div class="stat-value">
+                                {% if target_user.leads_assigned_count > 0 %}
+                                    {% widthratio target_user.leads_converted_count target_user.leads_assigned_count 100 %}%
+                                {% else %}
+                                    0%
+                                {% endif %}
+                            </div>
+                            <div class="stat-label">Conversion Rate</div>
+                        </div>
+                        
+                        <div class="stat-item">
+                            <div class="stat-value">
+                                {% if target_user.last_activity %}
+                                    {{ target_user.last_activity|date:"M d, Y" }}
+                                {% else %}
+                                    Never
+                                {% endif %}
+                            </div>
+                            <div class="stat-label">Last Activity</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+                <a href="{% url 'accounts:user_list' %}" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.edit-user-page {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.page-header {
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    padding: 30px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+    border: 1px solid #2d3139;
+}
+
+.page-header h2 {
+    color: #e4e6eb;
+    font-size: 24px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.page-header p {
+    color: #a8adb7;
+    margin: 0;
+}
+
+.form-container {
+    background: linear-gradient(135deg, #1a1d24 0%, #252930 100%);
+    padding: 30px;
+    border-radius: 12px;
+    border: 1px solid #2d3139;
+}
+
+.user-preview {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 25px;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 12px;
+    margin-bottom: 30px;
+    border: 1px solid rgba(102, 126, 234, 0.3);
+}
+
+.preview-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.preview-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.preview-avatar i {
+    font-size: 40px;
+    color: white;
+}
+
+.preview-info h3 {
+    color: #e4e6eb;
+    font-size: 20px;
+    margin-bottom: 8px;
+}
+
+.form-section {
+    margin-bottom: 40px;
+}
+
+.form-section h3 {
+    color: #e4e6eb;
+    font-size: 18px;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #2d3139;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group label {
+    color: #e4e6eb;
+    font-weight: 600;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.form-group input,
+.form-group select {
+    background: #0f1419;
+    border: 1px solid #2d3139;
+    color: #e4e6eb;
+    padding: 12px 15px;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.form-group input[readonly] {
+    background: #2d3139;
+    color: #a8adb7;
+    cursor: not-allowed;
+}
+
+.help-text {
+    color: #a8adb7;
+    font-size: 12px;
+    margin-top: 5px;
+    font-style: italic;
+}
+
+.role-display {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.hierarchy-info {
+    background: #0f1419;
+    padding: 12px 15px;
+    border-radius: 8px;
+    border: 1px solid #2d3139;
+    color: #e4e6eb;
+    font-weight: 600;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 20px;
+}
+
+.stat-item {
+    background: rgba(102, 126, 234, 0.05);
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #e4e6eb;
+    margin-bottom: 5px;
+}
+
+.stat-label {
+    font-size: 12px;
+    color: #a8adb7;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: flex-end;
+    padding-top: 20px;
+    border-top: 1px solid #2d3139;
+}
+
+.btn {
+    padding: 12px 30px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+    background: #2d3139;
+    color: #e4e6eb;
+}
+
+.btn-secondary:hover {
+    background: #3d4149;
+}
+
+.role-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.role-owner { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+.role-manager { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; }
+.role-team_lead { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; }
+.role-agent { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: #333; }
+
+@media (max-width: 768px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+    
+    .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+</style>
+{% endblock %}
