@@ -976,6 +976,12 @@ html[data-theme="dark"] .theme-toggle {
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+.leads-table td {
+    padding: 9px 15px;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
 .leads-status-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -1041,5 +1047,265 @@ html[data-theme="dark"] .theme-toggle {
     .leads-status-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* Universal Back Button Styles - Enhanced Design */
+.universal-back-button {
+    position: fixed;
+    top: 80px;
+    left: 20px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 18px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+    background-size: 200% 200%;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.35), 
+                0 4px 12px rgba(118, 75, 162, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+    font-family: 'Inter', sans-serif;
+    min-width: 90px;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.universal-back-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.6s ease;
+}
+
+.universal-back-button:hover::before {
+    left: 100%;
+}
+
+.universal-back-button i {
+    font-size: 13px;
+    transition: all 0.3s ease;
+    position: relative;
+    z-index: 1;
+}
+
+.universal-back-button span {
+    position: relative;
+    z-index: 1;
+    transition: all 0.3s ease;
+}
+
+.universal-back-button:hover {
+    background: linear-gradient(135deg, #5a67d8 0%, #6b4c9a 50%, #5a67d8 100%);
+    background-size: 200% 200%;
+    box-shadow: 0 12px 35px rgba(102, 126, 234, 0.45), 
+                0 6px 18px rgba(118, 75, 162, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    transform: translateY(-2px) scale(1.02);
+    background-position: 100% 0;
+}
+
+.universal-back-button:hover i {
+    transform: translateX(-3px) rotate(-5deg);
+}
+
+.universal-back-button:hover span {
+    transform: translateX(-1px);
+}
+
+.universal-back-button:active {
+    transform: translateY(-1px) scale(1.01);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4), 
+                0 3px 10px rgba(118, 75, 162, 0.25),
+                inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    transition: all 0.1s ease;
+}
+
+/* Visibility states */
+.back-button-visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+    transition: all 0.3s ease;
+}
+
+.back-button-hidden {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(-20px);
+    transition: all 0.3s ease;
+    pointer-events: none;
+}
+
+/* Dark theme support - Enhanced */
+[data-theme="dark"] .universal-back-button {
+    background: linear-gradient(135deg, #9c27b0 0%, #8e24aa 50%, #9c27b0 100%);
+    background-size: 200% 200%;
+    box-shadow: 0 8px 25px rgba(156, 39, 176, 0.4), 
+                0 4px 12px rgba(142, 36, 170, 0.25),
+                inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .universal-back-button:hover {
+    background: linear-gradient(135deg, #8e24aa 0%, #7b1fa2 50%, #8e24aa 100%);
+    background-size: 200% 200%;
+    box-shadow: 0 12px 35px rgba(156, 39, 176, 0.5), 
+                0 6px 18px rgba(142, 36, 170, 0.35),
+                inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background-position: 100% 0;
+}
+
+/* Enhanced Visibility states */
+.back-button-visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0) scale(1);
+    transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.back-button-hidden {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(-30px) scale(0.9);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+}
+
+/* Mobile responsiveness - Enhanced */
+@media (max-width: 768px) {
+    .universal-back-button {
+        top: 70px;
+        left: 15px;
+        padding: 10px 14px;
+        font-size: 13px;
+        min-width: 75px;
+        border-radius: 10px;
+    }
+    
+    .universal-back-button i {
+        font-size: 11px;
+    }
+}
+
+@media (max-width: 480px) {
+    .universal-back-button {
+        top: 65px;
+        left: 10px;
+        padding: 8px 12px;
+        font-size: 12px;
+        min-width: 65px;
+        border-radius: 8px;
+    }
+    
+    .universal-back-button span {
+        display: none; /* Hide text on very small screens, show only icon */
+    }
+    
+    .universal-back-button {
+        min-width: auto;
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        border-radius: 50%;
+        background-size: 150% 150%;
+    }
+    
+    .universal-back-button i {
+        font-size: 14px;
+    }
+}
+
+/* Sidebar collapsed adjustment - Enhanced */
+.sidebar-collapsed .universal-back-button {
+    left: 20px;
+}
+
+/* Ensure button doesn't overlap with content - Enhanced */
+@media (min-width: 1200px) {
+    .universal-back-button {
+        left: calc(280px + 20px); /* Sidebar width + margin */
+    }
+    
+    .sidebar-collapsed .universal-back-button {
+        left: calc(80px + 20px); /* Collapsed sidebar width + margin */
+    }
+}
+
+/* Enhanced animations for appearance */
+@keyframes slideInFromLeft {
+    0% {
+        opacity: 0;
+        transform: translateX(-40px) scale(0.8);
+    }
+    50% {
+        opacity: 0.8;
+        transform: translateX(-10px) scale(1.05);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+.back-button-visible {
+    animation: slideInFromLeft 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Enhanced focus styles for accessibility */
+.universal-back-button:focus {
+    outline: 3px solid var(--accent-color);
+    outline-offset: 3px;
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.35), 
+                0 4px 12px rgba(118, 75, 162, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2),
+                0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+[data-theme="dark"] .universal-back-button:focus {
+    outline-color: #9c27b0;
+    box-shadow: 0 8px 25px rgba(156, 39, 176, 0.4), 
+                0 4px 12px rgba(142, 36, 170, 0.25),
+                inset 0 1px 0 rgba(255, 255, 255, 0.15),
+                0 0 0 3px rgba(156, 39, 176, 0.3);
+}
+
+/* Pulse animation for first appearance */
+@keyframes pulse {
+    0% {
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.35), 
+                    0 4px 12px rgba(118, 75, 162, 0.2),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+    50% {
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5), 
+                    0 4px 12px rgba(118, 75, 162, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    }
+    100% {
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.35), 
+                    0 4px 12px rgba(118, 75, 162, 0.2),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+}
+
+.universal-back-button.first-appearance {
+    animation: slideInFromLeft 0.6s cubic-bezier(0.34, 1.56, 0.64, 1),
+               pulse 2s ease-in-out infinite;
+    animation-delay: 0s, 0.6s;
 }
 

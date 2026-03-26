@@ -11,7 +11,7 @@ import logging
 
 from dashboard.models import (
     Lead, InternalFollowUpReminder, InternalNotificationTemplate, 
-    TeamNotificationPreference, User
+    TeamNotificationPreference, User, LeadHistory, LeadActivity
 )
 from services.internal_reminder_service import InternalReminderService
 from services.internal_notification_service import InternalNotificationService
@@ -19,6 +19,130 @@ from services.team_followup_monitoring_service import TeamFollowUpMonitoringServ
 from services.hierarchy_notification_service import HierarchyNotificationService
 
 logger = logging.getLogger(__name__)
+
+# New AJAX endpoints for countries, courses, and team members
+
+@login_required
+def get_countries(request):
+    """Get distinct countries from leads for filter dropdown"""
+    try:
+        # Get accessible leads based on hierarchy
+        if hasattr(request, 'hierarchy_context'):
+            accessible_leads = request.hierarchy_context['accessible_leads']
+        else:
+            accessible_leads = Lead.objects.filter(company_id=request.user.company_id)
+        
+        # Get distinct countries
+        countries = list(accessible_leads
+                      .exclude(country__isnull=True, country__exact='')
+                      .values_list('country', flat=True)
+                      .distinct())
+        
+        # Filter out empty values and sort
+        countries = [country for country in countries if country and country.strip()]
+        countries.sort()
+        
+        return JsonResponse({'countries': countries})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required
+def get_courses(request):
+    """Get distinct courses from leads for filter dropdown"""
+    try:
+        # Get accessible leads based on hierarchy
+        if hasattr(request, 'hierarchy_context'):
+            accessible_leads = request.hierarchy_context['accessible_leads']
+        else:
+            accessible_leads = Lead.objects.filter(company_id=request.user.company_id)
+        
+        # Get distinct courses
+        courses = list(accessible_leads
+                    .exclude(course_name__isnull=True, course_name__exact='')
+                    .values_list('course_name', flat=True)
+                    .distinct())
+        
+        # Filter out empty values and sort
+        courses = [course for course in courses if course and course.strip()]
+        courses.sort()
+        
+        return JsonResponse({'courses': courses})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required
+def get_team_members(request):
+    """Get team members based on user hierarchy for filter dropdown"""
+    try:
+        user = request.user
+        team_members = []
+        
+        if user.role == 'owner':
+            # Owner can see all users in company
+            members = User.objects.filter(
+                company_id=user.company_id,
+                account_status='active'
+            ).exclude(id=user.id).order_by('username')
+            
+            for member in members:
+                team_members.append({
+                    'id': member.id,
+                    'name': member.get_full_name() or member.username,
+                    'role': member.get_role_display()
+                })
+                
+        elif user.role == 'manager':
+            # Manager can see team leads and agents they manage
+            # Get team leads and their agents
+            team_leads = User.objects.filter(
+                Q(manager=user) | Q(team_lead=user),
+                company_id=user.company_id,
+                account_status='active'
+            ).exclude(id=user.id)
+            
+            # Also get agents under those team leads
+            agents = User.objects.filter(
+                team_lead__in=team_leads,
+                company_id=user.company_id,
+                account_status='active'
+            ).exclude(id=user.id)
+            
+            # Combine team leads and agents
+            all_members = (team_leads | agents).distinct().order_by('username')
+            
+            for member in all_members:
+                team_members.append({
+                    'id': member.id,
+                    'name': member.get_full_name() or member.username,
+                    'role': member.get_role_display()
+                })
+                
+        elif user.role == 'team_lead':
+            # Team Lead can see their agents only
+            agents = User.objects.filter(
+                team_lead=user,
+                company_id=user.company_id,
+                account_status='active'
+            ).exclude(id=user.id).order_by('username')
+            
+            for member in agents:
+                team_members.append({
+                    'id': member.id,
+                    'name': member.get_full_name() or member.username,
+                    'role': member.get_role_display()
+                })
+                
+        elif user.role == 'agent':
+            # Agent can only see themselves
+            team_members.append({
+                'id': user.id,
+                'name': user.get_full_name() or user.username,
+                'role': user.get_role_display()
+            })
+        
+        return JsonResponse({'team_members': team_members})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 # Internal Reminder Management API
 
@@ -654,6 +778,101 @@ def api_notify_team(request):
         }, status=400)
     except Exception as e:
         logger.error(f"Error sending team notification: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@login_required
+@require_http_methods(["POST"])
+def ajax_lead_status_update(request):
+    """Quick status update via AJAX"""
+    try:
+        data = json.loads(request.body)
+        lead_id = data.get('lead_id')
+        new_status = data.get('status')
+        followup_datetime = data.get('followup_datetime')
+        followup_remarks = data.get('followup_remarks', '')
+        
+        if not lead_id or not new_status:
+            return JsonResponse({
+                'success': False,
+                'error': 'Lead ID and status are required'
+            }, status=400)
+        
+        # Get the lead
+        lead = get_object_or_404(Lead, id_lead=lead_id)
+        
+        # Check if user can access this lead
+        if not lead.can_be_accessed_by(request.user):
+            return JsonResponse({
+                'success': False,
+                'error': 'You do not have permission to update this lead'
+            }, status=403)
+        
+        # Store old status for history
+        old_status = lead.status
+        
+        # Update lead status
+        lead.status = new_status
+        
+        # Update follow-up information if provided
+        if followup_datetime:
+            from datetime import datetime
+            try:
+                # Parse the datetime string
+                followup_dt = datetime.fromisoformat(followup_datetime.replace('Z', '+00:00'))
+                lead.followup_datetime = followup_dt
+            except ValueError:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Invalid follow-up datetime format'
+                }, status=400)
+        
+        if followup_remarks:
+            lead.followup_remarks = followup_remarks
+        
+        lead.modified_user = request.user
+        lead.save()
+        
+        # Create lead history record
+        LeadHistory.objects.create(
+            lead=lead,
+            user=request.user,
+            field_name='status',
+            old_value=old_status,
+            new_value=new_status,
+            action='status_change'
+        )
+        
+        # Create activity log
+        LeadActivity.objects.create(
+            lead=lead,
+            user=request.user,
+            activity_type='status_change',
+            description=f'Status changed from {lead.get_status_display(old_status)} to {lead.get_status_display()}'
+        )
+        
+        # Check if follow-up is needed for this status
+        needs_followup = new_status in ['interested_follow_up', 'call_back', 'in_few_months']
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Status updated successfully',
+            'new_status': new_status,
+            'new_status_display': lead.get_status_display(),
+            'needs_followup': needs_followup,
+            'followup_datetime': lead.followup_datetime.isoformat() if lead.followup_datetime else None
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'success': False,
+            'error': 'Invalid JSON data'
+        }, status=400)
+    except Exception as e:
+        logger.error(f"Error updating lead status: {e}")
         return JsonResponse({
             'success': False,
             'error': str(e)

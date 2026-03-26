@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Dashboard - CRM System{% endblock %}</title>
     {% load static %}
-    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=2.0">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     {% block extra_css %}{% endblock %}
 </head>
@@ -54,6 +54,7 @@
                         <ul class="submenu">
                             <li><a href="{% url 'dashboard:leads_working' %}"><i class="fas fa-briefcase"></i> My Leads</a></li>
                             <li><a href="{% url 'dashboard:leads_converted' %}"><i class="fas fa-check-circle"></i> Converted</a></li>
+                            <li><a href="{% url 'dashboard:my_duplicate_leads' %}"><i class="fas fa-copy"></i> My Duplicates</a></li>
                         </ul>
                     </li>
                     
@@ -80,6 +81,7 @@
                             {% endif %}
                             <li><a href="{% url 'dashboard:leads_transferred' %}"><i class="fas fa-exchange-alt"></i> Transferred</a></li>
                             <li><a href="{% url 'dashboard:leads_converted' %}"><i class="fas fa-check-circle"></i> Converted</a></li>
+                            <li><a href="{% url 'dashboard:leads_duplicates' %}"><i class="fas fa-copy"></i> Duplicate Leads</a></li>
                             <!-- <li><a href="{% url 'dashboard:leads_team' %}"><i class="fas fa-users"></i> Team Leads</a></li> -->
                         </ul>
                     </li>
@@ -161,6 +163,82 @@
             <main class="content">
                 {% block content %}{% endblock %}
             </main>
+            
+            <!-- Universal Back Button - Positioned in Page Header -->
+            <script>
+                // Move back button to page header after page loads
+                document.addEventListener('DOMContentLoaded', function() {
+                    const backButton = document.getElementById('universalBackButton');
+                    const pageHeader = document.querySelector('.page-header');
+                    
+                    if (backButton && pageHeader) {
+                        // Create a container for the back button
+                        const backContainer = document.createElement('div');
+                        backContainer.style.cssText = `
+                            display: flex;
+                            align-items: center;
+                            margin-right: 20px;
+                        `;
+                        
+                        // Update button styles for inline positioning
+                        backButton.style.cssText = `
+                            background: linear-gradient(135deg, #667eea, #764ba2, #667eea) !important;
+                            background-size: 300% 300% !important;
+                            animation: gradientShift 3s ease infinite !important;
+                            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4), 0 4px 12px rgba(118, 75, 162, 0.3) !important;
+                            border: 2px solid rgba(255, 255, 255, 0.2) !important;
+                            transform: scale(1.0) !important;
+                            font-weight: 600 !important;
+                            letter-spacing: 0.3px !important;
+                            position: relative !important;
+                            top: auto !important;
+                            left: auto !important;
+                            right: auto !important;
+                            z-index: auto !important;
+                            opacity: 1 !important;
+                            visibility: visible !important;
+                            display: flex !important;
+                            padding: 10px 16px !important;
+                            border-radius: 10px !important;
+                            transition: all 0.3s ease !important;
+                            margin: 0 !important;
+                        `;
+                        
+                        // Move button into container
+                        backContainer.appendChild(backButton);
+                        
+                        // Insert at the beginning of page header
+                        pageHeader.insertBefore(backContainer, pageHeader.firstChild);
+                        
+                        // Update page header to be flex
+                        pageHeader.style.display = 'flex';
+                        pageHeader.style.alignItems = 'center';
+                        pageHeader.style.justifyContent = 'space-between';
+                        
+                        // Wrap the h2 and page-actions
+                        const headerContent = document.createElement('div');
+                        headerContent.style.cssText = `
+                            display: flex;
+                            align-items: center;
+                            justify-content: space-between;
+                            width: 100%;
+                        `;
+                        
+                        // Move existing content into headerContent
+                        while (pageHeader.children.length > 1) {
+                            headerContent.appendChild(pageHeader.children[1]);
+                        }
+                        
+                        pageHeader.appendChild(headerContent);
+                    }
+                });
+            </script>
+            
+            <!-- Universal Back Button - Will be moved by script -->
+            <button id="universalBackButton" class="universal-back-button back-button-visible" onclick="goBackWithFallback()" title="Go back to previous page">
+                <i class="fas fa-arrow-left"></i>
+                <span>Back</span>
+            </button>
         </div>
     </div>
     
@@ -254,6 +332,284 @@
             }
         };
     </script>
+    
+    <!-- Universal Back Button Script - Enhanced -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const backButton = document.getElementById('universalBackButton');
+            
+            // Initialize back button visibility
+            updateBackButtonVisibility();
+            
+            // Add first appearance animation
+            if (!sessionStorage.getItem('backButtonSeen')) {
+                backButton.classList.add('first-appearance');
+                sessionStorage.setItem('backButtonSeen', 'true');
+                
+                // Remove pulse animation after 4 seconds
+                setTimeout(() => {
+                    backButton.classList.remove('first-appearance');
+                }, 4000);
+            }
+            
+            // Store current page in history for better navigation
+            if (window.performance && window.performance.navigation.type === 0) {
+                // Page was loaded normally (not via back/forward/refresh)
+                sessionStorage.setItem('lastPage', window.location.href);
+            }
+            
+            // Add ripple effect on click
+            backButton.addEventListener('click', function(e) {
+                const ripple = document.createElement('span');
+                ripple.classList.add('ripple');
+                this.appendChild(ripple);
+                
+                const rect = this.getBoundingClientRect();
+                const size = Math.max(rect.width, rect.height);
+                const x = e.clientX - rect.left - size / 2;
+                const y = e.clientY - rect.top - size / 2;
+                
+                ripple.style.width = ripple.style.height = size + 'px';
+                ripple.style.left = x + 'px';
+                ripple.style.top = y + 'px';
+                
+                setTimeout(() => {
+                    ripple.remove();
+                }, 600);
+            });
+        });
+        
+        // Check if there's navigation history available
+        function checkNavigationHistory() {
+            // Check if we have history to go back to
+            if (window.history.length > 1) {
+                return true;
+            }
+            
+            // Check if we have a stored last page
+            const lastPage = sessionStorage.getItem('lastPage');
+            if (lastPage && lastPage !== window.location.href) {
+                return true;
+            }
+            
+            // Check if we came from the same domain (not external link)
+            if (document.referrer && document.referrer.includes(window.location.hostname)) {
+                return true;
+            }
+            
+            return false;
+        }
+        
+        // Enhanced back navigation with feedback
+        function goBackWithFallback() {
+            const backButton = document.getElementById('universalBackButton');
+            
+            // Add loading state
+            backButton.style.transform = 'translateY(-1px) scale(0.95)';
+            backButton.style.opacity = '0.8';
+            
+            setTimeout(() => {
+                // Try to go back in browser history
+                if (window.history.length > 1) {
+                    window.history.back();
+                    return;
+                }
+                
+                // Fallback to stored last page
+                const lastPage = sessionStorage.getItem('lastPage');
+                if (lastPage && lastPage !== window.location.href) {
+                    window.location.href = lastPage;
+                    return;
+                }
+                
+                // Fallback to referrer if it's from same domain
+                if (document.referrer && document.referrer.includes(window.location.hostname)) {
+                    window.location.href = document.referrer;
+                    return;
+                }
+                
+                // Final fallback to dashboard home
+                window.location.href = '/dashboard/';
+            }, 150);
+        }
+        
+        // Update back button visibility based on context
+        function updateBackButtonVisibility() {
+            const backButton = document.getElementById('universalBackButton');
+            if (!backButton) return;
+            
+            // Hide on home/dashboard pages
+            const currentPath = window.location.pathname;
+            const isHomePage = currentPath === '/dashboard/' || 
+                             currentPath === '/dashboard' || 
+                             currentPath.endsWith('/dashboard/') ||
+                             currentPath.endsWith('/dashboard');
+            
+            if (isHomePage) {
+                backButton.classList.add('back-button-hidden');
+                backButton.classList.remove('back-button-visible');
+                return;
+            }
+            
+            // Show if we have navigation history
+            if (checkNavigationHistory()) {
+                backButton.classList.remove('back-button-hidden');
+                backButton.classList.add('back-button-visible');
+            } else {
+                backButton.classList.add('back-button-hidden');
+                backButton.classList.remove('back-button-visible');
+            }
+        }
+        
+        // Update visibility when page loads
+        window.addEventListener('load', updateBackButtonVisibility);
+        
+        // Update visibility on history navigation
+        window.addEventListener('popstate', updateBackButtonVisibility);
+        
+        // Add keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            // Alt + Left Arrow for back navigation
+            if (e.altKey && e.key === 'ArrowLeft') {
+                const backButton = document.getElementById('universalBackButton');
+                if (backButton && backButton.classList.contains('back-button-visible')) {
+                    e.preventDefault();
+                    goBackWithFallback();
+                }
+            }
+        });
+    </script>
+    
+    <!-- Enhanced Ripple Effect Styles & Gradient Animation -->
+    <style>
+        .ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.6);
+            transform: scale(0);
+            animation: ripple-animation 0.6s ease-out;
+            pointer-events: none;
+        }
+        
+        @keyframes ripple-animation {
+            to {
+                transform: scale(4);
+                opacity: 0;
+            }
+        }
+        
+        @keyframes gradientShift {
+            0% {
+                background-position: 0% 50%;
+            }
+            50% {
+                background-position: 100% 50%;
+            }
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+        
+        .universal-back-button {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Force override any existing styles */
+        #universalBackButton {
+            background: linear-gradient(135deg, #667eea, #764ba2, #667eea) !important;
+            background-size: 300% 300% !important;
+            animation: gradientShift 3s ease infinite !important;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4), 0 5px 15px rgba(118, 75, 162, 0.3) !important;
+            border: 2px solid rgba(255, 255, 255, 0.2) !important;
+            transform: scale(1.05) !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.3px !important;
+            padding: 12px 18px !important;
+            border-radius: 12px !important;
+            transition: all 0.3s ease !important;
+            position: fixed !important;
+            top: 90px !important;
+            left: 20px !important;
+            right: auto !important;
+            z-index: 999 !important;
+        }
+        
+        #universalBackButton:hover {
+            transform: scale(1.08) translateY(-2px) !important;
+            box-shadow: 0 15px 40px rgba(102, 126, 234, 0.5), 0 8px 25px rgba(118, 75, 162, 0.4) !important;
+            animation-duration: 1s !important;
+        }
+        
+        #universalBackButton i {
+            color: white !important;
+            font-size: 14px !important;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
+        }
+        
+        #universalBackButton span {
+            color: white !important;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
+            font-weight: 600 !important;
+        }
+        
+        /* Dark theme adjustments */
+        [data-theme="dark"] #universalBackButton {
+            background: linear-gradient(135deg, #9c27b0, #8e24aa, #9c27b0) !important;
+            box-shadow: 0 10px 30px rgba(156, 39, 176, 0.4), 0 5px 15px rgba(142, 36, 170, 0.3) !important;
+            border: 2px solid rgba(255, 255, 255, 0.15) !important;
+        }
+        
+        [data-theme="dark"] #universalBackButton:hover {
+            box-shadow: 0 15px 40px rgba(156, 39, 176, 0.5), 0 8px 25px rgba(142, 36, 170, 0.4) !important;
+        }
+        
+        /* Responsive positioning - Left side */
+        @media (max-width: 768px) {
+            #universalBackButton {
+                top: 70px !important;
+                left: 15px !important;
+                padding: 10px 14px !important;
+                font-size: 13px !important;
+            }
+            
+            #universalBackButton i {
+                font-size: 12px !important;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            #universalBackButton {
+                top: 65px !important;
+                left: 10px !important;
+                padding: 8px 12px !important;
+                font-size: 12px !important;
+                border-radius: 50% !important;
+                width: 40px !important;
+                height: 40px !important;
+                min-width: auto !important;
+            }
+            
+            #universalBackButton span {
+                display: none !important;
+            }
+            
+            #universalBackButton i {
+                font-size: 14px !important;
+            }
+        }
+        
+        /* Sidebar adjustments for left positioning */
+        @media (min-width: 1200px) {
+            #universalBackButton {
+                left: calc(280px + 20px) !important; /* Sidebar width + margin */
+            }
+            
+            .sidebar-collapsed #universalBackButton {
+                left: calc(80px + 20px) !important; /* Collapsed sidebar width + margin */
+            }
+        }
+    </style>
     
     {% block extra_js %}{% endblock %}
 </body>

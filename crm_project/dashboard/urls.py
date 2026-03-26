@@ -12,6 +12,7 @@ urlpatterns = [
     path("leads/", views.leads_list, name="leads_all"),
     path("leads/new/", views.lead_create, name="lead_create"),
     path("leads/import/", views.lead_import, name="lead_import"),
+    path("leads/import/demo/", views.download_demo_file, name="download_demo_file"),
     path("leads/import/preview/", views.lead_import_preview, name="lead_import_preview"),
     path("leads/import/process/", views.lead_import_process, name="lead_import_process"),
     path("leads/fresh/", views.leads_fresh, name="leads_fresh"),
@@ -20,6 +21,13 @@ urlpatterns = [
     path("leads/converted/", views.leads_converted, name="leads_converted"),
     path("leads/team/", views.leads_team, name="leads_team"),
     path("leads/bulk-assign/", views.bulk_lead_assign, name="bulk_lead_assign"),
+    # Duplicate leads management
+    path("leads/duplicates/", views.leads_duplicates, name="leads_duplicates"),
+    path("leads/duplicates/team/", views.team_duplicate_leads, name="team_duplicate_leads"),
+    path("leads/duplicates/my-duplicates/", views.my_duplicate_leads, name="my_duplicate_leads"),
+    path("leads/duplicates/bulk-reassign/", views.bulk_duplicate_reassign, name="bulk_duplicate_reassign"),
+    path("leads/<int:pk>/duplicate/", views.lead_duplicate_detail, name="lead_duplicate_detail"),
+    path("leads/<int:pk>/duplicate/reassign/", views.lead_duplicate_reassign, name="lead_duplicate_reassign"),
     path("leads/<int:pk>/", views.lead_detail, name="lead_detail"),
     path("leads/<int:pk>/edit/", views.lead_edit, name="lead_edit"),
     path("leads/<int:pk>/assign/", views.lead_assign, name="lead_assign"),
@@ -28,10 +36,10 @@ urlpatterns = [
     path("reports/", views.reports, name="reports"),
     path("settings/", views.settings, name="settings"),
     
-    # AJAX endpoints
-    path("ajax/users-for-assignment/", views.ajax_get_users_for_assignment, name="ajax_users_for_assignment"),
-    path("ajax/bulk-assignment-data/", views.ajax_bulk_assignment_data, name="ajax_bulk_assignment_data"),
-    path("ajax/available-roles/", views.ajax_get_available_roles, name="ajax_available_roles"),
+    # AJAX endpoints for advanced filters
+    path("ajax/get-countries/", api_views.get_countries, name="get_countries"),
+    path("ajax/get-courses/", api_views.get_courses, name="get_courses"),
+    path("ajax/get-team-members/", api_views.get_team_members, name="get_team_members"),
     
     # Internal Reminder API endpoints
     path("api/internal/reminders/", api_views.api_internal_reminders, name="api_internal_reminders"),
@@ -55,4 +63,7 @@ urlpatterns = [
     # Hierarchy Management API
     path("api/internal/followups/hierarchy/", api_views.api_followup_hierarchy, name="api_followup_hierarchy"),
     path("api/internal/followups/notify-team/", api_views.api_notify_team, name="api_notify_team"),
+    
+    # Quick Status Update API
+    path("ajax/lead-status-update/", api_views.ajax_lead_status_update, name="ajax_lead_status_update"),
 ]

@@ -26,37 +26,22 @@
             <div class="info-section">
                 <h4>📋 Required Columns</h4>
                 <ul>
-                    <li><strong>name</strong> - Lead's full name</li>
-                    <li><strong>mobile</strong> - Primary mobile number</li>
+                    <li><strong style="color: #e74c3c;">name</strong> - Lead's full name</li>
+                    <li><strong style="color: #e74c3c;">mobile</strong> - Primary mobile number</li>
+                    <li><strong style="color: #e74c3c;">email</strong> - Email address</li>
                 </ul>
             </div>
             
             <div class="info-section">
                 <h4>🔧 Optional Columns</h4>
                 <ul>
-                    <li><strong>email</strong> - Email address</li>
-                    <li><strong>alt_mobile</strong> - Alternative mobile</li>
-                    <li><strong>whatsapp_no</strong> - WhatsApp number</li>
-                    <li><strong>alt_email</strong> - Alternative email</li>
                     <li><strong>address</strong> - Street address</li>
                     <li><strong>city</strong> - City</li>
                     <li><strong>state</strong> - State/Province</li>
                     <li><strong>postalcode</strong> - Postal code</li>
                     <li><strong>country</strong> - Country</li>
                     <li><strong>status</strong> - Lead status (default: 'lead')</li>
-                    <li><strong>status_description</strong> - Status notes</li>
-                    <li><strong>lead_source</strong> - Source of lead</li>
-                    <li><strong>lead_source_description</strong> - Source details</li>
-                    <li><strong>refered_by</strong> - Referral information</li>
-                    <li><strong>campaign_id</strong> - Campaign identifier</li>
                     <li><strong>course_name</strong> - Course/product name</li>
-                    <li><strong>course_amount</strong> - Course amount</li>
-                    <li><strong>exp_revenue</strong> - Expected revenue</li>
-                    <li><strong>exp_close_date</strong> - Expected close date (YYYY-MM-DD)</li>
-                    <li><strong>followup_datetime</strong> - Follow-up date and time</li>
-                    <li><strong>followup_remarks</strong> - Follow-up notes</li>
-                    <li><strong>description</strong> - General description</li>
-                    <li><strong>birthdate</strong> - Birth date (YYYY-MM-DD)</li>
                 </ul>
             </div>
             
@@ -75,7 +60,12 @@
         </div>
         
         <div class="import-form">
-            <h3>Upload File</h3>
+            <div class="import-form-header">
+                <h3>Upload File</h3>
+                <a href="{% url 'dashboard:download_demo_file' %}" class="btn btn-outline btn-sm">
+                    <i class="fas fa-download"></i> Download Demo
+                </a>
+            </div>
             <form method="post" enctype="multipart/form-data">
                 {% csrf_token %}
                 
@@ -138,6 +128,24 @@
     margin: 0 0 20px 0;
     color: #e4e6eb;
     font-size: 20px;
+}
+
+.import-form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.import-form-header h3 {
+    margin: 0;
+    color: #e4e6eb;
+    font-size: 20px;
+}
+
+.btn-sm {
+    padding: 8px 16px !important;
+    font-size: 13px !important;
 }
 
 .info-section {

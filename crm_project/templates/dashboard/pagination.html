@@ -1,0 +1,345 @@
+{% load pagination_tags %}
+<div class="enhanced-pagination">
+    <div class="pagination-info">
+        <span class="records-info">
+            Showing {{ page_obj.start_index }}-{{ page_obj.end_index }} of {{ page_obj.paginator.count }} {{ item_name|default:"items" }}
+        </span>
+        
+        <div class="page-size-selector">
+            <label for="page-size">Items per page:</label>
+            <select id="page-size" class="page-size-select" onchange="changePageSize(this.value)">
+                <option value="5" {% if current_page_size == 5 %}selected{% endif %}>5</option>
+                <option value="10" {% if current_page_size == 10 %}selected{% endif %}>10</option>
+                <option value="25" {% if current_page_size == 25 %}selected{% endif %}>25</option>
+                <option value="50" {% if current_page_size == 50 %}selected{% endif %}>50</option>
+                <option value="100" {% if current_page_size == 100 %}selected{% endif %}>100</option>
+                <option value="200" {% if current_page_size == 200 %}selected{% endif %}>200</option>
+                <option value="500" {% if current_page_size == 500 %}selected{% endif %}>500</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="pagination-controls">
+        <!-- First and Previous buttons -->
+        {% if page_obj.has_previous %}
+            <a href="?{{ request.GET.urlencode }}&page=1" class="page-btn" title="First page">
+                <i class="fas fa-angle-double-left"></i>
+            </a>
+            <a href="?{{ request.GET.urlencode }}&page={{ page_obj.previous_page_number }}" class="page-btn" title="Previous page">
+                <i class="fas fa-angle-left"></i>
+            </a>
+        {% endif %}
+        
+        <!-- Page numbers -->
+        <div class="page-numbers">
+            {% generate_page_numbers page_obj request.GET %}
+        </div>
+        
+        <!-- Next and Last buttons -->
+        {% if page_obj.has_next %}
+            <a href="?{{ request.GET.urlencode }}&page={{ page_obj.next_page_number }}" class="page-btn" title="Next page">
+                <i class="fas fa-angle-right"></i>
+            </a>
+            <a href="?{{ request.GET.urlencode }}&page={{ page_obj.paginator.num_pages }}" class="page-btn" title="Last page">
+                <i class="fas fa-angle-double-right"></i>
+            </a>
+        {% endif %}
+        
+        <!-- Direct page input -->
+        <div class="page-jump" data-max-pages="{{ page_obj.paginator.num_pages }}">
+            <span>Go to page:</span>
+            <input type="number" 
+                   id="page-jump-input" 
+                   class="page-jump-input" 
+                   min="1" 
+                   max="{{ page_obj.paginator.num_pages }}" 
+                   value="{{ page_obj.number }}"
+                   onkeypress="if(event.key === 'Enter') jumpToPage(this.value)">
+            <button onclick="jumpToPage(document.getElementById('page-jump-input').value)" 
+                    class="page-jump-btn">Go</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.enhanced-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 20px;
+    padding: 20px;
+    background: var(--card-bg);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.pagination-info {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.records-info {
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.page-size-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.page-size-selector label {
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.page-size-select {
+    padding: 6px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    min-width: 60px;
+}
+
+.page-size-select:hover {
+    border-color: var(--accent-color);
+}
+
+.page-size-select:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.page-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    min-width: 36px;
+    height: 36px;
+    border: 1px solid var(--border-color);
+}
+
+.page-btn:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.page-btn.current {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    font-weight: 600;
+}
+
+.page-btn.ellipsis {
+    background: transparent;
+    border: none;
+    cursor: default;
+    color: var(--text-secondary);
+}
+
+.page-btn.ellipsis:hover {
+    background: transparent;
+    transform: none;
+}
+
+.page-numbers {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.page-jump {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 15px;
+}
+
+.page-jump span {
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.page-jump-input {
+    width: 60px;
+    padding: 6px 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.page-jump-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.page-jump-btn {
+    padding: 6px 12px;
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.page-jump-btn:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .enhanced-pagination {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+    }
+    
+    .pagination-info {
+        justify-content: center;
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .pagination-controls {
+        justify-content: center;
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .page-numbers {
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .page-jump {
+        justify-content: center;
+        margin-left: 0;
+    }
+}
+
+@media (max-width: 480px) {
+    .enhanced-pagination {
+        padding: 15px;
+    }
+    
+    .page-btn {
+        min-width: 32px;
+        height: 32px;
+        padding: 6px 10px;
+        font-size: 13px;
+    }
+    
+    .page-size-select {
+        min-width: 50px;
+        padding: 4px 8px;
+        font-size: 13px;
+    }
+    
+    .page-jump-input {
+        width: 50px;
+        padding: 4px 6px;
+        font-size: 13px;
+    }
+    
+    .page-jump-btn {
+        padding: 4px 10px;
+        font-size: 13px;
+    }
+}
+</style>
+
+<script>
+// Store the current page size in localStorage for persistence
+function changePageSize(pageSize) {
+    localStorage.setItem('preferred_page_size', pageSize);
+    
+    // Get current URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.set('page_size', pageSize);
+    urlParams.set('page', '1'); // Reset to first page when changing page size
+    
+    // Navigate to new URL
+    window.location.href = window.location.pathname + '?' + urlParams.toString();
+}
+
+function jumpToPage(pageNum) {
+    var pageJump = document.querySelector('.page-jump');
+    var maxPage = parseInt(pageJump.getAttribute('data-max-pages'));
+    var page = parseInt(pageNum);
+    
+    if (isNaN(page) || page < 1 || page > maxPage) {
+        alert('Please enter a valid page number between 1 and ' + maxPage);
+        return;
+    }
+    
+    // Get current URL parameters
+    var urlParams = new URLSearchParams(window.location.search);
+    urlParams.set('page', page);
+    
+    // Navigate to new URL
+    window.location.href = window.location.pathname + '?' + urlParams.toString();
+}
+
+// Restore preferred page size on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const preferredPageSize = localStorage.getItem('preferred_page_size');
+    if (preferredPageSize) {
+        const pageSizeSelect = document.getElementById('page-size');
+        if (pageSizeSelect && pageSizeSelect.value !== preferredPageSize) {
+            pageSizeSelect.value = preferredPageSize;
+        }
+    }
+});
+
+// Handle Enter key in page jump input
+document.addEventListener('DOMContentLoaded', function() {
+    const pageJumpInput = document.getElementById('page-jump-input');
+    if (pageJumpInput) {
+        pageJumpInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                jumpToPage(this.value);
+            }
+        });
+    }
+});
+</script>

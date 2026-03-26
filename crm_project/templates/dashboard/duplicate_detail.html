@@ -1,0 +1,788 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block page_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="duplicate-detail-page">
+    <div class="page-header">
+        <h2>{{ page_title }}</h2>
+        <div class="page-actions">
+            <a href="{% url 'dashboard:leads_duplicates' %}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Duplicates
+            </a>
+            {% if can_modify %}
+            <a href="{% url 'dashboard:lead_duplicate_reassign' lead.id_lead %}" class="btn btn-primary">
+                <i class="fas fa-user-plus"></i> Reassign Lead
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Lead Information Card -->
+    <div class="lead-info-card">
+        <div class="card-header">
+            <h3>Lead Information</h3>
+            <div class="lead-badges">
+                <span class="duplicate-badge duplicate-{{ lead.duplicate_status }}">
+                    {{ lead.get_duplicate_status_display }}
+                </span>
+                <span class="status-badge status-{{ lead.duplicate_resolution_status }}">
+                    {{ lead.get_duplicate_resolution_status_display|default:lead.duplicate_resolution_status|title }}
+                </span>
+            </div>
+        </div>
+        <div class="card-content">
+            <div class="lead-details-grid">
+                <div class="detail-group">
+                    <h4>Basic Information</h4>
+                    <div class="detail-row">
+                        <label>Name:</label>
+                        <span>{{ lead.name|default:"-" }}</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Mobile:</label>
+                        <span>{{ lead.mobile|default:"-" }}</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Email:</label>
+                        <span>{{ lead.email|default:"-" }}</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Address:</label>
+                        <span>{{ lead.address|default:"-" }}, {{ lead.city|default:"-" }}</span>
+                    </div>
+                </div>
+                
+                <div class="detail-group">
+                    <h4>Assignment Information</h4>
+                    <div class="detail-row">
+                        <label>Current Assignment:</label>
+                        <span>
+                            {% if lead.assigned_user %}
+                                {{ lead.assigned_user.get_full_name|default:lead.assigned_user.username }}
+                                ({{ lead.assigned_user.get_role_display }})
+                            {% else %}
+                                Unassigned
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Last Assigned Agent:</label>
+                        <span>
+                            {% if lead.last_assigned_agent %}
+                                {{ lead.last_assigned_agent.get_full_name|default:lead.last_assigned_agent.username }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Last Assigned Manager:</label>
+                        <span>
+                            {% if lead.last_assigned_manager %}
+                                {{ lead.last_assigned_manager.get_full_name|default:lead.last_assigned_manager.username }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Assigned At:</label>
+                        <span>{{ lead.assigned_at|date:"M d, Y H:i"|default:"-" }}</span>
+                    </div>
+                </div>
+                
+                <div class="detail-group">
+                    <h4>Lead Status</h4>
+                    <div class="detail-row">
+                        <label>Status:</label>
+                        <span class="status-badge status-{{ lead.status }}">
+                            {{ lead.get_status_display }}
+                        </span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Follow Up:</label>
+                        <span>{{ lead.followup_datetime|date:"M d, Y H:i"|default:"-" }}</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Created:</label>
+                        <span>{{ lead.created_at|date:"M d, Y H:i" }}</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Last Modified:</label>
+                        <span>{{ lead.updated_at|date:"M d, Y H:i" }}</span>
+                    </div>
+                </div>
+            </div>
+            
+            {% if lead.duplicate_notes %}
+            <div class="notes-section">
+                <h4>Duplicate Resolution Notes</h4>
+                <p>{{ lead.duplicate_notes }}</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Reassignment Recommendations -->
+    {% if recommendations.recommendation %}
+    <div class="recommendations-card">
+        <div class="card-header">
+            <h3>Reassignment Recommendation</h3>
+            <span class="confidence-badge">
+                {{ recommendations.recommendation.confidence|floatformat:0 }}% Match
+            </span>
+        </div>
+        <div class="card-content">
+            <div class="recommendation-item">
+                <div class="user-info">
+                    <strong>{{ recommendations.recommendation.user.get_full_name|default:recommendations.recommendation.user.username }}</strong>
+                    <span>({{ recommendations.recommendation.user.get_role_display }})</span>
+                </div>
+                <div class="recommendation-reason">
+                    {{ recommendations.recommendation.reason }}
+                </div>
+                {% if can_modify %}
+                <button class="btn btn-primary" onclick="quickAssign('{{ recommendations.recommendation.user.id }}')">
+                    <i class="fas fa-user-plus"></i> Quick Assign
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- Duplicate Group -->
+    {% if duplicate_group %}
+    <div class="duplicate-group-card">
+        <div class="card-header">
+            <h3>Duplicate Group Members</h3>
+            <span class="group-size">{{ duplicate_group|length }} leads</span>
+        </div>
+        <div class="card-content">
+            <div class="duplicate-leads-grid">
+                {% for dup_lead in duplicate_group %}
+                <div class="duplicate-lead-card {% if dup_lead.id == lead.id %}current-lead{% endif %}">
+                    <div class="lead-header">
+                        <strong>{{ dup_lead.name|default:"No Name" }}</strong>
+                        <span class="duplicate-badge duplicate-{{ dup_lead.duplicate_status }}">
+                            {{ dup_lead.get_duplicate_status_display }}
+                        </span>
+                    </div>
+                    <div class="lead-details">
+                        <div><i class="fas fa-phone"></i> {{ dup_lead.mobile|default:"-" }}</div>
+                        <div><i class="fas fa-envelope"></i> {{ dup_lead.email|default:"-" }}</div>
+                        <div><i class="fas fa-user"></i> 
+                            {% if dup_lead.assigned_user %}
+                                {{ dup_lead.assigned_user.get_full_name|default:dup_lead.assigned_user.username }}
+                            {% else %}
+                                Unassigned
+                            {% endif %}
+                        </div>
+                        <div><i class="fas fa-calendar"></i> {{ dup_lead.created_at|date:"M d, Y" }}</div>
+                    </div>
+                    <div class="lead-actions">
+                        {% if dup_lead.id != lead.id %}
+                        <a href="{% url 'dashboard:lead_duplicate_detail' dup_lead.id_lead %}" class="btn-action">
+                            <i class="fas fa-eye"></i>
+                        </a>
+                        {% endif %}
+                        <a href="{% url 'dashboard:lead_detail' dup_lead.id_lead %}" class="btn-action">
+                            <i class="fas fa-external-link-alt"></i>
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- Assignment History -->
+    {% if assignment_history %}
+    <div class="history-card">
+        <div class="card-header">
+            <h3>Assignment History</h3>
+        </div>
+        <div class="card-content">
+            <div class="timeline">
+                {% for assignment in assignment_history %}
+                <div class="timeline-item">
+                    <div class="timeline-dot"></div>
+                    <div class="timeline-content">
+                        <div class="timeline-header">
+                            <strong>{{ assignment.action|title }}</strong>
+                            <span class="timeline-date">{{ assignment.assigned_at|date:"M d, Y H:i" }}</span>
+                        </div>
+                        <div class="timeline-details">
+                            {% if assignment.from_user %}
+                                <div>From: {{ assignment.from_user.get_full_name|default:assignment.from_user.username }}</div>
+                            {% endif %}
+                            {% if assignment.to_user %}
+                                <div>To: {{ assignment.to_user.get_full_name|default:assignment.to_user.username }}</div>
+                            {% endif %}
+                            <div>By: {{ assignment.assigned_by.get_full_name|default:assignment.assigned_by.username }}</div>
+                            {% if assignment.transfer_from %}
+                                <div>Transfer From: {{ assignment.transfer_from }}</div>
+                            {% endif %}
+                            {% if assignment.transfer_by %}
+                                <div>Transfer By: {{ assignment.transfer_by }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Quick Assign Modal -->
+<div id="quickAssignModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Quick Assign Lead</h3>
+            <span class="close">&times;</span>
+        </div>
+        <form id="quickAssignForm" method="post" action="{% url 'dashboard:lead_duplicate_reassign' lead.id_lead %}">
+            {% csrf_token %}
+            <div class="form-group">
+                <label>Assign To:</label>
+                <input type="text" id="quickAssignUser" name="assigned_user" readonly>
+            </div>
+            <div class="form-group">
+                <label for="quickReason">Reason (Optional):</label>
+                <textarea name="reassign_reason" id="quickReason" rows="3" placeholder="Add reason for reassignment..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="resolve_duplicate" checked>
+                    Mark duplicate as resolved
+                </label>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-outline" onclick="closeQuickAssignModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Assign Lead</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.duplicate-detail-page {
+    padding: 0;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.page-header h2 {
+    font-size: 26px;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.lead-info-card, .recommendations-card, .duplicate-group-card, .history-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    margin-bottom: 25px;
+    overflow: hidden;
+}
+
+.card-header {
+    background: var(--sidebar-bg);
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.card-header h3 {
+    margin: 0;
+    color: white;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.lead-badges {
+    display: flex;
+    gap: 10px;
+}
+
+.duplicate-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.duplicate-exact_duplicate {
+    background: var(--danger-color);
+    color: white;
+}
+
+.duplicate-potential_duplicate {
+    background: var(--warning-color);
+    color: white;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.status-pending {
+    background: var(--warning-color);
+    color: white;
+}
+
+.status-resolved {
+    background: var(--success-color);
+    color: white;
+}
+
+.status-ignored {
+    background: var(--text-muted);
+    color: white;
+}
+
+.confidence-badge {
+    background: var(--success-color);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.group-size {
+    background: var(--accent-color);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.card-content {
+    padding: 25px;
+}
+
+.lead-details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 30px;
+    margin-bottom: 20px;
+}
+
+.detail-group h4 {
+    margin: 0 0 15px 0;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.detail-row {
+    display: flex;
+    margin-bottom: 10px;
+    align-items: flex-start;
+}
+
+.detail-row label {
+    font-weight: 600;
+    color: var(--text-secondary);
+    min-width: 140px;
+    margin-right: 10px;
+}
+
+.detail-row span {
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.notes-section {
+    background: var(--bg-secondary);
+    padding: 15px;
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.notes-section h4 {
+    margin: 0 0 10px 0;
+    color: var(--text-primary);
+}
+
+.notes-section p {
+    margin: 0;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.recommendation-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.user-info strong {
+    display: block;
+    color: var(--text-primary);
+}
+
+.user-info span {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.recommendation-reason {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-top: 5px;
+}
+
+.duplicate-leads-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 20px;
+}
+
+.duplicate-lead-card {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px;
+    background: var(--card-bg);
+    transition: all 0.3s ease;
+}
+
+.duplicate-lead-card.current-lead {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(122, 40, 138, 0.2);
+}
+
+.duplicate-lead-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.lead-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.lead-header strong {
+    color: var(--text-primary);
+}
+
+.lead-details {
+    margin-bottom: 10px;
+}
+
+.lead-details div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.lead-details i {
+    width: 16px;
+    text-align: center;
+}
+
+.lead-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.btn-action {
+    background: rgba(122, 40, 138, 0.1);
+    border: 1px solid rgba(122, 40, 138, 0.3);
+    color: var(--accent-color);
+    padding: 6px 8px;
+    border-radius: 4px;
+    text-decoration: none;
+    font-size: 12px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.btn-action:hover {
+    background: rgba(122, 40, 138, 0.2);
+    transform: translateY(-1px);
+}
+
+.timeline {
+    position: relative;
+    padding-left: 30px;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border-color);
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 25px;
+}
+
+.timeline-dot {
+    position: absolute;
+    left: -25px;
+    top: 5px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    border: 2px solid var(--card-bg);
+}
+
+.timeline-content {
+    background: var(--bg-secondary);
+    padding: 15px;
+    border-radius: 8px;
+}
+
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.timeline-header strong {
+    color: var(--text-primary);
+}
+
+.timeline-date {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.timeline-details {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.timeline-details div {
+    margin-bottom: 3px;
+}
+
+.btn-primary {
+    padding: 12px 24px;
+    background: var(--accent-color);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+    padding: 12px 24px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-secondary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid var(--accent-color);
+    color: var(--accent-color);
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-outline:hover {
+    background: var(--accent-color);
+    color: white;
+}
+
+/* Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+    background-color: var(--card-bg);
+    margin: 10% auto;
+    padding: 30px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    color: var(--text-primary);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.close {
+    color: var(--text-secondary);
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.close:hover {
+    color: var(--text-primary);
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px 15px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.form-group input[type="checkbox"] {
+    margin-right: 8px;
+}
+
+@media (max-width: 768px) {
+    .page-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: flex-start;
+    }
+    
+    .lead-details-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+    
+    .duplicate-leads-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .recommendation-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+    
+    .timeline {
+        padding-left: 20px;
+    }
+    
+    .timeline::before {
+        left: 5px;
+    }
+    
+    .timeline-dot {
+        left: -15px;
+    }
+}
+</style>
+
+<script>
+function quickAssign(userId) {
+    const modal = document.getElementById('quickAssignModal');
+    const userField = document.getElementById('quickAssignUser');
+    
+    // Get user details (this would typically come from a data attribute or API call)
+    userField.value = userId;
+    
+    modal.style.display = 'block';
+}
+
+function closeQuickAssignModal() {
+    document.getElementById('quickAssignModal').style.display = 'none';
+}
+
+// Modal close functionality
+document.querySelector('.close').onclick = closeQuickAssignModal;
+window.onclick = function(event) {
+    const modal = document.getElementById('quickAssignModal');
+    if (event.target == modal) {
+        closeQuickAssignModal();
+    }
+}
+</script>
+{% endblock %}

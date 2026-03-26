@@ -54,8 +54,16 @@
                         
                         <div class="form-group">
                             <label for="username">Username</label>
-                            <input type="text" name="username" id="username" value="{{ target_user.username }}" readonly autocomplete="username">
-                            <small class="help-text">Username cannot be changed</small>
+                            <div class="username-input-wrapper">
+                                <input type="text" name="username" id="username" value="{{ target_user.username }}" autocomplete="username" required>
+                                <div class="username-feedback">
+                                    <i class="fas fa-spinner fa-spin loading-icon"></i>
+                                    <i class="fas fa-check available-icon"></i>
+                                    <i class="fas fa-times unavailable-icon"></i>
+                                    <span class="feedback-text"></span>
+                                </div>
+                            </div>
+                            <small class="help-text">Username must be unique and contain only letters, numbers, and underscores</small>
                         </div>
                     </div>
                 </div>
@@ -403,6 +411,83 @@
     background: #3d4149;
 }
 
+/* Username Availability Styles */
+.username-input-wrapper {
+    position: relative;
+}
+
+.username-feedback {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 14px;
+}
+
+.username-feedback i {
+    display: none;
+    font-size: 16px;
+}
+
+.username-feedback .feedback-text {
+    font-size: 12px;
+    font-weight: 600;
+    display: none;
+}
+
+.username-feedback.loading .loading-icon {
+    display: block;
+    color: #667eea;
+}
+
+.username-feedback.available .available-icon {
+    display: block;
+    color: #27ae60;
+}
+
+.username-feedback.available .feedback-text {
+    display: block;
+    color: #27ae60;
+}
+
+.username-feedback.unavailable .unavailable-icon {
+    display: block;
+    color: #e74c3c;
+}
+
+.username-feedback.unavailable .feedback-text {
+    display: block;
+    color: #e74c3c;
+}
+
+.username-feedback.error .unavailable-icon {
+    display: block;
+    color: #e74c3c;
+}
+
+.username-feedback.error .feedback-text {
+    display: block;
+    color: #e74c3c;
+}
+
+/* Adjust input padding to make room for feedback */
+#username {
+    padding-right: 120px !important;
+}
+
+#username.valid {
+    border-color: #27ae60;
+    box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.1);
+}
+
+#username.invalid {
+    border-color: #e74c3c;
+    box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+}
+
 .role-badge {
     padding: 6px 12px;
     border-radius: 20px;
@@ -436,4 +521,128 @@
     }
 }
 </style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const usernameInput = document.getElementById('username');
+    const feedback = document.querySelector('.username-feedback');
+    const feedbackText = feedback.querySelector('.feedback-text');
+    const originalUsername = '{{ target_user.username }}';
+    let debounceTimer;
+    
+    // Username validation function
+    function validateUsername(username) {
+        // Allow letters, numbers, and underscores, min 3 chars
+        const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+        return usernameRegex.test(username);
+    }
+    
+    // Check username availability
+    async function checkUsernameAvailability(username) {
+        if (username === originalUsername) {
+            showFeedback('available', 'Current username');
+            return true;
+        }
+        
+        if (!validateUsername(username)) {
+            showFeedback('error', 'Invalid username format');
+            return false;
+        }
+        
+        showFeedback('loading', '');
+        
+        try {
+            const response = await fetch(`/accounts/check-username/?username=${encodeURIComponent(username)}`, {
+                method: 'GET',
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.available) {
+                showFeedback('available', 'Available');
+                return true;
+            } else {
+                showFeedback('unavailable', 'Already taken');
+                return false;
+            }
+        } catch (error) {
+            console.error('Error checking username:', error);
+            showFeedback('error', 'Check failed');
+            return false;
+        }
+    }
+    
+    // Show feedback
+    function showFeedback(status, message) {
+        // Remove all status classes
+        feedback.classList.remove('loading', 'available', 'unavailable', 'error');
+        
+        // Add new status class
+        feedback.classList.add(status);
+        
+        // Update message
+        feedbackText.textContent = message;
+        
+        // Update input styling
+        usernameInput.classList.remove('valid', 'invalid');
+        
+        if (status === 'available') {
+            usernameInput.classList.add('valid');
+        } else if (status === 'unavailable' || status === 'error') {
+            usernameInput.classList.add('invalid');
+        }
+    }
+    
+    // Input event handler with debounce
+    usernameInput.addEventListener('input', function() {
+        const username = this.value.trim();
+        
+        // Clear previous timer
+        clearTimeout(debounceTimer);
+        
+        if (username === '') {
+            feedback.classList.remove('loading', 'available', 'unavailable', 'error');
+            usernameInput.classList.remove('valid', 'invalid');
+            return;
+        }
+        
+        // Debounce the check (wait 500ms after user stops typing)
+        debounceTimer = setTimeout(() => {
+            checkUsernameAvailability(username);
+        }, 500);
+    });
+    
+    // Form submission check
+    const form = document.querySelector('.user-form');
+    form.addEventListener('submit', function(e) {
+        const username = usernameInput.value.trim();
+        
+        // If username changed and is not available, prevent submission
+        if (username !== originalUsername) {
+            const isAvailable = validateUsername(username) && 
+                              !feedback.classList.contains('unavailable') && 
+                              !feedback.classList.contains('error');
+            
+            if (!isAvailable) {
+                e.preventDefault();
+                alert('Please choose a valid and available username.');
+                usernameInput.focus();
+            }
+        }
+    });
+    
+    // Initial check if username is different from original
+    if (usernameInput.value.trim() !== originalUsername) {
+        checkUsernameAvailability(usernameInput.value.trim());
+    } else {
+        showFeedback('available', 'Current username');
+    }
+});
+</script>
 {% endblock %}

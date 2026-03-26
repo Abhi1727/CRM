@@ -89,7 +89,7 @@
                                 <input type="checkbox" name="lead_ids" value="{{ lead.id }}" class="lead-checkbox">
                                 <div class="lead-info">
                                     <div class="lead-header">
-                                        <h4>{{ lead.name }}</h4>
+                                        <h4><a href="{% url 'dashboard:lead_detail' lead.id_lead %}" class="lead-name-link">{{ lead.name }}</a></h4>
                                         <span class="lead-status status-{{ lead.status }}">{{ lead.get_status_display }}</span>
                                     </div>
                                     <div class="lead-details">
@@ -124,6 +124,9 @@
                         {% endfor %}
                     </div>
                 </div>
+                
+                <!-- Enhanced Pagination -->
+                {% include 'dashboard/pagination.html' with item_name="leads" %}
             </div>
 
             <!-- Assignment Details -->
@@ -702,6 +705,21 @@
         width: 100%;
         justify-content: center;
     }
+}
+
+/* Lead name link styling */
+.lead-name-link {
+    color: var(--text-primary) !important;
+    text-decoration: none !important;
+    font-weight: 600 !important;
+    transition: all 0.3s ease;
+    display: inline-block;
+}
+
+.lead-name-link:hover {
+    color: var(--accent-color) !important;
+    text-decoration: underline !important;
+    transform: translateX(2px);
 }
 </style>
 {% endblock %}

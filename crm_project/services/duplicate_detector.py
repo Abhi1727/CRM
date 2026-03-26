@@ -1,8 +1,11 @@
 import re
+import uuid
 from difflib import SequenceMatcher
 from typing import List, Dict, Tuple, Optional
 from django.db import models
+from django.utils import timezone
 from dashboard.models import Lead
+from accounts.models import User
 
 
 class DuplicateDetector:
@@ -201,12 +204,12 @@ class DuplicateDetector:
         Comprehensive duplicate detection for a single lead.
         Returns a dictionary with duplicate information.
         """
-        name = lead_data.get('name', '').strip()
-        mobile = lead_data.get('mobile', '').strip()
-        email = lead_data.get('email', '').strip()
-        address = lead_data.get('address', '').strip()
-        city = lead_data.get('city', '').strip()
-        company = lead_data.get('company', '').strip() or lead_data.get('course_name', '').strip()
+        name = str(lead_data.get('name', '')).strip()
+        mobile = str(lead_data.get('mobile', '')).strip()
+        email = str(lead_data.get('email', '')).strip()
+        address = str(lead_data.get('address', '')).strip()
+        city = str(lead_data.get('city', '')).strip()
+        company = str(lead_data.get('company', '')).strip() or str(lead_data.get('course_name', '')).strip()
         
         result = {
             'status': 'new',
@@ -288,3 +291,192 @@ class DuplicateDetector:
             results.append(result)
         
         return results
+    
+    def create_duplicate_group(self, lead_ids: List[int], group_type: str = 'auto') -> str:
+        """
+        Create a duplicate group for the given lead IDs.
+        Returns the group ID.
+        """
+        if not lead_ids:
+            return None
+        
+        # Generate unique group ID
+        group_id = f"{group_type}_{uuid.uuid4().hex[:8]}_{timezone.now().strftime('%Y%m%d')}"
+        
+        # Update all leads with the group ID
+        Lead.objects.filter(id_lead__in=lead_ids).update(
+            duplicate_group_id=group_id,
+            duplicate_resolution_status='pending'
+        )
+        
+        return group_id
+    
+    def find_duplicate_groups(self, status: str = None) -> List[Dict]:
+        """
+        Find all duplicate groups in the company.
+        Returns list of groups with their leads.
+        """
+        leads = Lead.objects.filter(
+            company_id=self.company_id,
+            duplicate_status__in=['exact_duplicate', 'potential_duplicate'],
+            deleted=False
+        ).exclude(duplicate_group_id__isnull=True)
+        
+        if status:
+            leads = leads.filter(duplicate_resolution_status=status)
+        
+        # Group by duplicate_group_id
+        groups = {}
+        for lead in leads:
+            group_id = lead.duplicate_group_id
+            if group_id not in groups:
+                groups[group_id] = {
+                    'group_id': group_id,
+                    'leads': [],
+                    'status': lead.duplicate_resolution_status,
+                    'created_at': lead.created_at
+                }
+            groups[group_id]['leads'].append(lead)
+        
+        return list(groups.values())
+    
+    def get_duplicate_statistics(self) -> Dict:
+        """
+        Get duplicate statistics for the company.
+        """
+        total_leads = Lead.objects.filter(company_id=self.company_id, deleted=False).count()
+        duplicate_leads = Lead.objects.filter(
+            company_id=self.company_id,
+            duplicate_status__in=['exact_duplicate', 'potential_duplicate'],
+            deleted=False
+        )
+        
+        stats = {
+            'total_leads': total_leads,
+            'duplicate_leads_count': duplicate_leads.count(),
+            'duplicate_percentage': (duplicate_leads.count() / total_leads * 100) if total_leads > 0 else 0,
+            'exact_duplicates': duplicate_leads.filter(duplicate_status='exact_duplicate').count(),
+            'potential_duplicates': duplicate_leads.filter(duplicate_status='potential_duplicate').count(),
+            'resolved_duplicates': duplicate_leads.filter(duplicate_resolution_status='resolved').count(),
+            'pending_duplicates': duplicate_leads.filter(duplicate_resolution_status='pending').count(),
+            'ignored_duplicates': duplicate_leads.filter(duplicate_resolution_status='ignored').count(),
+        }
+        
+        # Count groups
+        groups = self.find_duplicate_groups()
+        stats['duplicate_groups'] = len(groups)
+        
+        return stats
+    
+    def auto_group_existing_duplicates(self) -> Dict:
+        """
+        Automatically group existing duplicates that don't have groups.
+        Returns statistics about the grouping process.
+        """
+        # Find leads with duplicate status but no group
+        ungrouped_duplicates = Lead.objects.filter(
+            company_id=self.company_id,
+            duplicate_status__in=['exact_duplicate', 'potential_duplicate'],
+            duplicate_group_id__isnull=True,
+            deleted=False
+        )
+        
+        groups_created = 0
+        leads_grouped = 0
+        
+        # Group by exact matches first
+        exact_duplicates = ungrouped_duplicates.filter(duplicate_status='exact_duplicate')
+        
+        # Group by mobile number
+        mobile_groups = {}
+        for lead in exact_duplicates:
+            if lead.mobile:
+                mobile = self.normalize_phone_number(lead.mobile)
+                if mobile not in mobile_groups:
+                    mobile_groups[mobile] = []
+                mobile_groups[mobile].append(lead.id_lead)
+        
+        for mobile, lead_ids in mobile_groups.items():
+            if len(lead_ids) > 1:
+                self.create_duplicate_group(lead_ids, 'mobile_exact')
+                groups_created += 1
+                leads_grouped += len(lead_ids)
+        
+        # Group by email
+        email_groups = {}
+        for lead in exact_duplicates:
+            if lead.email:
+                email = lead.email.lower().strip()
+                if email not in email_groups:
+                    email_groups[email] = []
+                email_groups[email].append(lead.id_lead)
+        
+        for email, lead_ids in email_groups.items():
+            if len(lead_ids) > 1:
+                self.create_duplicate_group(lead_ids, 'email_exact')
+                groups_created += 1
+                leads_grouped += len(lead_ids)
+        
+        return {
+            'groups_created': groups_created,
+            'leads_grouped': leads_grouped,
+            'mobile_groups': len(mobile_groups),
+            'email_groups': len(email_groups)
+        }
+    
+    def get_reassignment_recommendations(self, duplicate_group_id: str) -> Dict:
+        """
+        Get reassignment recommendations for a duplicate group.
+        Analyzes assignment history and suggests best candidates.
+        """
+        leads = Lead.objects.filter(
+            duplicate_group_id=duplicate_group_id,
+            company_id=self.company_id
+        )
+        
+        if not leads.exists():
+            return {'candidates': [], 'recommendation': None}
+        
+        # Collect all assignment candidates
+        all_candidates = []
+        agent_counts = {}
+        manager_counts = {}
+        
+        for lead in leads:
+            candidates = lead.get_reassignment_candidates()
+            all_candidates.extend(candidates)
+            
+            # Count assignments by role
+            for candidate in candidates:
+                user = candidate['user']
+                if user.role == 'agent':
+                    agent_counts[user.id] = agent_counts.get(user.id, 0) + 1
+                elif user.role == 'manager':
+                    manager_counts[user.id] = manager_counts.get(user.id, 0) + 1
+        
+        # Find most frequently assigned agents and managers
+        top_agent = max(agent_counts.items(), key=lambda x: x[1]) if agent_counts else None
+        top_manager = max(manager_counts.items(), key=lambda x: x[1]) if manager_counts else None
+        
+        recommendation = None
+        if top_agent:
+            user = User.objects.get(id=top_agent[0])
+            recommendation = {
+                'user': user,
+                'reason': f'Most frequently assigned agent ({top_agent[1]} times)',
+                'confidence': min(top_agent[1] * 0.2, 1.0)
+            }
+        elif top_manager:
+            user = User.objects.get(id=top_manager[0])
+            recommendation = {
+                'user': user,
+                'reason': f'Most frequently assigned manager ({top_manager[1]} times)',
+                'confidence': min(top_manager[1] * 0.15, 1.0)
+            }
+        
+        return {
+            'candidates': all_candidates,
+            'recommendation': recommendation,
+            'agent_assignments': agent_counts,
+            'manager_assignments': manager_counts
+        }

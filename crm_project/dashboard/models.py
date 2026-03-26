@@ -114,6 +114,20 @@ class Lead(models.Model):
     ], default='new')
     duplicate_info = models.JSONField(default=dict, blank=True)  # Store duplicate detection details
     
+    # Duplicate management fields
+    duplicate_group_id = models.CharField(max_length=50, null=True, blank=True, db_index=True)
+    duplicate_resolution_status = models.CharField(max_length=20, choices=[
+        ('pending', 'Pending'),
+        ('resolved', 'Resolved'),
+        ('ignored', 'Ignored'),
+        ('merged', 'Merged')
+    ], default='pending')
+    last_assigned_agent = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='last_assigned_agent_leads')
+    last_assigned_manager = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='last_assigned_manager_leads')
+    duplicate_resolved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='resolved_duplicates')
+    duplicate_resolved_at = models.DateTimeField(null=True, blank=True)
+    duplicate_notes = models.TextField(null=True, blank=True)
+    
     def __str__(self):
         return f"{self.name} - {self.mobile}"
     
@@ -129,6 +143,12 @@ class Lead(models.Model):
             models.Index(fields=['assigned_user', 'company_id']),  # For hierarchy queries
             models.Index(fields=['created_by', 'company_id']),     # For hierarchy queries
             models.Index(fields=['status', 'created_at']),         # For filtering
+            # Duplicate management indexes
+            models.Index(fields=['duplicate_status', 'duplicate_resolution_status']),
+            models.Index(fields=['duplicate_group_id']),
+            models.Index(fields=['last_assigned_agent', 'duplicate_status']),
+            models.Index(fields=['last_assigned_manager', 'duplicate_status']),
+            models.Index(fields=['company_id', 'duplicate_status']),
         ]
     
     def can_be_accessed_by(self, user):
@@ -213,8 +233,84 @@ class Lead(models.Model):
         
         self.assignment_history['assignments'].append(assignment_record)
         
+        # Update last assignment tracking for duplicate management
+        if user.role == 'agent':
+            self.last_assigned_agent = user
+        elif user.role == 'manager':
+            self.last_assigned_manager = user
+        
         self.save()
         return True
+    
+    def get_reassignment_candidates(self):
+        """Get reassignment candidates in priority order:
+        1. Last assigned agent (if still active and accessible)
+        2. Last assigned manager (if no agent available)
+        3. Current assigned user (if different from above)
+        """
+        candidates = []
+        
+        # Check last assigned agent first
+        if self.last_assigned_agent and self.last_assigned_agent.account_status == 'active':
+            candidates.append({
+                'user': self.last_assigned_agent,
+                'priority': 1,
+                'reason': 'Last Assigned Agent'
+            })
+        
+        # Check last assigned manager
+        if self.last_assigned_manager and self.last_assigned_manager.account_status == 'active':
+            candidates.append({
+                'user': self.last_assigned_manager,
+                'priority': 2,
+                'reason': 'Last Assigned Manager'
+            })
+        
+        # Add current assigned user if not already in candidates
+        if self.assigned_user and self.assigned_user.account_status == 'active':
+            is_duplicate = any(c['user'].id == self.assigned_user.id for c in candidates)
+            if not is_duplicate:
+                candidates.append({
+                    'user': self.assigned_user,
+                    'priority': 3,
+                    'reason': 'Current Assignment'
+                })
+        
+        return sorted(candidates, key=lambda x: x['priority'])
+    
+    def resolve_duplicate(self, resolved_by, resolution_status='resolved', notes=None):
+        """Mark duplicate as resolved with tracking"""
+        self.duplicate_resolution_status = resolution_status
+        self.duplicate_resolved_by = resolved_by
+        self.duplicate_resolved_at = timezone.now()
+        if notes:
+            self.duplicate_notes = notes
+        self.save()
+        
+        # Create activity log
+        from .models import LeadActivity
+        LeadActivity.objects.create(
+            lead=self,
+            user=resolved_by,
+            activity_type='duplicate_resolution',
+            description=f'Duplicate marked as {resolution_status}. {notes or ""}'
+        )
+    
+    def get_duplicate_group(self):
+        """Get all leads in the same duplicate group"""
+        if not self.duplicate_group_id:
+            return Lead.objects.none()
+        
+        return Lead.objects.filter(
+            duplicate_group_id=self.duplicate_group_id,
+            company_id=self.company_id
+        ).exclude(id=self.id)
+    
+    def is_duplicate_of(self, other_lead):
+        """Check if this lead is a duplicate of another lead"""
+        if self.duplicate_group_id and other_lead.duplicate_group_id:
+            return self.duplicate_group_id == other_lead.duplicate_group_id
+        return False
 
 class LeadComment(models.Model):
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name='comments')

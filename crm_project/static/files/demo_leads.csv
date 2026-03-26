@@ -1,0 +1,6 @@
+name,mobile,email,address,city,state,postalcode,country,status,course_name
+John Smith,+1234567890,john.smith@example.com,123 Main Street,New York,NY,10001,USA,interested_follow_up,Data Science
+Jane Johnson,+1987654321,jane.johnson@example.com,,Los Angeles,CA,90210,USA,lead,Cyber Security
+Michael Brown,+1555123456,michael.brown@example.com,456 Oak Avenue,Chicago,IL,60601,USA,contacted,DevOps
+Sarah Davis,+14445556677,sarah.davis@example.com,789 Pine Lane,Houston,TX,77002,USA,lead,Cloud Computing
+Robert Wilson,+13334445555,robert.wilson@example.com,321 Elm Street,Phoenix,AZ,85001,USA,not_interested,Data Science

@@ -136,6 +136,9 @@
                 </tbody>
             </table>
         </div>
+        
+        <!-- Enhanced Pagination -->
+        {% include 'dashboard/pagination.html' with item_name="users" %}
         {% else %}
         <div class="empty-state">
             <div class="empty-icon">
@@ -261,9 +264,10 @@
 }
 
 .users-table td {
-    padding: 20px 15px;
+    padding: 10px 15px;
     border-bottom: 1px solid var(--border-color);
     color: var(--text-primary);
+    font-size: 14px;
 }
 
 .users-table tr:hover {
@@ -309,6 +313,7 @@
     font-weight: 600;
     margin-bottom: 4px;
     color: var(--text-primary);
+    font-size: 14px;
 }
 
 .user-email {

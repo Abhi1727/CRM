@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.db.models import Count, Sum, Q
 from django.utils import timezone
 from django.http import JsonResponse
+from django.core.paginator import Paginator
 from .models import User
 from dashboard.models import Lead
 from .permissions import role_required, can_manage_user_required, hierarchy_required
@@ -65,6 +66,13 @@ def logout_view(request):
 def user_list(request):
     """List users based on hierarchy"""
     accessible_users = request.hierarchy_context['accessible_users']
+    page_size = request.GET.get('page_size', '20')
+    
+    # Validate page size
+    valid_page_sizes = ['5', '10', '20', '25', '50', '100', '200', '500']
+    if page_size not in valid_page_sizes:
+        page_size = '20'
+    page_size = int(page_size)
     
     # Optimize query with select_related for manager and team_lead
     accessible_users = accessible_users.select_related('manager', 'team_lead')
@@ -79,9 +87,8 @@ def user_list(request):
     if status_filter:
         accessible_users = accessible_users.filter(account_status=status_filter)
     
-    # Pagination
-    from django.core.paginator import Paginator
-    paginator = Paginator(accessible_users, 20)  # 20 users per page
+    # Pagination with configurable page size
+    paginator = Paginator(accessible_users, page_size)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
     
@@ -91,6 +98,7 @@ def user_list(request):
         'role_choices': User.ROLE_CHOICES,
         'status_choices': User.ACCOUNT_STATUS_CHOICES,
         'page_title': 'Users',
+        'current_page_size': page_size,
     }
     return render(request, 'accounts/user_list.html', context)
 
@@ -229,6 +237,18 @@ def get_users_by_role(request):
         
         user_data = []
         for user in users:
+            # Get real-time lead counts
+            leads_assigned_count = Lead.objects.filter(
+                assigned_user=user,
+                company_id=request.user.company_id
+            ).count()
+            
+            leads_converted_count = Lead.objects.filter(
+                assigned_user=user,
+                company_id=request.user.company_id,
+                status='converted'
+            ).count()
+            
             user_data.append({
                 'id': user.id,
                 'username': user.username,
@@ -237,8 +257,8 @@ def get_users_by_role(request):
                 'full_name': user.get_full_name() or user.username,
                 'role': user.role,
                 'role_display': user.get_role_display(),
-                'leads_assigned_count': user.leads_assigned_count,
-                'leads_converted_count': user.leads_converted_count,
+                'leads_assigned_count': leads_assigned_count,
+                'leads_converted_count': leads_converted_count,
                 'profile_picture': user.profile_picture.url if user.profile_picture else None,
             })
         
@@ -316,8 +336,15 @@ def bulk_assign_leads(request):
         return redirect('dashboard:leads_all')
     
     # GET request - show bulk assignment form with pagination
-    from django.core.paginator import Paginator
-    paginator = Paginator(accessible_leads.select_related('assigned_user'), 50)  # 50 leads per page
+    page_size = request.GET.get('page_size', '50')
+    
+    # Validate page size
+    valid_page_sizes = ['5', '10', '20', '25', '50', '100', '200', '500']
+    if page_size not in valid_page_sizes:
+        page_size = '50'
+    page_size = int(page_size)
+    
+    paginator = Paginator(accessible_leads.select_related('assigned_user'), page_size)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
     
@@ -345,6 +372,7 @@ def bulk_assign_leads(request):
         'leads': page_obj,  # Keep for backward compatibility
         'available_roles': available_roles,
         'page_title': 'Bulk Assign Leads',
+        'current_page_size': page_size,
     }
     return render(request, 'accounts/bulk_assign_leads.html', context)
 
@@ -535,4 +563,30 @@ def can_delete_user(current_user, target_user):
     
     # Agents cannot delete anyone
     return False
+
+
+@login_required
+@role_required(['owner', 'manager', 'team_lead'])
+def check_username_availability(request):
+    """
+    Check if a username is available for use.
+    Returns JSON response with availability status.
+    """
+    username = request.GET.get('username', '').strip()
+    
+    if not username:
+        return JsonResponse({'available': False, 'message': 'Username is required'})
+    
+    # Validate username format
+    import re
+    if not re.match(r'^[a-zA-Z0-9_]{3,20}$', username):
+        return JsonResponse({'available': False, 'message': 'Invalid username format'})
+    
+    # Check if username already exists
+    exists = User.objects.filter(username__iexact=username).exists()
+    
+    if exists:
+        return JsonResponse({'available': False, 'message': 'Username already taken'})
+    else:
+        return JsonResponse({'available': True, 'message': 'Username is available'})
 

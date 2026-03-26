@@ -26,29 +26,115 @@
     </div>
     
     <div class="filters">
-        <div class="filter-left">
-            <select class="filter-select" onchange="window.location.href='?status='+this.value+'&sort={{ current_sort }}'">
-                <option value="">All Status</option>
-                {% for status_code, status_name in status_choices %}
-                    <option value="{{ status_code }}" {% if request.GET.status == status_code %}selected{% endif %}>{{ status_name }}</option>
-                {% endfor %}
-            </select>
+        <div class="filter-basic">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="search-input" placeholder="Search leads..." value="{{ search_query|default:'' }}" autocomplete="off">
+                {% if search_query %}
+                <button type="button" id="clear-search" class="clear-search-btn" title="Clear search">
+                    <i class="fas fa-times"></i>
+                </button>
+                {% endif %}
+            </div>
             
-            <select class="filter-select" onchange="window.location.href='?sort='+this.value+'&status={{ request.GET.status|default:'' }}'">
-                <option value="">Sort By</option>
-                {% for sort_value, sort_label in sort_options %}
-                    <option value="{{ sort_value }}" {% if current_sort == sort_value %}selected{% endif %}>{{ sort_label }}</option>
-                {% endfor %}
-            </select>
+            <button type="button" id="advanced-filter-toggle" class="btn btn-secondary">
+                <i class="fas fa-filter"></i> Advanced Filter
+                {% if active_filters_count > 0 %}
+                <span class="filter-indicator">{{ active_filters_count }}</span>
+                {% endif %}
+            </button>
             
             {% if user.role != 'agent' %}
             <button id="select-all-btn" class="btn btn-sm btn-outline">Select All</button>
             <button id="clear-selection-btn" class="btn btn-sm btn-outline">Clear Selection</button>
             {% endif %}
+            
+            <!-- Quick Filter Presets -->
+            <div class="filter-presets">
+                <button type="button" class="preset-btn" data-preset="today">Today</button>
+                <button type="button" class="preset-btn" data-preset="week">This Week</button>
+                <button type="button" class="preset-btn" data-preset="month">This Month</button>
+                {% if user.role != 'agent' %}
+                <button type="button" class="preset-btn" data-preset="team">My Team's Leads</button>
+                {% endif %}
+                <button type="button" class="preset-btn" data-preset="my">My Leads</button>
+            </div>
         </div>
-        <div class="search-box">
-            <i class="fas fa-search"></i>
-            <input type="text" placeholder="Search leads..." autocomplete="off">
+        
+        <!-- Advanced Filter Panel -->
+        <div id="advanced-filter-panel" class="advanced-filter-panel" style="display: none;">
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label for="country-select">Country</label>
+                    <select id="country-select" class="filter-select">
+                        <option value="">All Countries</option>
+                        <!-- Countries will be populated via AJAX -->
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="course-select">Course</label>
+                    <select id="course-select" class="filter-select">
+                        <option value="">All Courses</option>
+                        <option value="Data Science" {% if request.GET.course == 'Data Science' %}selected{% endif %}>Data Science</option>
+                        <option value="Cyber Security" {% if request.GET.course == 'Cyber Security' %}selected{% endif %}>Cyber Security</option>
+                        <option value="DevOps" {% if request.GET.course == 'DevOps' %}selected{% endif %}>DevOps</option>
+                        <!-- Additional courses will be populated via AJAX -->
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="status-select">Status</label>
+                    <select id="status-select" class="filter-select">
+                        <option value="">All Status</option>
+                        {% for status_code, status_name in status_choices %}
+                            <option value="{{ status_code }}" {% if request.GET.status == status_code %}selected{% endif %}>{{ status_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label for="start-date">Start Date</label>
+                    <input type="date" id="start-date" class="filter-input" value="{{ request.GET.start_date|default:'' }}">
+                </div>
+                
+                <div class="filter-group">
+                    <label for="end-date">End Date</label>
+                    <input type="date" id="end-date" class="filter-input" value="{{ request.GET.end_date|default:'' }}">
+                </div>
+                
+                <div class="filter-group">
+                    <label for="assigned-user-select">Assigned To</label>
+                    <select id="assigned-user-select" class="filter-select">
+                        <option value="">All Team Members</option>
+                        <!-- Team members will be populated via AJAX based on hierarchy -->
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="page-size-select">Leads per page</label>
+                    <select id="page-size-select" class="filter-select">
+                        <option value="5" {% if request.GET.page_size == '5' %}selected{% endif %}>5</option>
+                        <option value="10" {% if request.GET.page_size == '10' %}selected{% endif %}>10</option>
+                        <option value="25" {% if request.GET.page_size == '25' %}selected{% endif %}>25</option>
+                        <option value="50" {% if request.GET.page_size == '50' %}selected{% endif %}>50</option>
+                        <option value="100" {% if request.GET.page_size == '100' %}selected{% endif %}>100</option>
+                        <option value="200" {% if request.GET.page_size == '200' %}selected{% endif %}>200</option>
+                        <option value="500" {% if request.GET.page_size == '500' %}selected{% endif %}>500</option>
+                    </select>
+                </div>
+                
+                <div class="filter-actions">
+                    <button type="button" id="apply-filters" class="btn btn-primary btn-sm">
+                        <i class="fas fa-check"></i> Apply
+                    </button>
+                    <button type="button" id="clear-filters" class="btn btn-outline btn-sm">
+                        <i class="fas fa-times"></i> Clear
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
     
@@ -63,14 +149,14 @@
                     </th>
                     {% endif %}
                     <th>Name</th>
-                    <th>Phone</th>
+                    <th>Assigned To</th>
+                    <th>Mobile</th>
                     <th>Email</th>
                     <th>Status</th>
-                    <th>Assigned To</th>
                     {% if page_title == 'Transferred Leads' %}
                     <th>Transfer Info</th>
                     {% endif %}
-                    <th>Follow Up</th>
+                    <th>Follow-up Date</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -82,11 +168,33 @@
                         <input type="checkbox" class="lead-checkbox" data-lead-id="{{ lead.id_lead }}" data-lead-name="{{ lead.name }}">
                     </td>
                     {% endif %}
-                    <td><strong>{{ lead.name|default:"-" }}</strong></td>
+                    <td>
+                        <strong><a href="{% url 'dashboard:lead_detail' lead.id_lead %}" class="lead-name-link">{{ lead.name|default:"-" }}</a></strong>
+                        {% if page_title == 'New Leads' %}
+                            {% if not lead.assigned_user %}
+                                <span class="lead-type-badge unassigned-badge">Unassigned</span>
+                            {% else %}
+                                <span class="lead-type-badge new-badge">New</span>
+                            {% endif %}
+                        {% endif %}
+                    </td>
+                    <td>{% if lead.assigned_user %}{{ lead.assigned_user.get_full_name|default:lead.assigned_user.username }}{% else %}-{% endif %}</td>
                     <td>{{ lead.mobile|default:lead.alt_mobile|default:"-" }}</td>
                     <td>{{ lead.email|default:lead.alt_email|default:"-" }}</td>
-                    <td><span class="status-badge status-{{ lead.status }}">{{ lead.get_status_display }}</span></td>
-                    <td>{% if lead.assigned_user %}{{ lead.assigned_user.get_full_name|default:lead.assigned_user.username }}{% else %}-{% endif %}</td>
+                    <td>
+                        <div class="status-dropdown-container">
+                            <button class="status-badge status-{{ lead.status }} dropdown-toggle" 
+                                    data-lead-id="{{ lead.id_lead }}" 
+                                    data-current-status="{{ lead.status }}"
+                                    onclick="toggleStatusDropdown(this)">
+                                {{ lead.get_status_display }}
+                                <i class="fas fa-chevron-down"></i>
+                            </button>
+                            <div class="status-dropdown" id="status-dropdown-{{ lead.id_lead }}" style="display: none;">
+                                <!-- Status categories will be populated by JavaScript -->
+                            </div>
+                        </div>
+                    </td>
                     {% if page_title == 'Transferred Leads' %}
                     <td>
                         {% if lead.transfer_date %}
@@ -115,7 +223,10 @@
                 <tr>
                     <td colspan="{% if user.role == 'agent' %}{% if page_title == 'Transferred Leads' %}8{% else %}7{% endif %}{% else %}{% if page_title == 'Transferred Leads' %}9{% else %}8{% endif %}{% endif %}" class="text-center empty-state">
                         <i class="fas fa-inbox"></i>
-                        <p>No leads found</p>
+                        <p>{% if search_query %}No leads found matching "{{ search_query }}"{% else %}No leads found{% endif %}</p>
+                        {% if search_query %}
+                        <button type="button" onclick="clearSearch()" class="btn btn-outline">Clear Search</button>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -123,28 +234,8 @@
         </table>
     </div>
     
-    <!-- Pagination -->
-    {% if page_obj.has_other_pages %}
-    <div class="pagination">
-        <span class="page-info">
-            Showing {{ page_obj.start_index }}-{{ page_obj.end_index }} of {{ page_obj.paginator.count }} leads
-        </span>
-        
-        <div class="pagination-controls">
-            {% if page_obj.has_previous %}
-                <a href="?page=1{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-btn">« First</a>
-                <a href="?page={{ page_obj.previous_page_number }}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-btn">‹ Previous</a>
-            {% endif %}
-            
-            <span class="current-page">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-            
-            {% if page_obj.has_next %}
-                <a href="?page={{ page_obj.next_page_number }}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-btn">Next ›</a>
-                <a href="?page={{ page_obj.paginator.num_pages }}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}" class="page-btn">Last »</a>
-            {% endif %}
-        </div>
-    </div>
-    {% endif %}
+    <!-- Enhanced Pagination -->
+    {% include 'dashboard/pagination.html' with item_name="leads" %}
 </div>
 
 <style>
@@ -172,15 +263,148 @@
     flex-wrap: wrap;
 }
 
-.filter-select {
-    padding: 10px 15px;
-    background: var(--bg-secondary);
+.filter-basic {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex-wrap: wrap;
+    flex: 1;
+}
+
+.advanced-filter-panel {
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 8px;
+    padding: 12px 16px;
+    margin-top: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    animation: slideDown 0.3s ease-out;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.filter-row {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 120px;
+}
+
+.filter-group label {
+    font-weight: 500;
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 12px;
+    margin-bottom: 2px;
+}
+
+.filter-input {
+    padding: 6px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    transition: all 0.3s ease;
+    min-height: 32px;
+}
+
+.filter-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.filter-presets {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.preset-btn {
+    padding: 8px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
     transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.preset-btn:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.preset-btn.active {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+}
+
+.filter-indicator {
+    background: var(--accent-color);
+    color: white;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    margin-left: 8px;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-left: auto;
+    padding-left: 15px;
+    border-left: 1px solid var(--border-color);
+}
+
+.btn-sm {
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+    min-height: 32px;
+}
+
+.filter-select {
+    padding: 6px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    min-height: 32px;
 }
 
 .filter-select:hover {
@@ -202,6 +426,7 @@
     flex: 1;
     max-width: 400px;
     transition: all 0.3s ease;
+    position: relative;
 }
 
 .search-box:focus-within {
@@ -225,11 +450,39 @@
     outline: none;
 }
 
+.clear-search-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 2px 6px;
+    margin-left: 8px;
+    border-radius: 4px;
+    transition: all 0.3s ease;
+    font-size: 12px;
+}
+
+.clear-search-btn:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+.search-indicator {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--accent-color);
+    font-size: 12px;
+    font-weight: 600;
+}
+
 .leads-table-container {
     background: var(--card-bg);
     border-radius: 12px;
-    overflow: hidden;
+    overflow: visible; /* Changed from hidden to allow dropdowns to show */
     border: 1px solid var(--border-color);
+    position: relative; /* Ensure positioning context */
 }
 
 .leads-table {
@@ -261,7 +514,7 @@
 }
 
 .leads-table td {
-    padding: 18px 15px;
+    padding: 9px 15px;
     color: var(--text-primary);
     font-size: 14px;
 }
@@ -333,7 +586,7 @@
 }
 
 .empty-state {
-    padding: 60px 20px !important;
+    padding: 30px 20px !important;
 }
 
 .empty-state i {
@@ -365,73 +618,6 @@
 .btn-primary:hover {
     transform: translateY(-2px);
     box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-}
-
-/* Pagination Styles */
-.pagination {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 20px;
-    padding: 20px;
-    background: var(--card-bg);
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-}
-
-.page-info {
-    color: var(--text-secondary);
-    font-size: 14px;
-}
-
-.pagination-controls {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.page-btn {
-    padding: 8px 12px;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    text-decoration: none;
-    border-radius: 4px;
-    font-size: 14px;
-    transition: all 0.3s ease;
-}
-
-.page-btn:hover {
-    background: var(--accent-color);
-    color: white;
-}
-
-.current-page {
-    color: var(--text-primary);
-    font-size: 14px;
-    padding: 0 10px;
-}
-
-@media (max-width: 768px) {
-    .pagination {
-        flex-direction: column;
-        gap: 15px;
-        text-align: center;
-    }
-    
-    .pagination-controls {
-        flex-wrap: wrap;
-        justify-content: center;
-    }
-    
-    .header-actions {
-        flex-direction: column;
-        gap: 10px;
-    }
-    
-    .filter-left {
-        flex-direction: column;
-        gap: 10px;
-    }
 }
 
 /* Additional styles for new features */
@@ -635,6 +821,209 @@
 .transfer-info strong {
     color: var(--accent-color);
 }
+
+/* Lead name link styling */
+.lead-name-link {
+    color: var(--text-primary) !important;
+    text-decoration: none !important;
+    font-weight: 600 !important;
+    transition: all 0.3s ease;
+    display: inline-block;
+}
+
+.lead-name-link:hover {
+    color: var(--accent-color) !important;
+    text-decoration: underline !important;
+    transform: translateX(2px);
+}
+
+/* Lead type badges for New Leads page */
+.lead-type-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.unassigned-badge {
+    background: #ffebee;
+    color: #c62828;
+    border: 1px solid #ffcdd2;
+}
+
+.new-badge {
+    background: #e8f5e8;
+    color: #2e7d32;
+    border: 1px solid #c8e6c9;
+}
+
+/* Status Dropdown Styles */
+.status-dropdown-container {
+    position: relative;
+    display: inline-block;
+}
+
+.status-badge.dropdown-toggle {
+    cursor: pointer;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: capitalize;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.3s ease;
+    border: none;
+    position: relative;
+}
+
+.status-badge.dropdown-toggle:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.status-badge.dropdown-toggle i {
+    font-size: 10px;
+    transition: transform 0.3s ease;
+}
+
+.status-badge.dropdown-toggle.active i {
+    transform: rotate(180deg);
+}
+
+.status-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    z-index: 9999;
+    min-width: 200px;
+    max-width: 300px;
+    margin-top: 4px;
+    animation: dropdownOpen 0.3s ease-out;
+}
+
+/* Alternative positioning for dropdowns near bottom of viewport */
+.status-dropdown.bottom-aligned {
+    top: auto;
+    bottom: 100%;
+    margin-top: 0;
+    margin-bottom: 4px;
+}
+
+@keyframes dropdownOpen {
+    from {
+        opacity: 0;
+        transform: translateY(-10px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.status-category {
+    padding: 8px 12px;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    background: var(--hover-bg);
+    border-bottom: 1px solid var(--border-color);
+    letter-spacing: 0.5px;
+}
+
+.status-option {
+    display: block;
+    padding: 10px 16px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 13px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+}
+
+.status-option:hover {
+    background: var(--accent-color);
+    color: white;
+    transform: translateX(4px);
+}
+
+.status-option.selected {
+    background: var(--accent-color);
+    color: white;
+}
+
+.status-option .status-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+/* Status-specific colors in dropdown */
+.status-option[data-status="sale_done"] .status-indicator {
+    background: var(--success-color);
+}
+
+.status-option[data-status="interested_follow_up"] .status-indicator {
+    background: var(--info-color);
+}
+
+.status-option[data-status="not_interested"] .status-indicator {
+    background: var(--danger-color);
+}
+
+.status-option[data-status="contacted"] .status-indicator {
+    background: #8e44ad;
+}
+
+.status-option[data-status="call_back"] .status-indicator {
+    background: #f39c12;
+}
+
+.status-option[data-status="lead"] .status-indicator {
+    background: #95a5a6;
+}
+
+/* Loading state */
+.status-badge.updating {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.status-badge.updating::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 12px;
+    height: 12px;
+    margin: -6px 0 0 -6px;
+    border: 2px solid transparent;
+    border-top: 2px solid currentColor;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
 </style>
 
 <!-- Bulk Assignment Modal -->
@@ -675,7 +1064,314 @@
     </div>
 </div>
 
+<!-- Quick Follow-up Modal -->
+<div id="quick-followup-modal" class="modal">
+    <div class="modal-content" style="max-width: 450px;">
+        <div class="modal-header">
+            <h3>Schedule Follow-up</h3>
+            <span class="close" onclick="closeFollowupModal()">&times;</span>
+        </div>
+        <form id="quick-followup-form">
+            {% csrf_token %}
+            <input type="hidden" id="followup-lead-id" name="lead_id">
+            <input type="hidden" id="followup-status" name="status">
+            
+            <div class="form-group">
+                <label for="followup-datetime">Follow-up Date & Time</label>
+                <input type="datetime-local" id="followup-datetime" name="followup_datetime" class="form-control" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="followup-remarks">Follow-up Remarks</label>
+                <textarea id="followup-remarks" name="followup_remarks" class="form-control" rows="3" 
+                          placeholder="Add notes for this follow-up..."></textarea>
+            </div>
+            
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-outline" onclick="closeFollowupModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Schedule Follow-up</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
+// Search functionality
+let searchTimeout;
+
+function getCurrentSearch() {
+    return document.getElementById('search-input').value.trim();
+}
+
+// Advanced Filter System
+let filterTimeout;
+
+function toggleAdvancedFilter() {
+    const panel = document.getElementById('advanced-filter-panel');
+    const toggle = document.getElementById('advanced-filter-toggle');
+    
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.innerHTML = '<i class="fas fa-times"></i> Close Filter';
+        toggle.classList.add('active');
+        // Load dynamic data when panel opens
+        loadFilterData();
+    } else {
+        panel.style.display = 'none';
+        toggle.innerHTML = '<i class="fas fa-filter"></i> Advanced Filter';
+        toggle.classList.remove('active');
+    }
+}
+
+function loadFilterData() {
+    // Load countries
+    fetch('/dashboard/ajax/get-countries/', {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        const countrySelect = document.getElementById('country-select');
+        if (data.countries && countrySelect) {
+            data.countries.forEach(country => {
+                const option = document.createElement('option');
+                option.value = country;
+                option.textContent = country;
+                if ('{{ request.GET.country|default:"" }}' === country) {
+                    option.selected = true;
+                }
+                countrySelect.appendChild(option);
+            });
+        }
+    })
+    .catch(error => console.error('Error loading countries:', error));
+    
+    // Load team members
+    loadTeamMembers();
+    
+    // Load additional courses
+    fetch('/dashboard/ajax/get-courses/', {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        const courseSelect = document.getElementById('course-select');
+        if (data.courses && courseSelect) {
+            // Add predefined courses
+            const predefinedCourses = ['Data Science', 'Cyber Security', 'DevOps'];
+            
+            data.courses.forEach(course => {
+                if (!predefinedCourses.includes(course)) {
+                    const option = document.createElement('option');
+                    option.value = course;
+                    option.textContent = course;
+                    if ('{{ request.GET.course|default:"" }}' === course) {
+                        option.selected = true;
+                    }
+                    courseSelect.appendChild(option);
+                }
+            });
+        }
+    })
+    .catch(error => console.error('Error loading courses:', error));
+}
+
+function loadTeamMembers() {
+    const assignedUserSelect = document.getElementById('assigned-user-select');
+    if (!assignedUserSelect) return;
+    
+    fetch('/dashboard/ajax/get-team-members/', {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.team_members && assignedUserSelect) {
+            // Clear existing options except "All Team Members"
+            while (assignedUserSelect.children.length > 1) {
+                assignedUserSelect.removeChild(assignedUserSelect.lastChild);
+            }
+            
+            data.team_members.forEach(member => {
+                const option = document.createElement('option');
+                option.value = member.id;
+                option.textContent = member.name;
+                if ('{{ request.GET.assigned_user|default:"" }}' === member.id.toString()) {
+                    option.selected = true;
+                }
+                assignedUserSelect.appendChild(option);
+            });
+        }
+    })
+    .catch(error => console.error('Error loading team members:', error));
+}
+
+function applyAdvancedFilters() {
+    const params = {
+        country: document.getElementById('country-select').value,
+        course: document.getElementById('course-select').value,
+        status: document.getElementById('status-select').value,
+        start_date: document.getElementById('start-date').value,
+        end_date: document.getElementById('end-date').value,
+        assigned_user: document.getElementById('assigned-user-select').value,
+        page_size: document.getElementById('page-size-select').value,
+        search: getCurrentSearch()
+    };
+    
+    updateUrl(params);
+}
+
+function clearAllFilters() {
+    // Reset all filter fields
+    document.getElementById('country-select').value = '';
+    document.getElementById('course-select').value = '';
+    document.getElementById('status-select').value = '';
+    document.getElementById('start-date').value = '';
+    document.getElementById('end-date').value = '';
+    document.getElementById('assigned-user-select').value = '';
+    document.getElementById('page-size-select').value = '25';
+    document.getElementById('search-input').value = '';
+    
+    // Clear URL
+    updateUrl({
+        country: '',
+        course: '',
+        status: '',
+        start_date: '',
+        end_date: '',
+        assigned_user: '',
+        page_size: '25',
+        search: ''
+    });
+}
+
+function applyPreset(preset) {
+    const today = new Date();
+    const params = {search: getCurrentSearch()};
+    
+    switch(preset) {
+        case 'today':
+            params.start_date = today.toISOString().split('T')[0];
+            params.end_date = today.toISOString().split('T')[0];
+            break;
+        case 'week':
+            const weekStart = new Date(today);
+            weekStart.setDate(today.getDate() - today.getDay());
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekStart.getDate() + 6);
+            params.start_date = weekStart.toISOString().split('T')[0];
+            params.end_date = weekEnd.toISOString().split('T')[0];
+            break;
+        case 'month':
+            const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+            const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            params.start_date = monthStart.toISOString().split('T')[0];
+            params.end_date = monthEnd.toISOString().split('T')[0];
+            break;
+        case 'team':
+            // This will be handled by backend based on user role
+            params.team_filter = 'my_team';
+            break;
+        case 'my':
+            params.assigned_user = '{{ user.id }}';
+            break;
+    }
+    
+    updateUrl(params);
+}
+
+function updateUrl(params) {
+    const url = new URL(window.location);
+    
+    // Store current search input state before navigation
+    const searchInput = document.getElementById('search-input');
+    const searchValue = searchInput ? searchInput.value : '';
+    const cursorPosition = searchInput ? searchInput.selectionStart : 0;
+    
+    // Store focus state in sessionStorage
+    sessionStorage.setItem('searchFocus', 'true');
+    sessionStorage.setItem('searchCursor', cursorPosition.toString());
+    
+    // Update parameters
+    if (params.status !== undefined && params.status !== '') {
+        url.searchParams.set('status', params.status);
+    } else if (params.status === '') {
+        url.searchParams.delete('status');
+    }
+    
+    if (params.country !== undefined && params.country !== '') {
+        url.searchParams.set('country', params.country);
+    } else if (params.country === '') {
+        url.searchParams.delete('country');
+    }
+    
+    if (params.course !== undefined && params.course !== '') {
+        url.searchParams.set('course', params.course);
+    } else if (params.course === '') {
+        url.searchParams.delete('course');
+    }
+    
+    if (params.start_date !== undefined && params.start_date !== '') {
+        url.searchParams.set('start_date', params.start_date);
+    } else if (params.start_date === '') {
+        url.searchParams.delete('start_date');
+    }
+    
+    if (params.end_date !== undefined && params.end_date !== '') {
+        url.searchParams.set('end_date', params.end_date);
+    } else if (params.end_date === '') {
+        url.searchParams.delete('end_date');
+    }
+    
+    if (params.assigned_user !== undefined && params.assigned_user !== '') {
+        url.searchParams.set('assigned_user', params.assigned_user);
+    } else if (params.assigned_user === '') {
+        url.searchParams.delete('assigned_user');
+    }
+    
+    if (params.page_size !== undefined && params.page_size !== '') {
+        url.searchParams.set('page_size', params.page_size);
+    } else if (params.page_size === '') {
+        url.searchParams.delete('page_size');
+    }
+    
+    if (params.search !== undefined && params.search !== '') {
+        url.searchParams.set('search', params.search);
+    } else if (params.search === '') {
+        url.searchParams.delete('search');
+    }
+    
+    if (params.team_filter !== undefined) {
+        url.searchParams.set('preset', params.team_filter);
+    } else {
+        url.searchParams.delete('preset');
+    }
+    
+    // Reset to page 1 when filters change
+    url.searchParams.delete('page');
+    
+    window.location.href = url.toString();
+}
+
+function performSearch() {
+    const searchValue = getCurrentSearch();
+    updateUrl({search: searchValue});
+}
+
+function clearSearch() {
+    document.getElementById('search-input').value = '';
+    updateUrl({search: ''});
+}
+
+function debounceSearch() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(performSearch, 500);
+}
+
 // Bulk selection functionality
 let selectedLeads = new Set();
 
@@ -686,6 +1382,93 @@ document.addEventListener("DOMContentLoaded", function() {
     const selectedCountSpan = document.getElementById('selected-count');
     const selectAllBtn = document.getElementById('select-all-btn');
     const clearSelectionBtn = document.getElementById('clear-selection-btn');
+    const searchInput = document.getElementById('search-input');
+    const clearSearchBtn = document.getElementById('clear-search');
+    const statusSelect = document.getElementById('status-select');
+    const sortSelect = document.getElementById('sort-select');
+    const advancedFilterToggle = document.getElementById('advanced-filter-toggle');
+    const applyFiltersBtn = document.getElementById('apply-filters');
+    const clearFiltersBtn = document.getElementById('clear-filters');
+    const presetBtns = document.querySelectorAll('.preset-btn');
+    
+    // Restore search focus and cursor position after page load
+    if (searchInput) {
+        const shouldFocus = sessionStorage.getItem('searchFocus');
+        const cursorPosition = sessionStorage.getItem('searchCursor');
+        
+        if (shouldFocus === 'true') {
+            // Focus search input
+            searchInput.focus();
+            
+            // Restore cursor position if available
+            if (cursorPosition) {
+                setTimeout(() => {
+                    searchInput.setSelectionRange(parseInt(cursorPosition), parseInt(cursorPosition));
+                }, 10);
+            }
+            
+            // Clear the session storage
+            sessionStorage.removeItem('searchFocus');
+            sessionStorage.removeItem('searchCursor');
+        }
+    }
+    
+    // Advanced filter toggle
+    if (advancedFilterToggle) {
+        advancedFilterToggle.addEventListener('click', toggleAdvancedFilter);
+    }
+    
+    // Apply filters button
+    if (applyFiltersBtn) {
+        applyFiltersBtn.addEventListener('click', applyAdvancedFilters);
+    }
+    
+    // Clear filters button
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', clearAllFilters);
+    }
+    
+    // Preset buttons
+    presetBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const preset = this.dataset.preset;
+            applyPreset(preset);
+            
+            // Update active state
+            presetBtns.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+        });
+    });
+    
+    // Search input event listener with debouncing
+    if (searchInput) {
+        searchInput.addEventListener('input', debounceSearch);
+        searchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                clearTimeout(searchTimeout);
+                performSearch();
+            }
+        });
+    }
+    
+    // Clear search button
+    if (clearSearchBtn) {
+        clearSearchBtn.addEventListener('click', clearSearch);
+    }
+    
+    // Filter select event listeners
+    if (statusSelect) {
+        statusSelect.addEventListener('change', function() {
+            updateUrl({status: this.value, sort: sortSelect ? sortSelect.value : '{{ current_sort }}', search: getCurrentSearch()});
+        });
+    }
+    
+    if (sortSelect) {
+        sortSelect.addEventListener('change', function() {
+            updateUrl({sort: this.value, status: statusSelect ? statusSelect.value : '{{ request.GET.status|default:"" }}', search: getCurrentSearch()});
+        });
+    }
     
     // Select all functionality
     selectAllCheckbox.addEventListener('change', function() {
@@ -906,5 +1689,418 @@ document.addEventListener("DOMContentLoaded", function() {
         loadUsersByRole(selectedRole);
     });
 });
+
+// Quick Status Change Functionality
+const STATUS_CHOICES = {
+    'sale_done': 'Sale Done',
+    'interested_follow_up': 'Interested - Follow Up',
+    'not_available': 'Not Available',
+    'rnr': 'RNR',
+    'not_interested': 'Not Interested',
+    'out_of_country': 'Out of Country',
+    'getting_better_deal': 'Getting Better Deal',
+    'product_expensive': 'Product is Expensive',
+    'not_eligible_emi': 'Not Eligible for EMI',
+    'wrong_number': 'Wrong Number',
+    'switched_off': 'Switched Off',
+    'closed': 'Closed',
+    'call_back': 'Call Back',
+    'in_few_months': 'In Few Months',
+    'contacted': 'Contacted',
+    'lead': 'Lead'
+};
+
+const STATUS_CATEGORIES = {
+    'Positive/Closing': ['sale_done', 'interested_follow_up', 'contacted'],
+    'Follow-up Required': ['call_back', 'in_few_months', 'not_available'],
+    'Negative/Closed': ['not_interested', 'getting_better_deal', 'product_expensive', 'not_eligible_emi', 'closed'],
+    'Contact Issues': ['wrong_number', 'switched_off', 'out_of_country'],
+    'Neutral/Pending': ['lead', 'rnr']
+};
+
+let currentOpenDropdown = null;
+
+function toggleStatusDropdown(button) {
+    const leadId = button.dataset.leadId;
+    const dropdown = document.getElementById(`status-dropdown-${leadId}`);
+    
+    // Close any other open dropdowns
+    if (currentOpenDropdown && currentOpenDropdown !== dropdown) {
+        currentOpenDropdown.style.display = 'none';
+        currentOpenDropdown.previousElementSibling.classList.remove('active');
+    }
+    
+    // Toggle current dropdown
+    if (dropdown.style.display === 'block') {
+        dropdown.style.display = 'none';
+        button.classList.remove('active');
+        currentOpenDropdown = null;
+    } else {
+        // Populate dropdown if empty
+        if (dropdown.children.length === 0) {
+            populateStatusDropdown(dropdown, button.dataset.currentStatus);
+        }
+        
+        // Position dropdown smartly
+        positionDropdownSmartly(button, dropdown);
+        
+        dropdown.style.display = 'block';
+        button.classList.add('active');
+        currentOpenDropdown = dropdown;
+    }
+}
+
+function positionDropdownSmartly(button, dropdown) {
+    // Reset positioning classes
+    dropdown.classList.remove('bottom-aligned');
+    
+    // Get viewport and button position
+    const buttonRect = button.getBoundingClientRect();
+    const dropdownHeight = 300; // Estimated max height
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - buttonRect.bottom;
+    const spaceAbove = buttonRect.top;
+    
+    // Check if dropdown would go below viewport
+    if (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight) {
+        // Not enough space below, but enough space above - position above
+        dropdown.classList.add('bottom-aligned');
+    } else {
+        // Normal positioning below
+        dropdown.style.top = '';
+        dropdown.style.bottom = '';
+    }
+    
+    // Also handle horizontal positioning if needed
+    const dropdownWidth = 300; // Estimated max width
+    const spaceRight = window.innerWidth - buttonRect.left;
+    
+    if (spaceRight < dropdownWidth && buttonRect.left > dropdownWidth) {
+        // Position from right edge if not enough space on right
+        dropdown.style.left = 'auto';
+        dropdown.style.right = '0';
+    } else {
+        dropdown.style.left = '0';
+        dropdown.style.right = '';
+    }
+}
+
+function populateStatusDropdown(dropdown, currentStatus) {
+    dropdown.innerHTML = '';
+    
+    for (const [category, statuses] of Object.entries(STATUS_CATEGORIES)) {
+        // Add category header
+        const categoryDiv = document.createElement('div');
+        categoryDiv.className = 'status-category';
+        categoryDiv.textContent = category;
+        dropdown.appendChild(categoryDiv);
+        
+        // Add status options
+        statuses.forEach(status => {
+            const option = document.createElement('button');
+            option.className = 'status-option';
+            option.dataset.status = status;
+            option.innerHTML = `
+                <span class="status-indicator"></span>
+                ${STATUS_CHOICES[status]}
+            `;
+            
+            if (status === currentStatus) {
+                option.classList.add('selected');
+            }
+            
+            option.addEventListener('click', function(e) {
+                e.preventDefault();
+                const leadId = dropdown.id.replace('status-dropdown-', '');
+                updateLeadStatus(leadId, status, dropdown);
+            });
+            
+            dropdown.appendChild(option);
+        });
+    }
+}
+
+function updateLeadStatus(leadId, newStatus, dropdown) {
+    const button = dropdown.previousElementSibling;
+    
+    // Show loading state
+    button.classList.add('updating');
+    
+    // Check if follow-up is needed
+    const needsFollowup = ['interested_follow_up', 'call_back', 'in_few_months'].includes(newStatus);
+    
+    if (needsFollowup) {
+        // Show follow-up modal first
+        showFollowupModal(leadId, newStatus, button, dropdown);
+    } else {
+        // Update status directly
+        performStatusUpdate(leadId, newStatus, null, '', button, dropdown);
+    }
+}
+
+function performStatusUpdate(leadId, newStatus, followupDatetime, followupRemarks, button, dropdown) {
+    const data = {
+        lead_id: leadId,
+        status: newStatus
+    };
+    
+    if (followupDatetime) {
+        data.followup_datetime = followupDatetime;
+    }
+    
+    if (followupRemarks) {
+        data.followup_remarks = followupRemarks;
+    }
+    
+    fetch('/dashboard/ajax/lead-status-update/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken'),
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        button.classList.remove('updating');
+        
+        if (data.success) {
+            // Update button appearance
+            button.className = `status-badge status-${newStatus} dropdown-toggle`;
+            button.dataset.currentStatus = newStatus;
+            button.innerHTML = `
+                ${data.new_status_display}
+                <i class="fas fa-chevron-down"></i>
+            `;
+            
+            // Close dropdown
+            dropdown.style.display = 'none';
+            button.classList.remove('active');
+            currentOpenDropdown = null;
+            
+            // Show success message
+            showNotification('Status updated successfully', 'success');
+        } else {
+            showNotification(data.error || 'Error updating status', 'error');
+        }
+    })
+    .catch(error => {
+        button.classList.remove('updating');
+        console.error('Error updating status:', error);
+        showNotification('Error updating status', 'error');
+    });
+}
+
+function showFollowupModal(leadId, status, button, dropdown) {
+    const modal = document.getElementById('quick-followup-modal');
+    const leadIdInput = document.getElementById('followup-lead-id');
+    const statusInput = document.getElementById('followup-status');
+    const datetimeInput = document.getElementById('followup-datetime');
+    
+    // Set hidden fields
+    leadIdInput.value = leadId;
+    statusInput.value = status;
+    
+    // Set default datetime to tomorrow same time
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    datetimeInput.value = tomorrow.toISOString().slice(0, 16);
+    
+    // Store references for form submission
+    modal.dataset.button = button.outerHTML;
+    modal.dataset.dropdown = dropdown.outerHTML;
+    
+    // Show modal
+    modal.style.display = 'block';
+    datetimeInput.focus();
+}
+
+function closeFollowupModal() {
+    const modal = document.getElementById('quick-followup-modal');
+    modal.style.display = 'none';
+    
+    // Reset form
+    document.getElementById('quick-followup-form').reset();
+}
+
+// Handle follow-up form submission
+document.getElementById('quick-followup-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const leadId = document.getElementById('followup-lead-id').value;
+    const status = document.getElementById('followup-status').value;
+    const datetime = document.getElementById('followup-datetime').value;
+    const remarks = document.getElementById('followup-remarks').value;
+    
+    const modal = document.getElementById('quick-followup-modal');
+    const button = document.querySelector(`[data-lead-id="${leadId}"]`);
+    const dropdown = document.getElementById(`status-dropdown-${leadId}`);
+    
+    // Close modal
+    closeFollowupModal();
+    
+    // Perform status update with follow-up
+    performStatusUpdate(leadId, status, datetime, remarks, button, dropdown);
+});
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.status-dropdown-container')) {
+        if (currentOpenDropdown) {
+            currentOpenDropdown.style.display = 'none';
+            currentOpenDropdown.previousElementSibling.classList.remove('active');
+            currentOpenDropdown = null;
+        }
+    }
+});
+
+// Keyboard navigation support
+document.addEventListener('keydown', function(e) {
+    // Handle Escape key to close dropdowns/modals
+    if (e.key === 'Escape') {
+        if (currentOpenDropdown) {
+            currentOpenDropdown.style.display = 'none';
+            currentOpenDropdown.previousElementSibling.classList.remove('active');
+            currentOpenDropdown = null;
+        }
+        
+        // Close follow-up modal if open
+        const followupModal = document.getElementById('quick-followup-modal');
+        if (followupModal.style.display === 'block') {
+            closeFollowupModal();
+        }
+    }
+    
+    // Handle Enter/Space on status badge
+    if (e.key === 'Enter' || e.key === ' ') {
+        const focusedElement = document.activeElement;
+        if (focusedElement && focusedElement.classList.contains('dropdown-toggle')) {
+            e.preventDefault();
+            toggleStatusDropdown(focusedElement);
+        }
+    }
+    
+    // Handle arrow keys in dropdown
+    if (currentOpenDropdown && (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Tab')) {
+        const options = currentOpenDropdown.querySelectorAll('.status-option:not([style*="display: none"])');
+        let currentIndex = -1;
+        
+        // Find current focused option
+        options.forEach((option, index) => {
+            if (option === document.activeElement) {
+                currentIndex = index;
+            }
+        });
+        
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            currentIndex = (currentIndex + 1) % options.length;
+            options[currentIndex].focus();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            currentIndex = currentIndex <= 0 ? options.length - 1 : currentIndex - 1;
+            options[currentIndex].focus();
+        }
+    }
+    
+    // Handle Enter on status option
+    if (e.key === 'Enter' && document.activeElement && document.activeElement.classList.contains('status-option')) {
+        e.preventDefault();
+        const leadId = currentOpenDropdown.id.replace('status-dropdown-', '');
+        const status = document.activeElement.dataset.status;
+        updateLeadStatus(leadId, status, currentOpenDropdown);
+    }
+});
+
+// Helper function to get CSRF token
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Notification system
+function showNotification(message, type = 'info') {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    
+    // Style the notification
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        border-radius: 6px;
+        color: white;
+        font-weight: 500;
+        z-index: 10000;
+        animation: slideIn 0.3s ease-out;
+        max-width: 300px;
+    `;
+    
+    // Set background color based on type
+    switch (type) {
+        case 'success':
+            notification.style.background = 'var(--success-color)';
+            break;
+        case 'error':
+            notification.style.background = 'var(--danger-color)';
+            break;
+        default:
+            notification.style.background = 'var(--accent-color)';
+    }
+    
+    // Add to page
+    document.body.appendChild(notification);
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease-out';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, 3000);
+}
+
+// Add notification animations
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slideOut {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+    }
+`;
+document.head.appendChild(style);
 </script>
 {% endblock %}

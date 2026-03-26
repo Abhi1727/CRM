@@ -20,4 +20,7 @@ urlpatterns = [
     path('bulk-assign/', views.bulk_assign_leads, name='bulk_assign'),
     path('get-users-by-role/', views.get_users_by_role, name='get_users_by_role'),
     path('transfer-history/', views.lead_transfer_history, name='transfer_history'),
+    
+    # Username availability check
+    path('check-username/', views.check_username_availability, name='check_username'),
 ]

@@ -1,0 +1,585 @@
+{% extends 'dashboard/base_dashboard.html' %}
+
+{% block page_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="reassign-page">
+    <div class="page-header">
+        <h2>{{ page_title }}</h2>
+        <div class="page-actions">
+            <a href="{% url 'dashboard:lead_duplicate_detail' lead.id_lead %}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Lead
+            </a>
+        </div>
+    </div>
+    
+    <!-- Lead Summary Card -->
+    <div class="lead-summary-card">
+        <div class="card-header">
+            <h3>Lead Summary</h3>
+        </div>
+        <div class="card-content">
+            <div class="lead-info">
+                <div class="lead-name">
+                    <strong>{{ lead.name|default:"No Name" }}</strong>
+                    <span class="duplicate-badge duplicate-{{ lead.duplicate_status }}">
+                        {{ lead.get_duplicate_status_display }}
+                    </span>
+                </div>
+                <div class="lead-contact">
+                    <div><i class="fas fa-phone"></i> {{ lead.mobile|default:"-" }}</div>
+                    <div><i class="fas fa-envelope"></i> {{ lead.email|default:"-" }}</div>
+                    <div><i class="fas fa-user"></i> 
+                        Currently: {% if lead.assigned_user %}
+                            {{ lead.assigned_user.get_full_name|default:lead.assigned_user.username }}
+                        {% else %}
+                            Unassigned
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Reassignment Form -->
+    <div class="reassign-form-card">
+        <div class="card-header">
+            <h3>Reassign Lead</h3>
+        </div>
+        <div class="card-content">
+            <form method="post">
+                {% csrf_token %}
+                
+                <!-- Smart Recommendations -->
+                {% if candidates %}
+                <div class="recommendations-section">
+                    <h4>Smart Recommendations</h4>
+                    <div class="candidates-list">
+                        {% for candidate in candidates %}
+                        <div class="candidate-item" data-user-id="{{ candidate.user.id }}">
+                            <div class="candidate-info">
+                                <div class="candidate-name">
+                                    <strong>{{ candidate.user.get_full_name|default:candidate.user.username }}</strong>
+                                    <span class="candidate-role">({{ candidate.user.get_role_display }})</span>
+                                </div>
+                                <div class="candidate-reason">{{ candidate.reason }}</div>
+                                <div class="candidate-priority">Priority {{ candidate.priority }}</div>
+                            </div>
+                            <div class="candidate-action">
+                                <button type="button" class="btn btn-outline" onclick="selectCandidate('{{ candidate.user.id }}', '{{ candidate.user.get_full_name|default:candidate.user.username }}')">
+                                    <i class="fas fa-user-plus"></i> Select
+                                </button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                
+                <!-- Manual Selection -->
+                <div class="manual-selection-section">
+                    <h4>Manual Selection</h4>
+                    {% if accessible_users %}
+                    <div class="form-group">
+                        <label for="assigned_user">Assign To:</label>
+                        <select name="assigned_user" id="assigned_user" class="form-control" required>
+                            <option value="">-- Select User --</option>
+                            {% for user_data in accessible_users %}
+                            <option value="{{ user_data.user.id }}">
+                                {{ user_data.user.get_full_name|default:user_data.user.username }} ({{ user_data.user.get_role_display }}) - {{ user_data.lead_count }} leads
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% else %}
+                    <div class="no-users-message">
+                        <i class="fas fa-info-circle"></i>
+                        <p>No accessible users found for assignment. Smart recommendations above show available candidates.</p>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <!-- Assignment Details -->
+                <div class="assignment-details-section">
+                    <h4>Assignment Details</h4>
+                    <div class="form-group">
+                        <label for="reassign_reason">Reason for Reassignment:</label>
+                        <textarea name="reassign_reason" id="reassign_reason" class="form-control" rows="3" placeholder="Explain why this lead is being reassigned..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" name="resolve_duplicate" checked>
+                            Mark duplicate as resolved after reassignment
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Form Actions -->
+                <div class="form-actions">
+                    <a href="{% url 'dashboard:lead_duplicate_detail' lead.id_lead %}" class="btn btn-outline">
+                        <i class="fas fa-times"></i> Cancel
+                    </a>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-user-plus"></i> Reassign Lead
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Assignment History -->
+    {% if lead.assignment_history and lead.assignment_history.assignments %}
+    <div class="history-card">
+        <div class="card-header">
+            <h3>Recent Assignment History</h3>
+        </div>
+        <div class="card-content">
+            <div class="history-list">
+                {% for assignment in lead.assignment_history.assignments|slice:":5" %}
+                <div class="history-item">
+                    <div class="history-icon">
+                        {% if assignment.action == 'transfer' %}
+                        <i class="fas fa-exchange-alt"></i>
+                        {% else %}
+                        <i class="fas fa-user-plus"></i>
+                        {% endif %}
+                    </div>
+                    <div class="history-details">
+                        <div class="history-action">
+                            <strong>{{ assignment.action|title }}</strong>
+                            <span class="history-date">{{ assignment.to.at|date:"M d, Y H:i" }}</span>
+                        </div>
+                        <div class="history-description">
+                            {% if assignment.from.user %}
+                                From: {{ assignment.from.user }}
+                            {% endif %}
+                            {% if assignment.to.user %}
+                                To: {{ assignment.to.user }}
+                            {% endif %}
+                            By: {{ assignment.by }}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.reassign-page {
+    padding: 0;
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.page-header h2 {
+    font-size: 26px;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.lead-summary-card, .reassign-form-card, .history-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    margin-bottom: 25px;
+    overflow: hidden;
+}
+
+.card-header {
+    background: var(--sidebar-bg);
+    padding: 20px;
+}
+
+.card-header h3 {
+    margin: 0;
+    color: white;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.card-content {
+    padding: 25px;
+}
+
+.lead-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.lead-name {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.lead-name strong {
+    color: var(--text-primary);
+    font-size: 18px;
+}
+
+.duplicate-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.duplicate-exact_duplicate {
+    background: var(--danger-color);
+    color: white;
+}
+
+.duplicate-potential_duplicate {
+    background: var(--warning-color);
+    color: white;
+}
+
+.lead-contact {
+    display: flex;
+    gap: 20px;
+    color: var(--text-secondary);
+}
+
+.lead-contact div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.recommendations-section, .manual-selection-section, .assignment-details-section {
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.recommendations-section:last-child,
+.manual-selection-section:last-child,
+.assignment-details-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.recommendations-section h4,
+.manual-selection-section h4,
+.assignment-details-section h4 {
+    margin: 0 0 15px 0;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.candidates-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.candidate-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.candidate-item:hover {
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.candidate-item.selected {
+    border-color: var(--accent-color);
+    background: rgba(122, 40, 138, 0.1);
+}
+
+.candidate-info {
+    flex: 1;
+}
+
+.candidate-name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+
+.candidate-name strong {
+    color: var(--text-primary);
+}
+
+.candidate-role {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.candidate-reason {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-bottom: 3px;
+}
+
+.candidate-priority {
+    color: var(--accent-color);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px 15px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.no-users-message {
+    background: var(--bg-secondary);
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.no-users-message i {
+    font-size: 24px;
+    margin-bottom: 10px;
+    color: var(--info-color);
+}
+
+.form-group input[type="checkbox"] {
+    margin-right: 8px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: flex-end;
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.btn-primary {
+    padding: 12px 24px;
+    background: var(--accent-color);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+    padding: 12px 24px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-secondary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid var(--accent-color);
+    color: var(--accent-color);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-outline:hover {
+    background: var(--accent-color);
+    color: white;
+}
+
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.history-item {
+    display: flex;
+    gap: 15px;
+    align-items: flex-start;
+}
+
+.history-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.history-details {
+    flex: 1;
+}
+
+.history-action {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.history-action strong {
+    color: var(--text-primary);
+}
+
+.history-date {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.history-description {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+@media (max-width: 768px) {
+    .page-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: flex-start;
+    }
+    
+    .lead-info {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .lead-contact {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .candidate-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+    
+    .candidate-action {
+        width: 100%;
+    }
+    
+    .candidate-action .btn-outline {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+    
+    .history-item {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+</style>
+
+<script>
+function selectCandidate(userId, userName) {
+    // Remove previous selection
+    document.querySelectorAll('.candidate-item').forEach(item => {
+        item.classList.remove('selected');
+    });
+    
+    // Add selection to clicked candidate
+    const selectedItem = document.querySelector(`[data-user-id="${userId}"]`);
+    if (selectedItem) {
+        selectedItem.classList.add('selected');
+    }
+    
+    // Set the select field value
+    const selectField = document.getElementById('assigned_user');
+    selectField.value = userId;
+    
+    // Scroll to manual selection section
+    document.querySelector('.manual-selection-section').scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'center' 
+    });
+}
+
+// Auto-select first candidate if available
+document.addEventListener('DOMContentLoaded', function() {
+    const firstCandidate = document.querySelector('.candidate-item');
+    if (firstCandidate && !document.getElementById('assigned_user').value) {
+        const userId = firstCandidate.dataset.userId;
+        selectCandidate(userId, firstCandidate.querySelector('.candidate-name strong').textContent);
+    }
+});
+</script>
+{% endblock %}
