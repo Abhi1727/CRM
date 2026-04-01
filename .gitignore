@@ -28,3 +28,13 @@ Thumbs.db
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
+
+# Local debug / investigation artifacts
+INTELLIGENT_*_SUMMARY.md
+debug_*.py
+debug_*.html
+test_*.html
+verify_*.py
+crm_project/check_*.py
+crm_project/test_email_login.py
+crm_project/test_pagination.py
