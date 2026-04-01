@@ -144,6 +144,36 @@ def get_team_members(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
+@login_required
+def get_available_roles(request):
+    """Get available roles for bulk assignment based on user hierarchy"""
+    try:
+        user = request.user
+        roles = []
+        
+        if user.role == 'owner':
+            # Owner can assign to all roles except owner
+            roles = [
+                {'value': 'manager', 'display': 'Manager'},
+                {'value': 'team_lead', 'display': 'Team Lead'},
+                {'value': 'agent', 'display': 'Agent'}
+            ]
+        elif user.role == 'manager':
+            # Manager can assign to team leads and agents
+            roles = [
+                {'value': 'team_lead', 'display': 'Team Lead'},
+                {'value': 'agent', 'display': 'Agent'}
+            ]
+        elif user.role == 'team_lead':
+            # Team Lead can only assign to agents
+            roles = [
+                {'value': 'agent', 'display': 'Agent'}
+            ]
+        
+        return JsonResponse({'roles': roles})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
 # Internal Reminder Management API
 
 @require_http_methods(["GET"])
@@ -804,11 +834,15 @@ def ajax_lead_status_update(request):
         # Get the lead
         lead = get_object_or_404(Lead, id_lead=lead_id)
         
-        # Check if user can access this lead
-        if not lead.can_be_accessed_by(request.user):
+        # Log the permission check attempt
+        logger.info(f"User {request.user.username} (role: {request.user.role}) attempting to update status for lead {lead_id} (assigned to: {lead.assigned_user.username if lead.assigned_user else 'None'})")
+        
+        # Check if user can update this lead's status
+        if not lead.can_update_status_by(request.user):
+            logger.warning(f"Permission denied for user {request.user.username} to update status for lead {lead_id}")
             return JsonResponse({
                 'success': False,
-                'error': 'You do not have permission to update this lead'
+                'error': f'You do not have permission to update this lead\'s status. Your role: {request.user.role}, Lead assigned to: {lead.assigned_user.username if lead.assigned_user else "Unassigned"}'
             }, status=403)
         
         # Store old status for history
@@ -851,11 +885,14 @@ def ajax_lead_status_update(request):
             lead=lead,
             user=request.user,
             activity_type='status_change',
-            description=f'Status changed from {lead.get_status_display(old_status)} to {lead.get_status_display()}'
+            description=f'Status changed from {lead.get_status_display_value(old_status)} to {lead.get_status_display()}'
         )
         
         # Check if follow-up is needed for this status
         needs_followup = new_status in ['interested_follow_up', 'call_back', 'in_few_months']
+        
+        # Log successful status update
+        logger.info(f"Lead {lead_id} status successfully updated from '{old_status}' to '{new_status}' by user {request.user.username}")
         
         return JsonResponse({
             'success': True,
@@ -867,13 +904,14 @@ def ajax_lead_status_update(request):
         })
         
     except json.JSONDecodeError:
+        logger.error(f"Invalid JSON data in status update request from user {request.user.username}")
         return JsonResponse({
             'success': False,
-            'error': 'Invalid JSON data'
+            'error': 'Invalid JSON data received'
         }, status=400)
     except Exception as e:
-        logger.error(f"Error updating lead status: {e}")
+        logger.error(f"Error updating lead status for lead {data.get('lead_id', 'unknown')} by user {request.user.username}: {str(e)}", exc_info=True)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': f'Error updating status: {str(e)}'
         }, status=500)

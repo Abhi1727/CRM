@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.db.models import Q
+from django.core.exceptions import ValidationError
+import re
 
 class User(AbstractUser):
     ROLE_CHOICES = (
@@ -15,6 +17,9 @@ class User(AbstractUser):
         ('inactive', 'Inactive'),
         ('suspended', 'Suspended'),
     )
+    
+    # Override email field to make it unique
+    email = models.EmailField(unique=True, blank=False, null=False)
     
     # Core fields
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='agent')
@@ -34,6 +39,11 @@ class User(AbstractUser):
     leads_converted_count = models.PositiveIntegerField(default=0)
     last_activity = models.DateTimeField(null=True, blank=True)
     
+    # Preserved performance metrics (for deleted users)
+    preserved_leads_count = models.PositiveIntegerField(default=0, help_text="Number of leads preserved after user deletion")
+    preserved_converted_count = models.PositiveIntegerField(default=0, help_text="Number of converted leads preserved after user deletion")
+    preserved_revenue = models.DecimalField(max_digits=15, decimal_places=2, default=0, help_text="Total revenue preserved from converted leads")
+    
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -44,6 +54,7 @@ class User(AbstractUser):
             models.Index(fields=['role', 'account_status']),
             models.Index(fields=['manager', 'team_lead']),
             models.Index(fields=['company_id']),
+            models.Index(fields=['email']),  # Add index for email lookups
         ]
     
     def __str__(self):
@@ -96,3 +107,17 @@ class User(AbstractUser):
             )
         else:  # agent
             return Lead.objects.filter(assigned_user=self)
+    
+    def save(self, *args, **kwargs):
+        """
+        Override save to automatically sync is_active with account_status
+        This ensures that when account_status is changed, is_active is always kept in sync
+        """
+        # Auto-sync is_active with account_status
+        if self.account_status == 'active':
+            self.is_active = True
+        elif self.account_status in ['inactive', 'suspended']:
+            self.is_active = False
+        
+        # Call the original save method
+        super().save(*args, **kwargs)

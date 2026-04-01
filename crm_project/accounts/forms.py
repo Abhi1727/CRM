@@ -1,10 +1,11 @@
 from django import forms
-from django.contrib.auth.forms import UserCreationForm as BaseUserCreationForm
+from django.contrib.auth.forms import UserCreationForm as BaseUserCreationForm, PasswordChangeForm
+from django.contrib.auth import authenticate
 from .models import User as CustomUser
 from dashboard.models import Lead
 
 class UserCreationForm(BaseUserCreationForm):
-    email = forms.EmailField(required=True)
+    email = forms.EmailField(required=True, help_text='Required. Enter a valid email address.')
     first_name = forms.CharField(max_length=30, required=True)
     last_name = forms.CharField(max_length=30, required=True)
     phone = forms.CharField(max_length=15, required=False)
@@ -113,6 +114,22 @@ class UserCreationForm(BaseUserCreationForm):
     class Meta:
         model = CustomUser
         fields = ('username', 'email', 'first_name', 'last_name', 'phone', 'mobile', 'password1', 'password2')
+    
+    def clean_email(self):
+        """Enhanced email validation for UserCreationForm"""
+        email = self.cleaned_data.get('email')
+        
+        if not email:
+            raise forms.ValidationError('Email address is required.')
+        
+        # Check if email already exists (unique constraint)
+        if CustomUser.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError('A user with this email address already exists.')
+        
+        # Basic email format validation (Django EmailField already handles this)
+        # but we can add additional validation here if needed
+        
+        return email.lower()  # Store emails in lowercase for consistency
 
 class UserAssignmentForm(forms.Form):
     """Form for assigning leads to users"""
@@ -189,3 +206,165 @@ class UserSearchForm(forms.Form):
         required=False,
         help_text='Filter by company ID'
     )
+
+class UserProfileForm(forms.ModelForm):
+    """Form for users to edit their own profile information"""
+    
+    class Meta:
+        model = CustomUser
+        fields = ['first_name', 'last_name', 'email', 'phone', 'mobile', 'profile_picture']
+        widgets = {
+            'first_name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Enter your first name'
+            }),
+            'last_name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Enter your last name'
+            }),
+            'email': forms.EmailInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Enter your email address'
+            }),
+            'phone': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Enter your phone number'
+            }),
+            'mobile': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Enter your mobile number'
+            }),
+            'profile_picture': forms.FileInput(attrs={
+                'class': 'form-control',
+                'accept': 'image/*'
+            }),
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['first_name'].required = True
+        self.fields['last_name'].required = True
+        self.fields['email'].required = True
+        self.fields['profile_picture'].required = False  # Make profile picture optional
+        
+        # Restrict fields based on user role
+        user = kwargs.get('instance')
+        if user and user.role == 'agent':
+            # Agents cannot change username or email
+            self.fields['email'].disabled = True
+            self.fields['email'].help_text = 'Email cannot be changed by agents. Contact your manager for assistance.'
+            # Note: username is not in the form fields, but if it were, we'd disable it too
+        
+        # Add help text
+        self.fields['first_name'].help_text = 'Your first name as it appears on official documents'
+        self.fields['last_name'].help_text = 'Your last name as it appears on official documents'
+        if user and user.role != 'agent':
+            self.fields['email'].help_text = 'We\'ll use this for account notifications'
+        self.fields['phone'].help_text = 'Your primary contact number'
+        self.fields['mobile'].help_text = 'Your mobile number (optional)'
+        self.fields['profile_picture'].help_text = 'Upload a professional profile picture (JPG, PNG, max 2MB) - Optional'
+    
+    def clean_email(self):
+        """Enhanced email validation for UserProfileForm"""
+        email = self.cleaned_data.get('email')
+        user = getattr(self, 'instance', None)
+        
+        # Skip email validation for agents since they can't change it
+        if user and user.role == 'agent':
+            return user.email  # Return the original email
+        
+        if not email:
+            raise forms.ValidationError('Email address is required.')
+        
+        # Check if email is already used by another user (case-insensitive)
+        existing_user = CustomUser.objects.filter(email__iexact=email).exclude(pk=self.instance.pk).first()
+        if existing_user:
+            raise forms.ValidationError('This email address is already in use by another account.')
+        
+        return email.lower()  # Store emails in lowercase for consistency
+    
+    def clean_phone(self):
+        phone = self.cleaned_data.get('phone')
+        if phone:
+            # Basic phone validation - allow digits, spaces, +, -, (, )
+            import re
+            if not re.match(r'^[\d\s\-\(\)\+]+$', phone):
+                raise forms.ValidationError('Please enter a valid phone number')
+            if len(phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '').replace('+', '')) < 10:
+                raise forms.ValidationError('Phone number must be at least 10 digits')
+        return phone
+    
+    def clean_mobile(self):
+        mobile = self.cleaned_data.get('mobile')
+        if mobile:
+            # Basic mobile validation
+            import re
+            if not re.match(r'^[\d\s\-\(\)\+]+$', mobile):
+                raise forms.ValidationError('Please enter a valid mobile number')
+            if len(mobile.replace(' ', '').replace('-', '').replace('(', '').replace(')', '').replace('+', '')) < 10:
+                raise forms.ValidationError('Mobile number must be at least 10 digits')
+        return mobile
+    
+    def clean_profile_picture(self):
+        profile_picture = self.cleaned_data.get('profile_picture')
+        if profile_picture:
+            # Check file size (max 2MB)
+            if profile_picture.size > 2 * 1024 * 1024:
+                raise forms.ValidationError('Profile picture must be smaller than 2MB')
+            
+            # Check file type
+            allowed_types = ['image/jpeg', 'image/png', 'image/gif']
+            if profile_picture.content_type not in allowed_types:
+                raise forms.ValidationError('Profile picture must be a JPEG, PNG, or GIF image')
+        return profile_picture
+
+class CustomPasswordChangeForm(PasswordChangeForm):
+    """Custom password change form with enhanced validation"""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Customize field widgets and labels
+        self.fields['old_password'].widget.attrs.update({
+            'class': 'form-control',
+            'placeholder': 'Enter your current password'
+        })
+        self.fields['new_password1'].widget.attrs.update({
+            'class': 'form-control',
+            'placeholder': 'Enter your new password'
+        })
+        self.fields['new_password2'].widget.attrs.update({
+            'class': 'form-control',
+            'placeholder': 'Confirm your new password'
+        })
+        
+        # Add help text
+        self.fields['old_password'].help_text = 'Enter your current password for security verification'
+        self.fields['new_password1'].help_text = 'Password must be at least 8 characters long and contain letters and numbers'
+        self.fields['new_password2'].help_text = 'Enter the same password as above for verification'
+    
+    def clean_new_password1(self):
+        password = self.cleaned_data.get('new_password1')
+        if password:
+            # Enhanced password validation
+            if len(password) < 8:
+                raise forms.ValidationError('Password must be at least 8 characters long')
+            
+            # Check for at least one letter
+            if not any(c.isalpha() for c in password):
+                raise forms.ValidationError('Password must contain at least one letter')
+            
+            # Check for at least one digit
+            if not any(c.isdigit() for c in password):
+                raise forms.ValidationError('Password must contain at least one number')
+            
+            # Check for common patterns
+            common_patterns = ['password', '123456', 'qwerty', 'admin', 'user']
+            password_lower = password.lower()
+            if any(pattern in password_lower for pattern in common_patterns):
+                raise forms.ValidationError('Password cannot contain common patterns like "password", "123456", etc.')
+            
+            # Check if password contains username
+            if self.user.username.lower() in password_lower:
+                raise forms.ValidationError('Password cannot contain your username')
+        
+        return password

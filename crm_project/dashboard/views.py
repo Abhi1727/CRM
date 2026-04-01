@@ -189,19 +189,29 @@ def leads_list(request):
     if course_filter:
         leads = leads.filter(course_name__icontains=course_filter)
     
-    # Apply date range filter
+    # Apply date range filter - include leads created, assigned, or transferred within date range
     if start_date:
         from datetime import datetime
         try:
             start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-            leads = leads.filter(created_at__date__gte=start_date_obj)
+            # Filter leads that were created, assigned, OR transferred on/after start date
+            leads = leads.filter(
+                Q(created_at__date__gte=start_date_obj) |
+                Q(assigned_at__date__gte=start_date_obj) |
+                Q(transfer_date__date__gte=start_date_obj)
+            )
         except ValueError:
             pass  # Invalid date format, ignore filter
     
     if end_date:
         try:
             end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
-            leads = leads.filter(created_at__date__lte=end_date_obj)
+            # Filter leads that were created, assigned, OR transferred on/before end date
+            leads = leads.filter(
+                Q(created_at__date__lte=end_date_obj) |
+                Q(assigned_at__date__lte=end_date_obj) |
+                Q(transfer_date__date__lte=end_date_obj)
+            )
         except ValueError:
             pass  # Invalid date format, ignore filter
     
@@ -306,7 +316,7 @@ def leads_fresh(request):
     accessible_leads = request.hierarchy_context['accessible_leads']
     
     # Get leads assigned to the current user, exclude sale_done leads
-    leads = accessible_leads.filter(assigned_user=request.user).exclude(status='sale_done').select_related('created_by', 'assigned_user')
+    leads = accessible_leads.filter(assigned_user=request.user).exclude(status='sale_done').select_related('created_by', 'assigned_user').order_by('-created_at')
     
     # Apply search filter
     if search_query:
@@ -317,6 +327,45 @@ def leads_fresh(request):
             Q(alt_mobile__icontains=search_query) |
             Q(alt_email__icontains=search_query)
         )
+    
+    # Apply country filter
+    if country_filter:
+        leads = leads.filter(country__icontains=country_filter)
+    
+    # Apply course filter
+    if course_filter:
+        leads = leads.filter(course_name__icontains=course_filter)
+    
+    # Apply date range filter - include leads created, assigned, or transferred within date range
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+            leads = leads.filter(
+                Q(created_at__date__gte=start_date_obj) |
+                Q(assigned_at__date__gte=start_date_obj) |
+                Q(transfer_date__date__gte=start_date_obj)
+            )
+        except ValueError:
+            pass  # Invalid date format, ignore filter
+    
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            leads = leads.filter(
+                Q(created_at__date__lte=end_date_obj) |
+                Q(assigned_at__date__lte=end_date_obj) |
+                Q(transfer_date__date__lte=end_date_obj)
+            )
+        except ValueError:
+            pass  # Invalid date format, ignore filter
+    
+    # Apply assigned user filter
+    if assigned_user_filter:
+        try:
+            assigned_user_id = int(assigned_user_filter)
+            leads = leads.filter(assigned_user_id=assigned_user_id)
+        except ValueError:
+            pass  # Invalid user ID, ignore filter
     
     # Pagination with configurable page size
     paginator = Paginator(leads, page_size)
@@ -354,7 +403,7 @@ def leads_working(request):
     
     leads = request.hierarchy_context['accessible_leads'].filter(
         assigned_user=request.user
-    ).exclude(status='sale_done').select_related('assigned_user', 'created_by')
+    ).exclude(status='sale_done').select_related('assigned_user', 'created_by').order_by('-created_at')
     
     # Apply search filter
     if search_query:
@@ -365,6 +414,45 @@ def leads_working(request):
             Q(alt_mobile__icontains=search_query) |
             Q(alt_email__icontains=search_query)
         )
+    
+    # Apply country filter
+    if country_filter:
+        leads = leads.filter(country__icontains=country_filter)
+    
+    # Apply course filter
+    if course_filter:
+        leads = leads.filter(course_name__icontains=course_filter)
+    
+    # Apply date range filter - include leads created, assigned, or transferred within date range
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+            leads = leads.filter(
+                Q(created_at__date__gte=start_date_obj) |
+                Q(assigned_at__date__gte=start_date_obj) |
+                Q(transfer_date__date__gte=start_date_obj)
+            )
+        except ValueError:
+            pass  # Invalid date format, ignore filter
+    
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            leads = leads.filter(
+                Q(created_at__date__lte=end_date_obj) |
+                Q(assigned_at__date__lte=end_date_obj) |
+                Q(transfer_date__date__lte=end_date_obj)
+            )
+        except ValueError:
+            pass  # Invalid date format, ignore filter
+    
+    # Apply assigned user filter
+    if assigned_user_filter:
+        try:
+            assigned_user_id = int(assigned_user_filter)
+            leads = leads.filter(assigned_user_id=assigned_user_id)
+        except ValueError:
+            pass  # Invalid user ID, ignore filter
     
     # Pagination with configurable page size
     paginator = Paginator(leads, page_size)
@@ -404,7 +492,7 @@ def leads_transferred(request):
     # Get leads that have been transferred (have transfer_date not null)
     transferred_leads = accessible_leads.filter(
         transfer_date__isnull=False
-    ).select_related('assigned_user', 'created_by', 'assigned_by')
+    ).select_related('assigned_user', 'created_by', 'assigned_by').order_by('-transfer_date', '-created_at')
     
     # For different roles, we might want to show different perspectives
     if request.user.role == 'owner':
@@ -474,7 +562,7 @@ def leads_converted(request):
     
     leads = request.hierarchy_context['accessible_leads'].filter(
         status='sale_done'
-    ).select_related('assigned_user', 'created_by')
+    ).select_related('assigned_user', 'created_by').order_by('-created_at')
     
     country_filter = request.GET.get('country', '').strip()
     course_filter = request.GET.get('course', '').strip()
@@ -491,6 +579,45 @@ def leads_converted(request):
             Q(alt_mobile__icontains=search_query) |
             Q(alt_email__icontains=search_query)
         )
+    
+    # Apply country filter
+    if country_filter:
+        leads = leads.filter(country__icontains=country_filter)
+    
+    # Apply course filter
+    if course_filter:
+        leads = leads.filter(course_name__icontains=course_filter)
+    
+    # Apply date range filter - include leads created, assigned, or converted within date range
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+            leads = leads.filter(
+                Q(created_at__date__gte=start_date_obj) |
+                Q(assigned_at__date__gte=start_date_obj) |
+                Q(transfer_date__date__gte=start_date_obj)
+            )
+        except ValueError:
+            pass  # Invalid date format, ignore filter
+    
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            leads = leads.filter(
+                Q(created_at__date__lte=end_date_obj) |
+                Q(assigned_at__date__lte=end_date_obj) |
+                Q(transfer_date__date__lte=end_date_obj)
+            )
+        except ValueError:
+            pass  # Invalid date format, ignore filter
+    
+    # Apply assigned user filter
+    if assigned_user_filter:
+        try:
+            assigned_user_id = int(assigned_user_filter)
+            leads = leads.filter(assigned_user_id=assigned_user_id)
+        except ValueError:
+            pass  # Invalid user ID, ignore filter
     
     # Pagination with configurable page size
     paginator = Paginator(leads, page_size)
@@ -551,15 +678,78 @@ def leads_team(request):
         accessible_users = request.hierarchy_context['accessible_users']
         leads = request.hierarchy_context['accessible_leads'].filter(
             assigned_user__in=accessible_users
-        )
+        ).select_related('assigned_user', 'created_by').order_by('-created_at')
     else:
         leads = Lead.objects.none()
+    
+    # Apply filters for team leads view
+    search_query = request.GET.get('search', '').strip()
+    country_filter = request.GET.get('country', '').strip()
+    course_filter = request.GET.get('course', '').strip()
+    start_date = request.GET.get('start_date', '').strip()
+    end_date = request.GET.get('end_date', '').strip()
+    assigned_user_filter = request.GET.get('assigned_user', '').strip()
+    
+    # Apply search filter
+    if search_query:
+        leads = leads.filter(
+            Q(name__icontains=search_query) |
+            Q(email__icontains=search_query) |
+            Q(mobile__icontains=search_query) |
+            Q(alt_mobile__icontains=search_query) |
+            Q(alt_email__icontains=search_query)
+        )
+    
+    # Apply country filter
+    if country_filter:
+        leads = leads.filter(country__icontains=country_filter)
+    
+    # Apply course filter
+    if course_filter:
+        leads = leads.filter(course_name__icontains=course_filter)
+    
+    # Apply date range filter - include leads created, assigned, or transferred within date range
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+            leads = leads.filter(
+                Q(created_at__date__gte=start_date_obj) |
+                Q(assigned_at__date__gte=start_date_obj) |
+                Q(transfer_date__date__gte=start_date_obj)
+            )
+        except ValueError:
+            pass  # Invalid date format, ignore filter
+    
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            leads = leads.filter(
+                Q(created_at__date__lte=end_date_obj) |
+                Q(assigned_at__date__lte=end_date_obj) |
+                Q(transfer_date__date__lte=end_date_obj)
+            )
+        except ValueError:
+            pass  # Invalid date format, ignore filter
+    
+    # Apply assigned user filter
+    if assigned_user_filter:
+        try:
+            assigned_user_id = int(assigned_user_filter)
+            leads = leads.filter(assigned_user_id=assigned_user_id)
+        except ValueError:
+            pass  # Invalid user ID, ignore filter
     
     context = {
         'leads': leads,
         'status_choices': Lead.STATUS_CHOICES,
         'page_title': 'My Team Leads',
-        'active_filters_count': 0,  # Team leads view doesn't have filters
+        'search_query': search_query,
+        'country_filter': country_filter,
+        'course_filter': course_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'assigned_user_filter': assigned_user_filter,
+        'active_filters_count': len([filter for filter in [country_filter, course_filter, start_date, end_date, assigned_user_filter] if filter]),
     }
     return render(request, 'dashboard/leads_list.html', context)
 
@@ -728,7 +918,48 @@ def reports(request):
 
 @login_required
 def settings(request):
-    return render(request, 'dashboard/settings.html')
+    """User settings page for profile and password management"""
+    from accounts.forms import UserProfileForm, CustomPasswordChangeForm
+    
+    # Initialize forms
+    profile_form = UserProfileForm(instance=request.user)
+    password_form = CustomPasswordChangeForm(user=request.user)
+    
+    profile_success = False
+    password_success = False
+    
+    if request.method == 'POST':
+        # Determine which form was submitted
+        if 'profile_submit' in request.POST:
+            # Handle profile update
+            profile_form = UserProfileForm(request.POST, request.FILES, instance=request.user)
+            if profile_form.is_valid():
+                profile_form.save()
+                messages.success(request, 'Your profile has been updated successfully!')
+                profile_success = True
+                # Reset form to show updated data
+                profile_form = UserProfileForm(instance=request.user)
+        elif 'password_submit' in request.POST:
+            # Handle password change
+            password_form = CustomPasswordChangeForm(user=request.user, data=request.POST)
+            if password_form.is_valid():
+                password_form.save()
+                messages.success(request, 'Your password has been changed successfully!')
+                password_success = True
+                # Update the session to prevent logout
+                from django.contrib.auth import update_session_auth_hash
+                update_session_auth_hash(request, password_form.user)
+                # Reset form
+                password_form = CustomPasswordChangeForm(user=request.user)
+    
+    context = {
+        'profile_form': profile_form,
+        'password_form': password_form,
+        'profile_success': profile_success,
+        'password_success': password_success,
+    }
+    
+    return render(request, 'dashboard/settings.html', context)
 
 
 # Lead Assignment Views
@@ -1235,9 +1466,8 @@ def lead_status_update(request, pk):
     """Update lead status with history tracking"""
     lead = request.current_lead
     
-    # Check if user can modify this lead
-    can_modify = lead.can_be_assigned_by(request.user) or lead.assigned_user == request.user
-    if not can_modify:
+    # Check if user can modify this lead's status
+    if not lead.can_update_status_by(request.user):
         raise PermissionDenied("You don't have permission to update this lead's status.")
     
     if request.method == "POST":

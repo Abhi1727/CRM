@@ -128,6 +128,11 @@ class Lead(models.Model):
     duplicate_resolved_at = models.DateTimeField(null=True, blank=True)
     duplicate_notes = models.TextField(null=True, blank=True)
     
+    # Sales credit preservation fields
+    primary_sales_credit = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='sales_credits', help_text="Original user who gets sales credit for converted leads")
+    original_assigned_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='original_assignments', help_text="Original user this lead was assigned to")
+    sales_credit_preserved = models.BooleanField(default=False, help_text="Whether sales credit has been preserved due to user deletion")
+    
     def __str__(self):
         return f"{self.name} - {self.mobile}"
     
@@ -154,6 +159,27 @@ class Lead(models.Model):
     def can_be_accessed_by(self, user):
         """Check if user can access this lead based on hierarchy"""
         return self in user.get_accessible_leads_queryset()
+    
+    def get_status_display_value(self, status_value):
+        """Get display value for any status choice"""
+        status_dict = dict(self.STATUS_CHOICES)
+        return status_dict.get(status_value, status_value)
+    
+    def can_update_status_by(self, user):
+        """Check if user can update this lead's status - more permissive than general access"""
+        if user.role == 'owner':
+            return True
+        elif user.role == 'manager':
+            # Managers can update status for leads in their accessible scope
+            return self in user.get_accessible_leads_queryset()
+        elif user.role == 'team_lead':
+            # Team leads can update status for leads assigned to their team members or themselves
+            return (self.assigned_user == user or 
+                   (self.assigned_user and self.assigned_user.team_lead == user))
+        elif user.role == 'agent':
+            # Agents can only update status for their own leads
+            return self.assigned_user == user
+        return False
     
     def can_be_assigned_by(self, user):
         """Check if user can assign this lead"""

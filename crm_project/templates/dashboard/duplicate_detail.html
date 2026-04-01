@@ -777,7 +777,10 @@ function closeQuickAssignModal() {
 }
 
 // Modal close functionality
-document.querySelector('.close').onclick = closeQuickAssignModal;
+const quickAssignCloseBtn = document.querySelector('#quickAssignModal .close');
+if (quickAssignCloseBtn) {
+    quickAssignCloseBtn.onclick = closeQuickAssignModal;
+}
 window.onclick = function(event) {
     const modal = document.getElementById('quickAssignModal');
     if (event.target == modal) {

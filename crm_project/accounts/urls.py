@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import api_views
 
 app_name = 'accounts'
 
@@ -23,4 +24,8 @@ urlpatterns = [
     
     # Username availability check
     path('check-username/', views.check_username_availability, name='check_username'),
+    
+    # API endpoints
+    path('api/users-for-reassignment/', api_views.get_all_users_for_reassignment, name='api_users_for_reassignment'),
+    path('api/user/<int:user_id>/lead-summary/', api_views.get_user_lead_summary, name='api_user_lead_summary'),
 ]

@@ -425,6 +425,10 @@
     align-items: center;
     gap: 5px;
     font-size: 14px;
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .username-feedback i {
@@ -433,9 +437,12 @@
 }
 
 .username-feedback .feedback-text {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     display: none;
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .username-feedback.loading .loading-icon {
@@ -445,32 +452,32 @@
 
 .username-feedback.available .available-icon {
     display: block;
-    color: #27ae60;
+    color: #28a745;
 }
 
 .username-feedback.available .feedback-text {
     display: block;
-    color: #27ae60;
+    color: #28a745;
 }
 
 .username-feedback.unavailable .unavailable-icon {
     display: block;
-    color: #e74c3c;
+    color: #dc3545;
 }
 
 .username-feedback.unavailable .feedback-text {
     display: block;
-    color: #e74c3c;
+    color: #dc3545;
 }
 
 .username-feedback.error .unavailable-icon {
     display: block;
-    color: #e74c3c;
+    color: #dc3545;
 }
 
 .username-feedback.error .feedback-text {
     display: block;
-    color: #e74c3c;
+    color: #dc3545;
 }
 
 /* Adjust input padding to make room for feedback */

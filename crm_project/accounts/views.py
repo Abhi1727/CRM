@@ -136,6 +136,12 @@ def edit_user(request, user_id):
         target_user.mobile = request.POST.get('mobile', '')
         target_user.account_status = request.POST.get('account_status', 'active')
         
+        # Automatically set is_active based on account_status
+        if target_user.account_status == 'active':
+            target_user.is_active = True
+        elif target_user.account_status in ['inactive', 'suspended']:
+            target_user.is_active = False
+        
         target_user.save()
         messages.success(request, f'User {target_user.username} updated successfully.')
         return redirect('accounts:user_list')
@@ -202,16 +208,22 @@ def assign_lead(request):
     lead = None
     users = []
     
+    # Filter out deactivated users from accessible users
+    active_accessible_users = accessible_users.filter(
+        is_active=True,
+        account_status='active'
+    )
+    
     if lead_id:
         try:
             lead = accessible_leads.get(id_lead=lead_id)
-            # Filter users based on hierarchy rules
-            users = [user for user in accessible_users if lead.can_be_assigned_to_user(user, request.user)]
+            # Filter users based on hierarchy rules and active status
+            users = [user for user in active_accessible_users if lead.can_be_assigned_to_user(user, request.user)]
         except Lead.DoesNotExist:
             messages.error(request, 'Lead not found.')
             return redirect('dashboard:leads_all')
     else:
-        users = accessible_users
+        users = active_accessible_users
     
     form = UserAssignmentForm(user=request.user, initial={'lead': lead})
     context = {
@@ -225,15 +237,54 @@ def assign_lead(request):
 @login_required
 @hierarchy_required
 def get_users_by_role(request):
-    """AJAX endpoint to get users filtered by role"""
+    """AJAX endpoint to get users filtered by role and/or search"""
     if request.method == 'GET' and request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-        role = request.GET.get('role')
+        role = request.GET.get('role', '').strip()
+        search_query = request.GET.get('search', '').strip()
+        exclude_user_id = request.GET.get('exclude_user_id')
         accessible_users = request.hierarchy_context['accessible_users']
         
+        # Base queryset of active users
+        active_users = accessible_users.filter(
+            is_active=True,
+            account_status='active'
+        )
+        
+        # Apply role filter if provided
         if role:
-            users = accessible_users.filter(role=role).select_related('manager', 'team_lead')
+            active_users = active_users.filter(role=role)
+        
+        # Apply search filter if provided
+        if search_query:
+            from django.db.models import Q, Case, When, Value, IntegerField
+            search_conditions = (
+                Q(username__icontains=search_query) |
+                Q(first_name__icontains=search_query) |
+                Q(last_name__icontains=search_query) |
+                Q(email__icontains=search_query)
+            )
+            active_users = active_users.filter(search_conditions)
+            
+            # Order by relevance when searching
+            active_users = active_users.annotate(
+                relevance=Case(
+                    When(Q(username__iexact=search_query), then=Value(4)),
+                    When(Q(first_name__iexact=search_query), then=Value(3)),
+                    When(Q(last_name__iexact=search_query), then=Value(3)),
+                    When(Q(email__iexact=search_query), then=Value(3)),
+                    default=Value(1),
+                    output_field=IntegerField()
+                )
+            ).order_by('-relevance', 'first_name', 'last_name')
         else:
-            users = accessible_users.select_related('manager', 'team_lead')
+            # Order alphabetically when not searching
+            active_users = active_users.order_by('first_name', 'last_name')
+        
+        # Exclude specific user if needed
+        if exclude_user_id:
+            active_users = active_users.exclude(id=exclude_user_id)
+        
+        users = active_users.select_related('manager', 'team_lead')
         
         user_data = []
         for user in users:
@@ -284,6 +335,11 @@ def bulk_assign_leads(request):
         
         try:
             assigned_user = accessible_users.get(id=assigned_user_id)
+            
+            # Verify user is active and can be assigned to
+            if not assigned_user.is_active or assigned_user.account_status != 'active':
+                messages.error(request, 'Cannot assign leads to deactivated user.')
+                return redirect('accounts:bulk_assign')
             
             # Verify user can assign to this person
             if not request.user.can_manage_user(assigned_user):
@@ -367,7 +423,10 @@ def bulk_assign_leads(request):
         ]
     
     context = {
-        'users': accessible_users.select_related('manager', 'team_lead'),
+        'users': accessible_users.filter(
+            is_active=True,
+            account_status='active'
+        ).select_related('manager', 'team_lead'),
         'page_obj': page_obj,
         'leads': page_obj,  # Keep for backward compatibility
         'available_roles': available_roles,
@@ -498,7 +557,7 @@ def team_hierarchy(request):
 @login_required
 @role_required('owner')
 def delete_user(request, user_id):
-    """Delete user with hierarchy-based permissions"""
+    """Delete user with intelligent lead reassignment and sales credit preservation"""
     target_user = get_object_or_404(User, id=user_id)
     
     # Check if current user can delete the target user
@@ -516,24 +575,178 @@ def delete_user(request, user_id):
         messages.error(request, 'You cannot delete your own account.')
         return redirect('accounts:user_list')
     
+    # Import the lead reassignment service
+    from services.lead_reassigner import LeadReassigner
+    
     if request.method == 'POST':
         # Store user info for message
         username = target_user.username
         full_name = target_user.get_full_name() or username
         
-        # Soft delete by deactivating account and setting status to inactive
-        target_user.is_active = False
-        target_user.account_status = 'inactive'
-        target_user.save()
+        # Determine reassignment intent and selected user for manual reassignment
+        reassignment_type = request.POST.get('reassignment_type', '').strip().lower()
+        selected_user_id = request.POST.get('selected_user_id', '').strip()
         
-        # Note: We preserve all user data including leads, comments, and history
-        # Only login access is blocked - no data is deleted or reassigned
+        # DEBUG: Log the POST data and selected_user_id
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"DEBUG: User deletion POST request received for {target_user.username}")
+        logger.info(f"DEBUG: POST data keys: {list(request.POST.keys())}")
+        logger.info(f"DEBUG: selected_user_id from POST: {selected_user_id}")
+        logger.info(f"DEBUG: selected_user_id type: {type(selected_user_id)}")
+        logger.info(f"DEBUG: selected_user_id is empty: {not selected_user_id}")
+        logger.info(f"DEBUG: selected_user_id is None: {selected_user_id is None}")
+        logger.info(f"DEBUG: selected_user_id == '': {selected_user_id == ''}")
+        logger.info(f"DEBUG: selected_user_id == '0': {selected_user_id == '0'}")
         
-        messages.success(request, f'User "{full_name}" has been deleted successfully and can no longer login.')
+        # Log all POST data for complete visibility
+        for key, value in request.POST.items():
+            logger.info(f"DEBUG: POST[{key}] = {value}")
+        
+        try:
+            # Initialize lead reassigner
+            reassigner = LeadReassigner()
+            
+            # Get reassignment summary before deletion
+            reassignment_summary = reassigner.get_reassignment_summary(target_user)
+            
+            # Manual reassignment requires a selected active user.
+            if reassignment_type == 'manual' and not selected_user_id:
+                messages.error(request, 'Selected user is not active.')
+                return render(request, 'accounts/delete_user.html', {
+                    'target_user': target_user,
+                    'reassignment_summary': reassignment_summary,
+                    'page_title': f'Delete {target_user.username}',
+                    'error': 'Selected user is not active.'
+                })
+
+            # Perform lead reassignment based on user selection
+            if selected_user_id:
+                # Manual reassignment to selected user
+                logger.info(f"DEBUG: Manual reassignment branch selected")
+                logger.info(f"DEBUG: selected_user_id value: {selected_user_id}")
+                
+                selected_user = get_object_or_404(User, id=selected_user_id)
+                
+                logger.info(f"DEBUG: Selected user found: {selected_user.username}")
+                logger.info(f"DEBUG: Selected user role: {selected_user.role}")
+                logger.info(f"DEBUG: Selected user status: {selected_user.account_status}")
+                
+                # Validate selected user is active and in same company
+                if selected_user.account_status != 'active':
+                    logger.error(f"DEBUG: Selected user {selected_user.username} is not active")
+                    messages.error(request, 'Selected user is not active.')
+                    return render(request, 'accounts/delete_user.html', {
+                        'target_user': target_user,
+                        'reassignment_summary': reassignment_summary,
+                        'page_title': f'Delete {target_user.username}',
+                        'error': 'Selected user is not active.'
+                    })
+                
+                if selected_user.company_id != request.user.company_id:
+                    logger.error(f"DEBUG: Selected user {selected_user.username} is not in same company")
+                    messages.error(request, 'Selected user is not in your company.')
+                    return render(request, 'accounts/delete_user.html', {
+                        'target_user': target_user,
+                        'reassignment_summary': reassignment_summary,
+                        'page_title': f'Delete {target_user.username}',
+                        'error': 'Selected user is not in your company.'
+                    })
+                
+                logger.info(f"DEBUG: Starting manual reassignment from {target_user.username} to {selected_user.username}")
+                
+                # Perform manual reassignment
+                reassignment_results = reassigner.reassign_user_leads_to_specific(
+                    target_user, selected_user, request.user
+                )
+                
+                logger.info(f"DEBUG: Manual reassignment completed: {reassignment_results}")
+                
+                # Update summary for manual assignment
+                reassignment_summary['replacement_user'] = selected_user.get_full_name() or selected_user.username
+                reassignment_summary['replacement_role'] = selected_user.get_role_display()
+                reassignment_summary['assignment_type'] = 'manual'
+                
+                logger.info(f"DEBUG: Summary updated for manual assignment")
+                
+            else:
+                # Use automatic hierarchy reassignment as fallback
+                logger.info(f"DEBUG: No selected_user_id provided, using hierarchy reassignment")
+                logger.info(f"DEBUG: About to call reassigner.reassign_user_leads")
+                reassignment_results = reassigner.reassign_user_leads(target_user, request.user)
+                logger.info(f"DEBUG: Hierarchy reassignment completed: {reassignment_results}")
+                reassignment_summary['assignment_type'] = 'hierarchy'
+                
+                # Log hierarchy replacement user info
+                if 'replacement_user' in reassignment_summary:
+                    logger.info(f"DEBUG: Hierarchy replacement user: {reassignment_summary['replacement_user']}")
+                else:
+                    logger.warning(f"DEBUG: No replacement_user found in reassignment_summary")
+            
+            # Soft delete by deactivating account and setting status to inactive
+            target_user.is_active = False
+            target_user.account_status = 'inactive'
+            target_user.save()
+            
+            # Create comprehensive success message
+            success_parts = []
+            success_parts.append(f'User "{full_name}" has been deleted successfully and can no longer login.')
+            
+            if reassignment_results['active_leads_reassigned'] > 0:
+                logger.info(f"DEBUG: Active leads reassigned: {reassignment_results['active_leads_reassigned']}")
+                logger.info(f"DEBUG: Checking selected_user_id for message: {selected_user_id}")
+                if selected_user_id:
+                    logger.info(f"DEBUG: Using manual reassignment message")
+                    success_parts.append(f'{reassignment_results["active_leads_reassigned"]} active leads manually reassigned to {reassignment_summary["replacement_user"]}.')
+                else:
+                    logger.info(f"DEBUG: Using hierarchy reassignment message")
+                    success_parts.append(f'{reassignment_results["active_leads_reassigned"]} active leads reassigned to {reassignment_summary["replacement_user"]}.')
+            
+            if reassignment_results['converted_leads_preserved'] > 0:
+                success_parts.append(f'{reassignment_results["converted_leads_preserved"]} converted leads preserved with original sales credit.')
+                
+                if reassignment_results['total_revenue_preserved'] > 0:
+                    success_parts.append(f'₹{reassignment_results["total_revenue_preserved"]:,.2f} in sales revenue credit preserved.')
+            
+            success_parts.append('All performance metrics and sales data have been preserved.')
+            
+            messages.success(request, ' '.join(success_parts))
+            
+            # Log the deletion with reassignment details
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"DEBUG: Preparing final log entry")
+            logger.info(f"DEBUG: selected_user_id for logging: {selected_user_id}")
+            if selected_user_id:
+                logger.info(f"DEBUG: Using manual reassignment log entry")
+                logger.info(f'User {username} deleted by {request.user.username}. '
+                           f'Manually reassigned {reassignment_results["active_leads_reassigned"]} leads to {selected_user.username}, '
+                           f'preserved {reassignment_results["converted_leads_preserved"]} sales credits, '
+                           f'total revenue preserved: ₹{reassignment_results["total_revenue_preserved"]}')
+            else:
+                logger.info(f"DEBUG: Using hierarchy reassignment log entry")
+                logger.info(f'User {username} deleted by {request.user.username}. '
+                           f'Reassigned {reassignment_results["active_leads_reassigned"]} leads, '
+                           f'preserved {reassignment_results["converted_leads_preserved"]} sales credits, '
+                           f'total revenue preserved: ₹{reassignment_results["total_revenue_preserved"]}')
+            logger.info(f"DEBUG: Final log entry completed")
+            
+        except Exception as e:
+            messages.error(request, f'Error during user deletion: {str(e)}')
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f'Error deleting user {username}: {str(e)}')
+        
         return redirect('accounts:user_list')
+    
+    # GET request - show deletion confirmation with reassignment summary
+    from services.lead_reassigner import LeadReassigner
+    reassigner = LeadReassigner()
+    reassignment_summary = reassigner.get_reassignment_summary(target_user)
     
     context = {
         'target_user': target_user,
+        'reassignment_summary': reassignment_summary,
         'page_title': f'Delete {target_user.username}',
     }
     return render(request, 'accounts/delete_user.html', context)

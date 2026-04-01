@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dropdown Centering Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .status-dropdown-container {
+            position: relative;
+            display: inline-block;
+            margin: 10px;
+        }
+
+        .status-badge.dropdown-toggle {
+            cursor: pointer;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: capitalize;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s ease;
+            border: none;
+            position: relative;
+            background: #667eea;
+            color: white;
+        }
+
+        .status-badge.dropdown-toggle:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        .status-badge.dropdown-toggle i {
+            font-size: 10px;
+            transition: transform 0.3s ease;
+            margin-left: 5px;
+        }
+
+        .status-badge.dropdown-toggle.active i {
+            transform: rotate(180deg);
+        }
+
+        .status-dropdown {
+            position: absolute !important;
+            top: 100% !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            z-index: 9999;
+            min-width: 200px;
+            max-width: 300px;
+            margin-top: 4px;
+            animation: dropdownOpen 0.3s ease-out;
+            display: none;
+        }
+
+        .status-dropdown.bottom-aligned {
+            top: auto !important;
+            bottom: 100% !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            margin-top: 0;
+            margin-bottom: 4px;
+        }
+
+        @keyframes dropdownOpen {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(-10px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0) scale(1);
+            }
+        }
+
+        .status-category {
+            padding: 8px 12px;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #666;
+            background: #f8f9fa;
+            border-bottom: 1px solid #ddd;
+            letter-spacing: 0.5px;
+        }
+
+        .status-option {
+            display: block;
+            padding: 10px 16px;
+            color: #333;
+            text-decoration: none;
+            transition: background-color 0.2s ease;
+            cursor: pointer;
+        }
+
+        .status-option:hover {
+            background-color: #f8f9fa;
+        }
+
+        .test-description {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196f3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Dropdown Centering Test</h1>
+    
+    <div class="test-description">
+        <h3>Test Objective:</h3>
+        <p>Verify that status dropdowns are centered horizontally under their trigger buttons, including edge cases near viewport boundaries.</p>
+    </div>
+
+    <div class="test-container">
+        <h3>Test 1: Normal Centering</h3>
+        <p>This dropdown should be centered under the button:</p>
+        <div class="status-dropdown-container">
+            <button class="status-badge status-interested_follow_up dropdown-toggle" onclick="toggleStatusDropdown(this)">
+                Interested - Follow Up
+                <i class="fas fa-chevron-down"></i>
+            </button>
+            <div class="status-dropdown">
+                <div class="status-category">Category 1</div>
+                <div class="status-option">Option 1</div>
+                <div class="status-option">Option 2</div>
+                <div class="status-category">Category 2</div>
+                <div class="status-option">Option 3</div>
+                <div class="status-option">Option 4</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-container">
+        <h3>Test 2: Left Edge Case</h3>
+        <p>This dropdown near the left edge should adjust positioning to avoid overflow:</p>
+        <div class="status-dropdown-container">
+            <button class="status-badge dropdown-toggle" onclick="toggleStatusDropdown(this)">
+                Left Edge
+                <i>▼</i>
+            </button>
+            <div class="status-dropdown">
+                <div class="status-category">Category 1</div>
+                <div class="status-option">Option 1</div>
+                <div class="status-option">Option 2</div>
+                <div class="status-category">Category 2</div>
+                <div class="status-option">Option 3</div>
+                <div class="status-option">Option 4</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-container" style="text-align: right;">
+        <h3>Test 3: Right Edge Case</h3>
+        <p>This dropdown near the right edge should adjust positioning to avoid overflow:</p>
+        <div class="status-dropdown-container">
+            <button class="status-badge dropdown-toggle" onclick="toggleStatusDropdown(this)">
+                Right Edge
+                <i>▼</i>
+            </button>
+            <div class="status-dropdown">
+                <div class="status-category">Category 1</div>
+                <div class="status-option">Option 1</div>
+                <div class="status-option">Option 2</div>
+                <div class="status-category">Category 2</div>
+                <div class="status-option">Option 3</div>
+                <div class="status-option">Option 4</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentOpenDropdown = null;
+
+        function toggleStatusDropdown(button) {
+            const dropdown = button.nextElementSibling;
+            
+            // Close any other open dropdowns
+            if (currentOpenDropdown && currentOpenDropdown !== dropdown) {
+                currentOpenDropdown.style.display = 'none';
+                currentOpenDropdown.previousElementSibling.classList.remove('active');
+            }
+            
+            // Toggle current dropdown
+            if (dropdown.style.display === 'block') {
+                dropdown.style.display = 'none';
+                button.classList.remove('active');
+                currentOpenDropdown = null;
+            } else {
+                // Position dropdown smartly
+                positionDropdownSmartly(button, dropdown);
+                
+                dropdown.style.display = 'block';
+                button.classList.add('active');
+                currentOpenDropdown = dropdown;
+            }
+        }
+
+        function positionDropdownSmartly(button, dropdown) {
+            // Reset positioning classes and inline styles
+            dropdown.classList.remove('bottom-aligned');
+            dropdown.style.left = '';
+            dropdown.style.right = '';
+            dropdown.style.transform = '';
+            
+            // Get viewport and button position
+            const buttonRect = button.getBoundingClientRect();
+            const dropdownHeight = 300; // Estimated max height
+            const viewportHeight = window.innerHeight;
+            const spaceBelow = viewportHeight - buttonRect.bottom;
+            const spaceAbove = buttonRect.top;
+            
+            // Check if dropdown would go below viewport
+            if (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight) {
+                // Not enough space below, but enough space above - position above
+                dropdown.classList.add('bottom-aligned');
+            }
+            
+            // Handle horizontal edge cases only when needed
+            const dropdownWidth = 300; // Estimated max width
+            const buttonCenter = buttonRect.left + (buttonRect.width / 2);
+            const spaceLeft = buttonCenter;
+            const spaceRight = window.innerWidth - buttonCenter;
+            
+            // Only adjust positioning if there's actual overflow risk
+            if (spaceLeft < (dropdownWidth / 2) || spaceRight < (dropdownWidth / 2)) {
+                if (spaceLeft < (dropdownWidth / 2) && spaceRight < (dropdownWidth / 2)) {
+                    // Not enough space on either side, align to left edge of container
+                    dropdown.style.left = '0';
+                    dropdown.style.right = 'auto';
+                    dropdown.style.transform = 'none';
+                } else if (spaceLeft < (dropdownWidth / 2)) {
+                    // Not enough space on left, shift right
+                    const offset = (dropdownWidth / 2) - spaceLeft + 10;
+                    dropdown.style.left = `calc(-50% + ${offset}px)`;
+                    dropdown.style.right = 'auto';
+                } else if (spaceRight < (dropdownWidth / 2)) {
+                    // Not enough space on right, shift left
+                    const offset = (dropdownWidth / 2) - spaceRight + 10;
+                    dropdown.style.left = `calc(-50% - ${offset}px)`;
+                    dropdown.style.right = 'auto';
+                }
+            }
+            // Otherwise, let CSS handle the centering with left: 50% and transform: translateX(-50%)
+        }
+
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', function(event) {
+            if (!event.target.closest('.status-dropdown-container')) {
+                if (currentOpenDropdown) {
+                    currentOpenDropdown.style.display = 'none';
+                    currentOpenDropdown.previousElementSibling.classList.remove('active');
+                    currentOpenDropdown = null;
+                }
+            }
+        });
+    </script>
+</body>
+</html>

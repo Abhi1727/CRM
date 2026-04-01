@@ -467,6 +467,92 @@
     color: var(--text-primary);
 }
 
+/* Enhanced styling for user search input in bulk assignment modal */
+.search-input-wrapper {
+    display: flex;
+    align-items: center;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    padding: 12px 16px;
+    width: 100%;
+    transition: all 0.3s ease;
+    position: relative;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.search-input-wrapper:focus-within {
+    border-color: var(--accent-color);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+    transform: translateY(-1px);
+}
+
+.search-input-wrapper i {
+    color: var(--text-secondary);
+    margin-right: 12px;
+    font-size: 16px;
+    transition: color 0.3s ease;
+}
+
+.search-input-wrapper:focus-within i {
+    color: var(--accent-color);
+}
+
+.search-input-wrapper input {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    flex: 1;
+    font-size: 16px;
+    font-weight: 500;
+    padding: 4px 0;
+    outline: none;
+}
+
+.search-input-wrapper input::placeholder {
+    color: var(--text-secondary);
+    font-weight: 400;
+    opacity: 0.7;
+}
+
+.search-input-wrapper .clear-search-btn {
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 6px 8px;
+    margin-left: 12px;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.search-input-wrapper .clear-search-btn:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: scale(1.05);
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
+/* Enhanced form group styling for search */
+.form-group:has(.search-input-wrapper) {
+    margin-bottom: 20px;
+}
+
+.form-group:has(.search-input-wrapper) label {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+    font-size: 15px;
+}
+
 .search-indicator {
     position: absolute;
     right: 15px;
@@ -898,9 +984,10 @@
 }
 
 .status-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
+    position: absolute !important;
+    top: 100% !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -914,8 +1001,10 @@
 
 /* Alternative positioning for dropdowns near bottom of viewport */
 .status-dropdown.bottom-aligned {
-    top: auto;
-    bottom: 100%;
+    top: auto !important;
+    bottom: 100% !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
     margin-top: 0;
     margin-bottom: 4px;
 }
@@ -923,11 +1012,11 @@
 @keyframes dropdownOpen {
     from {
         opacity: 0;
-        transform: translateY(-10px) scale(0.95);
+        transform: translateX(-50%) translateY(-10px) scale(0.95);
     }
     to {
         opacity: 1;
-        transform: translateY(0) scale(1);
+        transform: translateX(-50%) translateY(0) scale(1);
     }
 }
 
@@ -1024,6 +1113,39 @@
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
+/* Quick time selection buttons */
+.btn-time-quick, .btn-time-day {
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 50px;
+    text-align: center;
+}
+
+.btn-time-quick:hover, .btn-time-day:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.btn-time-quick:active, .btn-time-day:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(102, 126, 234, 0.3);
+}
+
+.quick-time-buttons, .quick-time-of-day {
+    border-top: 1px solid var(--border-color);
+    padding-top: 8px;
+}
 </style>
 
 <!-- Bulk Assignment Modal -->
@@ -1041,14 +1163,24 @@
             </div>
             <div class="form-group">
                 <label for="role_filter">Select Role:</label>
-                <select name="role_filter" id="role_filter" class="form-control" required>
+                <select name="role_filter" id="role_filter" class="form-control">
                     <option value="">-- Select Role --</option>
                 </select>
             </div>
             <div class="form-group">
+                <label for="user-search">Search User:</label>
+                <div class="search-input-wrapper">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="user-search" placeholder="Search users..." autocomplete="off">
+                    <button type="button" id="clear-user-search" class="clear-search-btn" title="Clear search">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="form-group">
                 <label for="assigned_user">Assign To:</label>
                 <select name="assigned_user" id="assigned_user" class="form-control" required disabled>
-                    <option value="">Select Role First...</option>
+                    <option value="">Select Role or Search User...</option>
                 </select>
             </div>
             <div class="form-group">
@@ -1079,6 +1211,24 @@
             <div class="form-group">
                 <label for="followup-datetime">Follow-up Date & Time</label>
                 <input type="datetime-local" id="followup-datetime" name="followup_datetime" class="form-control" required>
+                
+                <!-- Quick time selection buttons -->
+                <div class="quick-time-buttons" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">
+                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(1, 'today')">Today</button>
+                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(1, 'tomorrow')">Tomorrow</button>
+                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(3, 'days')">3 Days</button>
+                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(7, 'days')">1 Week</button>
+                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(14, 'days')">2 Weeks</button>
+                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(1, 'month')">1 Month</button>
+                </div>
+                
+                <!-- Quick time of day buttons -->
+                <div class="quick-time-of-day" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px;">
+                    <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('09:00')">9 AM</button>
+                    <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('12:00')">12 PM</button>
+                    <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('15:00')">3 PM</button>
+                    <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('18:00')">6 PM</button>
+                </div>
             </div>
             
             <div class="form-group">
@@ -1105,6 +1255,19 @@ function getCurrentSearch() {
 
 // Advanced Filter System
 let filterTimeout;
+
+// Debounce utility function for search performance
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
 
 function toggleAdvancedFilter() {
     const panel = document.getElementById('advanced-filter-panel');
@@ -1372,6 +1535,14 @@ function debounceSearch() {
     searchTimeout = setTimeout(performSearch, 500);
 }
 
+// Global modal functions (must be outside DOMContentLoaded for onclick handlers)
+function closeBulkAssignModal() {
+    const modal = document.getElementById('bulk-assign-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
 // Bulk selection functionality
 let selectedLeads = new Set();
 
@@ -1511,12 +1682,16 @@ document.addEventListener("DOMContentLoaded", function() {
     
     // Clear selection button
     clearSelectionBtn.addEventListener('click', function() {
+        // Clear checkbox selections (existing functionality)
         leadCheckboxes.forEach(function(checkbox) {
             checkbox.checked = false;
         });
         selectedLeads.clear();
         selectAllCheckbox.checked = false;
         updateBulkAssignButton();
+        
+        // Clear advanced filters (new functionality)
+        clearAllFilters();
     });
     
     // Bulk assign button click
@@ -1539,9 +1714,11 @@ document.addEventListener("DOMContentLoaded", function() {
     
     // Modal functionality
     const modal = document.getElementById('bulk-assign-modal');
-    const closeBtn = document.querySelector('.close');
+    const closeBtn = document.querySelector('#bulk-assign-modal .close');
     
-    closeBtn.onclick = closeBulkAssignModal;
+    if (closeBtn) {
+        closeBtn.onclick = closeBulkAssignModal;
+    }
     
     window.onclick = function(event) {
         if (event.target == modal) {
@@ -1586,10 +1763,6 @@ document.addEventListener("DOMContentLoaded", function() {
         modal.style.display = 'block';
     }
     
-    function closeBulkAssignModal() {
-        modal.style.display = 'none';
-    }
-    
     function loadAvailableRoles() {
         console.log('Loading available roles...');
         fetch('/dashboard/ajax/available-roles/', {
@@ -1614,7 +1787,7 @@ document.addEventListener("DOMContentLoaded", function() {
                     data.roles.forEach(role => {
                         const option = document.createElement('option');
                         option.value = role.value;
-                        option.textContent = role.label;
+                        option.textContent = role.display;
                         roleSelect.appendChild(option);
                     });
                 } else {
@@ -1624,8 +1797,14 @@ document.addEventListener("DOMContentLoaded", function() {
                 
                 // Reset user selection
                 const userSelect = document.getElementById('assigned_user');
-                userSelect.innerHTML = '<option value="">Select Role First...</option>';
+                userSelect.innerHTML = '<option value="">Select Role or Search User...</option>';
                 userSelect.disabled = true;
+                
+                // Clear search field
+                const searchInput = document.getElementById('user-search');
+                if (searchInput) {
+                    searchInput.value = '';
+                }
             })
             .catch(error => {
                 console.error('Error loading roles:', error);
@@ -1633,20 +1812,47 @@ document.addEventListener("DOMContentLoaded", function() {
             });
     }
     
-    function loadUsersByRole(role) {
-        if (!role) {
-            const userSelect = document.getElementById('assigned_user');
-            userSelect.innerHTML = '<option value="">Select Role First...</option>';
+    // Intelligent loading function based on available inputs
+    function loadUsersIntelligently() {
+        const selectedRole = document.getElementById('role_filter').value;
+        const searchQuery = document.getElementById('user-search').value.trim();
+        const userSelect = document.getElementById('assigned_user');
+        
+        // Case 1: No role selected and no search → "Select Role or Search User"
+        if (!selectedRole && !searchQuery) {
+            userSelect.innerHTML = '<option value="">Select Role or Search User...</option>';
             userSelect.disabled = true;
             return;
         }
         
+        // Case 2: Only role selected → Show all users of that role
+        if (selectedRole && !searchQuery) {
+            loadUsersByRole(selectedRole);
+            return;
+        }
+        
+        // Case 3: Only search (no role) → Search across all active users
+        if (!selectedRole && searchQuery) {
+            loadUsersBySearchOnly(searchQuery);
+            return;
+        }
+        
+        // Case 4: Both role AND search → Search within that role
+        if (selectedRole && searchQuery) {
+            loadUsersByRoleAndSearch(selectedRole, searchQuery);
+            return;
+        }
+    }
+    
+    function loadUsersByRole(role) {
         console.log('Loading users for role:', role);
         const userSelect = document.getElementById('assigned_user');
         userSelect.innerHTML = '<option value="">Loading...</option>';
         userSelect.disabled = true;
         
-        fetch(`/accounts/get-users-by-role/?role=${encodeURIComponent(role)}`, {
+        const params = new URLSearchParams({ role: role });
+        
+        fetch(`/accounts/get-users-by-role/?${params.toString()}`, {
             method: 'GET',
             credentials: 'same-origin',
             headers: {
@@ -1683,10 +1889,110 @@ document.addEventListener("DOMContentLoaded", function() {
             });
     }
     
-    // Role selection change listener
+    function loadUsersBySearchOnly(searchQuery) {
+        console.log('Searching users across all roles:', searchQuery);
+        const userSelect = document.getElementById('assigned_user');
+        userSelect.innerHTML = '<option value="">Loading...</option>';
+        userSelect.disabled = true;
+        
+        const params = new URLSearchParams({ search: searchQuery });
+        
+        fetch(`/accounts/get-users-by-role/?${params.toString()}`, {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Received search results:', data);
+                userSelect.innerHTML = '<option value="">Select User...</option>';
+                
+                if (data.users && data.users.length > 0) {
+                    data.users.forEach(function(user) {
+                        const option = document.createElement('option');
+                        option.value = user.id;
+                        const displayName = (user.first_name + ' ' + user.last_name).trim() || user.username;
+                        option.textContent = displayName + ' (' + user.role_display + ', ' + user.leads_assigned_count + ' leads)';
+                        userSelect.appendChild(option);
+                    });
+                    userSelect.disabled = false;
+                } else {
+                    userSelect.innerHTML = '<option value="">No users found matching "' + searchQuery + '"</option>';
+                }
+            })
+            .catch(error => {
+                console.error('Error searching users:', error);
+                userSelect.innerHTML = '<option value="">Error searching users</option>';
+                alert('Error searching users. Please try again.');
+            });
+    }
+    
+    function loadUsersByRoleAndSearch(role, searchQuery) {
+        console.log('Searching users within role:', role, 'search:', searchQuery);
+        const userSelect = document.getElementById('assigned_user');
+        userSelect.innerHTML = '<option value="">Loading...</option>';
+        userSelect.disabled = true;
+        
+        const params = new URLSearchParams({ role: role, search: searchQuery });
+        
+        fetch(`/accounts/get-users-by-role/?${params.toString()}`, {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Received filtered search results:', data);
+                userSelect.innerHTML = '<option value="">Select User...</option>';
+                
+                if (data.users && data.users.length > 0) {
+                    data.users.forEach(function(user) {
+                        const option = document.createElement('option');
+                        option.value = user.id;
+                        const displayName = (user.first_name + ' ' + user.last_name).trim() || user.username;
+                        option.textContent = displayName + ' (' + user.leads_assigned_count + ' leads)';
+                        userSelect.appendChild(option);
+                    });
+                    userSelect.disabled = false;
+                } else {
+                    userSelect.innerHTML = '<option value="">No users found in "' + role + '" matching "' + searchQuery + '"</option>';
+                }
+            })
+            .catch(error => {
+                console.error('Error searching users in role:', error);
+                userSelect.innerHTML = '<option value="">Error searching users</option>';
+                alert('Error searching users. Please try again.');
+            });
+    }
+    
+    // Event listeners for intelligent loading
     document.getElementById('role_filter').addEventListener('change', function() {
-        const selectedRole = this.value;
-        loadUsersByRole(selectedRole);
+        loadUsersIntelligently();
+    });
+    
+    // Search input listener with debounce
+    document.getElementById('user-search').addEventListener('input', debounce(function() {
+        loadUsersIntelligently();
+    }, 300));
+    
+    // Clear search listener
+    document.getElementById('clear-user-search').addEventListener('click', function() {
+        document.getElementById('user-search').value = '';
+        loadUsersIntelligently();
     });
 });
 
@@ -1724,6 +2030,12 @@ function toggleStatusDropdown(button) {
     const leadId = button.dataset.leadId;
     const dropdown = document.getElementById(`status-dropdown-${leadId}`);
     
+    console.log('🔍 DEBUG: toggleStatusDropdown called:', {
+        buttonLeadId: leadId,
+        expectedDropdownId: `status-dropdown-${leadId}`,
+        foundDropdown: dropdown ? 'yes' : 'no'
+    });
+    
     // Close any other open dropdowns
     if (currentOpenDropdown && currentOpenDropdown !== dropdown) {
         currentOpenDropdown.style.display = 'none';
@@ -1751,8 +2063,11 @@ function toggleStatusDropdown(button) {
 }
 
 function positionDropdownSmartly(button, dropdown) {
-    // Reset positioning classes
+    // Reset positioning classes and inline styles
     dropdown.classList.remove('bottom-aligned');
+    dropdown.style.left = '';
+    dropdown.style.right = '';
+    dropdown.style.transform = '';
     
     // Get viewport and button position
     const buttonRect = button.getBoundingClientRect();
@@ -1765,24 +2080,34 @@ function positionDropdownSmartly(button, dropdown) {
     if (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight) {
         // Not enough space below, but enough space above - position above
         dropdown.classList.add('bottom-aligned');
-    } else {
-        // Normal positioning below
-        dropdown.style.top = '';
-        dropdown.style.bottom = '';
     }
     
-    // Also handle horizontal positioning if needed
+    // Handle horizontal edge cases only when needed
     const dropdownWidth = 300; // Estimated max width
-    const spaceRight = window.innerWidth - buttonRect.left;
+    const buttonCenter = buttonRect.left + (buttonRect.width / 2);
+    const spaceLeft = buttonCenter;
+    const spaceRight = window.innerWidth - buttonCenter;
     
-    if (spaceRight < dropdownWidth && buttonRect.left > dropdownWidth) {
-        // Position from right edge if not enough space on right
-        dropdown.style.left = 'auto';
-        dropdown.style.right = '0';
-    } else {
-        dropdown.style.left = '0';
-        dropdown.style.right = '';
+    // Only adjust positioning if there's actual overflow risk
+    if (spaceLeft < (dropdownWidth / 2) || spaceRight < (dropdownWidth / 2)) {
+        if (spaceLeft < (dropdownWidth / 2) && spaceRight < (dropdownWidth / 2)) {
+            // Not enough space on either side, align to left edge of container
+            dropdown.style.left = '0';
+            dropdown.style.right = 'auto';
+            dropdown.style.transform = 'none';
+        } else if (spaceLeft < (dropdownWidth / 2)) {
+            // Not enough space on left, shift right
+            const offset = (dropdownWidth / 2) - spaceLeft + 10;
+            dropdown.style.left = `calc(-50% + ${offset}px)`;
+            dropdown.style.right = 'auto';
+        } else if (spaceRight < (dropdownWidth / 2)) {
+            // Not enough space on right, shift left
+            const offset = (dropdownWidth / 2) - spaceRight + 10;
+            dropdown.style.left = `calc(-50% - ${offset}px)`;
+            dropdown.style.right = 'auto';
+        }
     }
+    // Otherwise, let CSS handle the centering with left: 50% and transform: translateX(-50%)
 }
 
 function populateStatusDropdown(dropdown, currentStatus) {
@@ -1812,6 +2137,12 @@ function populateStatusDropdown(dropdown, currentStatus) {
             option.addEventListener('click', function(e) {
                 e.preventDefault();
                 const leadId = dropdown.id.replace('status-dropdown-', '');
+                console.log('🔍 DEBUG: Dropdown option clicked:', {
+                    dropdownId: dropdown.id,
+                    extractedLeadId: leadId,
+                    status: status,
+                    statusText: STATUS_CHOICES[status]
+                });
                 updateLeadStatus(leadId, status, dropdown);
             });
             
@@ -1821,24 +2152,49 @@ function populateStatusDropdown(dropdown, currentStatus) {
 }
 
 function updateLeadStatus(leadId, newStatus, dropdown) {
+    console.log('🔍 DEBUG: updateLeadStatus called with:', {
+        leadId: leadId,
+        newStatus: newStatus,
+        dropdownId: dropdown ? dropdown.id : 'null'
+    });
+    
     const button = dropdown.previousElementSibling;
+    console.log('🔍 DEBUG: Found button element:', button ? 'yes' : 'no');
     
     // Show loading state
     button.classList.add('updating');
     
     // Check if follow-up is needed
     const needsFollowup = ['interested_follow_up', 'call_back', 'in_few_months'].includes(newStatus);
+    console.log('🔍 DEBUG: Follow-up needed:', needsFollowup, 'for status:', newStatus);
     
     if (needsFollowup) {
         // Show follow-up modal first
+        console.log('🔍 DEBUG: Showing follow-up modal');
         showFollowupModal(leadId, newStatus, button, dropdown);
     } else {
         // Update status directly
+        console.log('🔍 DEBUG: Performing direct status update');
         performStatusUpdate(leadId, newStatus, null, '', button, dropdown);
     }
 }
 
 function performStatusUpdate(leadId, newStatus, followupDatetime, followupRemarks, button, dropdown) {
+    console.log('🔍 DEBUG: performStatusUpdate called with:', {
+        leadId: leadId,
+        leadIdType: typeof leadId,
+        newStatus: newStatus,
+        followupDatetime: followupDatetime,
+        followupRemarks: followupRemarks
+    });
+    
+    // Validate lead ID
+    if (!leadId || leadId === 'undefined' || leadId === 'null') {
+        console.error('🔍 DEBUG: Invalid lead ID:', leadId);
+        showNotification('Invalid lead ID', 'error');
+        return;
+    }
+    
     const data = {
         lead_id: leadId,
         status: newStatus
@@ -1852,20 +2208,59 @@ function performStatusUpdate(leadId, newStatus, followupDatetime, followupRemark
         data.followup_remarks = followupRemarks;
     }
     
+    console.log('🔍 DEBUG: Sending status update request:', {
+        url: '/dashboard/ajax/lead-status-update/',
+        method: 'POST',
+        data: data,
+        csrfToken: getCSRFToken(),
+        csrfTokenLength: getCSRFToken() ? getCSRFToken().length : 'null',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCSRFToken(),
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    });
+    
     fetch('/dashboard/ajax/lead-status-update/', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': getCookie('csrftoken'),
+            'X-CSRFToken': getCSRFToken(),
             'X-Requested-With': 'XMLHttpRequest'
         },
         body: JSON.stringify(data)
     })
-    .then(response => response.json())
+    .then(response => {
+        console.log('🔍 DEBUG: Received response:', {
+            status: response.status,
+            ok: response.ok,
+            statusText: response.statusText
+        });
+        
+        if (!response.ok) {
+            console.error('🔍 DEBUG: Response not OK:', response.status, response.statusText);
+            // Try to get error details from response body
+            return response.text().then(text => {
+                console.error('🔍 DEBUG: Error response body:', text);
+                try {
+                    const errorData = JSON.parse(text);
+                    throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorData.error || 'No error details'}`);
+                } catch (e) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText} - ${text}`);
+                }
+            });
+        }
+        
+        return response.json();
+    })
     .then(data => {
+        console.log('🔍 DEBUG: Parsed response data:', data);
+        
         button.classList.remove('updating');
         
         if (data.success) {
+            console.log('🔍 DEBUG: Status update successful');
+            
             // Update button appearance
             button.className = `status-badge status-${newStatus} dropdown-toggle`;
             button.dataset.currentStatus = newStatus;
@@ -1882,14 +2277,107 @@ function performStatusUpdate(leadId, newStatus, followupDatetime, followupRemark
             // Show success message
             showNotification('Status updated successfully', 'success');
         } else {
-            showNotification(data.error || 'Error updating status', 'error');
+            console.error('🔍 DEBUG: API returned error:', data);
+            const errorMessage = data.error || 'Unknown error from server';
+            showNotification(`Error updating status: ${errorMessage}`, 'error');
         }
     })
     .catch(error => {
         button.classList.remove('updating');
-        console.error('Error updating status:', error);
-        showNotification('Error updating status', 'error');
+        console.error('🔍 DEBUG: Network/parsing error:', error);
+        console.error('🔍 DEBUG: Error stack:', error.stack);
+        
+        // Try to extract more detailed error information
+        let errorMessage = 'Error updating status';
+        if (error.message) {
+            if (error.message.includes('HTTP')) {
+                errorMessage = `Server error: ${error.message}`;
+            } else if (error.message.includes('JSON')) {
+                errorMessage = 'Invalid response from server';
+            } else if (error.message.includes('Network')) {
+                errorMessage = 'Network connection failed';
+            } else {
+                errorMessage = `Error: ${error.message}`;
+            }
+        }
+        
+        showNotification(errorMessage, 'error');
     });
+}
+
+// Quick time selection functions
+function setFollowupTime(value, unit) {
+    const datetimeInput = document.getElementById('followup-datetime');
+    const now = new Date();
+    let targetDate = new Date();
+    
+    switch(unit) {
+        case 'today':
+            // Keep today, set time to 9 AM if it's already past 9 AM, otherwise keep current time
+            if (now.getHours() >= 9) {
+                targetDate.setHours(9, 0, 0, 0);
+            } else {
+                targetDate = now;
+            }
+            break;
+        case 'tomorrow':
+            targetDate.setDate(now.getDate() + 1);
+            targetDate.setHours(9, 0, 0, 0);
+            break;
+        case 'days':
+            targetDate.setDate(now.getDate() + value);
+            targetDate.setHours(9, 0, 0, 0);
+            break;
+        case 'month':
+            targetDate.setMonth(now.getMonth() + value);
+            targetDate.setDate(1); // First day of the month
+            targetDate.setHours(9, 0, 0, 0);
+            break;
+    }
+    
+    // Format for datetime-local input (YYYY-MM-DDTHH:MM)
+    const year = targetDate.getFullYear();
+    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const day = String(targetDate.getDate()).padStart(2, '0');
+    const hours = String(targetDate.getHours()).padStart(2, '0');
+    const minutes = String(targetDate.getMinutes()).padStart(2, '0');
+    
+    datetimeInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+    
+    // Add visual feedback
+    highlightDateTimeInput();
+}
+
+function setFollowupTimeOfDay(time) {
+    const datetimeInput = document.getElementById('followup-datetime');
+    const currentValue = datetimeInput.value;
+    
+    if (currentValue) {
+        // Keep the current date, change only the time
+        const currentDate = currentValue.split('T')[0];
+        datetimeInput.value = `${currentDate}T${time}`;
+    } else {
+        // If no date is set, use today with the specified time
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        datetimeInput.value = `${year}-${month}-${day}T${time}`;
+    }
+    
+    // Add visual feedback
+    highlightDateTimeInput();
+}
+
+function highlightDateTimeInput() {
+    const datetimeInput = document.getElementById('followup-datetime');
+    datetimeInput.style.backgroundColor = 'rgba(102, 126, 234, 0.1)';
+    datetimeInput.style.borderColor = 'var(--accent-color)';
+    
+    setTimeout(() => {
+        datetimeInput.style.backgroundColor = '';
+        datetimeInput.style.borderColor = '';
+    }, 500);
 }
 
 function showFollowupModal(leadId, status, button, dropdown) {
@@ -1925,7 +2413,9 @@ function closeFollowupModal() {
 }
 
 // Handle follow-up form submission
-document.getElementById('quick-followup-form').addEventListener('submit', function(e) {
+const followupForm = document.getElementById('quick-followup-form');
+if (followupForm) {
+    followupForm.addEventListener('submit', function(e) {
     e.preventDefault();
     
     const leadId = document.getElementById('followup-lead-id').value;
@@ -1942,7 +2432,8 @@ document.getElementById('quick-followup-form').addEventListener('submit', functi
     
     // Perform status update with follow-up
     performStatusUpdate(leadId, status, datetime, remarks, button, dropdown);
-});
+    });
+}
 
 // Close dropdowns when clicking outside
 document.addEventListener('click', function(e) {
@@ -2009,6 +2500,12 @@ document.addEventListener('keydown', function(e) {
         e.preventDefault();
         const leadId = currentOpenDropdown.id.replace('status-dropdown-', '');
         const status = document.activeElement.dataset.status;
+        console.log('🔍 DEBUG: Keyboard Enter on status option:', {
+            dropdownId: currentOpenDropdown.id,
+            extractedLeadId: leadId,
+            status: status,
+            statusText: STATUS_CHOICES[status]
+        });
         updateLeadStatus(leadId, status, currentOpenDropdown);
     }
 });
@@ -2027,6 +2524,46 @@ function getCookie(name) {
         }
     }
     return cookieValue;
+}
+
+// Enhanced CSRF token retrieval with fallbacks
+function getCSRFToken() {
+    // Try cookie first
+    let token = getCookie('csrftoken');
+    
+    // Fallback 1: Check for meta tag
+    if (!token || token.length < 20) {
+        const metaTag = document.querySelector('meta[name="csrf-token"]');
+        if (metaTag) {
+            token = metaTag.getAttribute('content');
+            console.log('🔍 DEBUG: Using CSRF token from meta tag');
+        }
+    }
+    
+    // Fallback 2: Check for hidden input
+    if (!token || token.length < 20) {
+        const hiddenInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        if (hiddenInput) {
+            token = hiddenInput.value;
+            console.log('🔍 DEBUG: Using CSRF token from hidden input');
+        }
+    }
+    
+    // Fallback 3: Check for Codeium specific meta tag
+    if (!token || token.length < 20) {
+        const codeiumMeta = document.querySelector('meta[name="x-codeium-csrf-token"]');
+        if (codeiumMeta) {
+            token = codeiumMeta.getAttribute('content');
+            console.log('🔍 DEBUG: Using CSRF token from Codeium meta tag');
+        }
+    }
+    
+    console.log('🔍 DEBUG: Final CSRF token:', {
+        token: token ? `${token.substring(0, 10)}...` : 'null',
+        length: token ? token.length : 'null'
+    });
+    
+    return token;
 }
 
 // Notification system

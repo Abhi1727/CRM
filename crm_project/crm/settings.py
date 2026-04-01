@@ -36,7 +36,7 @@ ALLOWED_HOSTS = [
 CSRF_TRUSTED_ORIGINS = [
     origin.strip() for origin in os.getenv(
         'DJANGO_CSRF_TRUSTED_ORIGINS',
-        'http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:51822'
+        'http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:51822,http://127.0.0.1:54227,http://127.0.0.1:59157'
     ).split(',') if origin.strip()
 ]
 
@@ -131,7 +131,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'
 
 USE_I18N = True
 
@@ -152,6 +152,12 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # Custom user model
 AUTH_USER_MODEL = 'accounts.User'
+
+# Custom authentication backend
+AUTHENTICATION_BACKENDS = [
+    'accounts.backends.EmailOrUsernameBackend',
+    'django.contrib.auth.backends.ModelBackend',  # Fallback to default
+]
 
 # Login URLs
 LOGIN_URL = 'accounts:login'

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Centering</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        td {
+            padding: 9px 15px;
+            border: 1px solid #ddd;
+        }
+        
+        .status-dropdown-container {
+            position: relative;
+            display: inline-block;
+        }
+
+        .status-badge {
+            cursor: pointer;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: capitalize;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s ease;
+            border: none;
+            position: relative;
+            background: #667eea;
+            color: white;
+        }
+
+        .status-dropdown {
+            position: absolute !important;
+            top: 100% !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            z-index: 9999;
+            min-width: 200px;
+            max-width: 300px;
+            margin-top: 4px;
+            display: none;
+        }
+        
+        .status-option {
+            padding: 10px;
+            cursor: pointer;
+        }
+        
+        .status-option:hover {
+            background: #f5f5f5;
+        }
+        
+        .debug-info {
+            background: #ffeb3b;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Debug Dropdown Centering</h1>
+    
+    <div class="debug-info" id="debug-info">
+        Click on the status button to see positioning info
+    </div>
+    
+    <div class="container">
+        <h3>Table Cell Test (Exact CRM Structure)</h3>
+        <table>
+            <tr>
+                <td>Name</td>
+                <td>John Doe</td>
+            </tr>
+            <tr>
+                <td>Status</td>
+                <td>
+                    <div class="status-dropdown-container" id="test-container">
+                        <button class="status-badge" onclick="toggleAndDebug(this)">
+                            Interested - Follow Up
+                            <i>▼</i>
+                        </button>
+                        <div class="status-dropdown" id="test-dropdown">
+                            <div class="status-option">Option 1</div>
+                            <div class="status-option">Option 2</div>
+                            <div class="status-option">Option 3</div>
+                            <div class="status-option">Option 4</div>
+                            <div class="status-option">Option 5</div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        </table>
+    </div>
+    
+    <div class="container">
+        <h3>Simple Container Test</h3>
+        <div class="status-dropdown-container">
+            <button class="status-badge" onclick="toggleAndDebug(this)">
+                Simple Test
+                <i>▼</i>
+            </button>
+            <div class="status-dropdown">
+                <div class="status-option">Option 1</div>
+                <div class="status-option">Option 2</div>
+                <div class="status-option">Option 3</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleAndDebug(button) {
+            const dropdown = button.nextElementSibling;
+            const container = button.parentElement;
+            
+            // Toggle dropdown
+            if (dropdown.style.display === 'block') {
+                dropdown.style.display = 'none';
+            } else {
+                dropdown.style.display = 'block';
+                
+                // Get positioning info
+                const buttonRect = button.getBoundingClientRect();
+                const containerRect = container.getBoundingClientRect();
+                const dropdownRect = dropdown.getBoundingClientRect();
+                
+                const debugInfo = `
+Button: ${buttonRect.width}px × ${buttonRect.height}px at (${buttonRect.left}, ${buttonRect.top})
+Container: ${containerRect.width}px × ${containerRect.height}px at (${containerRect.left}, ${containerRect.top})
+Dropdown: ${dropdownRect.width}px × ${dropdownRect.height}px at (${dropdownRect.left}, ${dropdownRect.top})
+Button center: ${buttonRect.left + buttonRect.width/2}
+Available space left: ${buttonRect.left + buttonRect.width/2}
+Available space right: ${window.innerWidth - (buttonRect.left + buttonRect.width/2)}
+CSS left: ${getComputedStyle(dropdown).left}
+CSS transform: ${getComputedStyle(dropdown).transform}
+                `;
+                
+                document.getElementById('debug-info').textContent = debugInfo;
+            }
+        }
+        
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', function(event) {
+            if (!event.target.closest('.status-dropdown-container')) {
+                document.querySelectorAll('.status-dropdown').forEach(d => {
+                    d.style.display = 'none';
+                });
+            }
+        });
+    </script>
+</body>
+</html>

@@ -40,6 +40,7 @@ urlpatterns = [
     path("ajax/get-countries/", api_views.get_countries, name="get_countries"),
     path("ajax/get-courses/", api_views.get_courses, name="get_courses"),
     path("ajax/get-team-members/", api_views.get_team_members, name="get_team_members"),
+    path("ajax/available-roles/", api_views.get_available_roles, name="get_available_roles"),
     
     # Internal Reminder API endpoints
     path("api/internal/reminders/", api_views.api_internal_reminders, name="api_internal_reminders"),

@@ -22,8 +22,11 @@
         <form method="post" class="login-form">
             {% csrf_token %}
             <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" required autofocus autocomplete="username">
+                <label for="username">Username or Email</label>
+                <input type="text" id="username" name="username" required 
+                       placeholder="Enter your username or email address"
+                       autocomplete="username">
+                <small class="form-help">You can sign in with either your username or email address</small>
             </div>
             
             <div class="form-group password-group">
@@ -64,5 +67,27 @@ function togglePassword() {
         eyeClosed.style.display = 'none';
     }
 }
+
+// Add input validation feedback
+document.addEventListener('DOMContentLoaded', function() {
+    const usernameInput = document.getElementById('username');
+    const formHelp = document.querySelector('.form-help');
+    
+    usernameInput.addEventListener('input', function() {
+        const value = this.value.trim();
+        const isEmail = value.includes('@') && value.includes('.');
+        
+        if (isEmail && value.length > 5) {
+            formHelp.textContent = '✓ Email format detected';
+            formHelp.style.color = '#28a745';
+        } else if (value.length > 0) {
+            formHelp.textContent = 'You can sign in with either your username or email address';
+            formHelp.style.color = '#6c757d';
+        } else {
+            formHelp.textContent = 'You can sign in with either your username or email address';
+            formHelp.style.color = '#6c757d';
+        }
+    });
+});
 </script>
 {% endblock %}
