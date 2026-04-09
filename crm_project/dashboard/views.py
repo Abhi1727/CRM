@@ -8,12 +8,16 @@ from django.http import JsonResponse, HttpResponse
 from django.urls import reverse
 from django.core.paginator import Paginator
 from django.views.decorators.csrf import csrf_exempt
+from django.db import transaction
+from django.http import QueryDict, Http404
 import pandas as pd
 import json
 import os
+import uuid
+import hashlib
 from datetime import datetime
 
-from .models import Lead, LeadActivity, LeadHistory
+from .models import Lead, LeadActivity, LeadHistory, LeadImportSession, LeadOperationLog
 from .forms import (
     LeadForm, LeadAssignmentForm, BulkLeadAssignmentForm, 
     LeadImportForm, LeadStatusUpdateForm
@@ -150,135 +154,147 @@ def home(request):
 def profile(request):
     return render(request, 'dashboard/profile.html')
 
-@login_required
-@hierarchy_required
-def leads_list(request):
-    leads = request.hierarchy_context['accessible_leads']
-    status_filter = request.GET.get('status')
-    sort_by = request.GET.get('sort', '-created_at')  # Default: newest first
-    page_size = request.GET.get('page_size', '25')
-    search_query = request.GET.get('search', '').strip()
-    country_filter = request.GET.get('country', '').strip()
-    course_filter = request.GET.get('course', '').strip()
-    start_date = request.GET.get('start_date', '').strip()
-    end_date = request.GET.get('end_date', '').strip()
-    assigned_user_filter = request.GET.get('assigned_user', '').strip()
-    preset_filter = request.GET.get('preset', '').strip()
-    
-    # Validate page size
-    valid_page_sizes = ['5', '10', '25', '50', '100', '200', '500']
-    if page_size not in valid_page_sizes:
-        page_size = '25'
-    page_size = int(page_size)
-    
-    # Apply search filter
-    if search_query:
-        leads = leads.filter(
-            Q(name__icontains=search_query) |
-            Q(email__icontains=search_query) |
-            Q(mobile__icontains=search_query) |
-            Q(alt_mobile__icontains=search_query) |
-            Q(alt_email__icontains=search_query)
+VALID_PAGE_SIZES = {'5', '10', '25', '50', '100', '200', '500'}
+LEAD_SORT_FIELDS = {
+    'created_at': 'created_at',
+    '-created_at': '-created_at',
+    'name': 'name',
+    '-name': '-name',
+    'status': 'status',
+    '-status': '-status',
+    'assigned_user': 'assigned_user__username',
+    '-assigned_user': '-assigned_user__username',
+    'priority': 'followup_priority',
+    '-priority': '-followup_priority',
+}
+
+
+def _normalize_page_size(raw_value, default=25):
+    raw = str(raw_value or default).strip()
+    if raw not in VALID_PAGE_SIZES:
+        return default
+    return int(raw)
+
+
+def _extract_lead_filters(params):
+    return {
+        'status': params.get('status', '').strip(),
+        'sort': params.get('sort', '-created_at').strip(),
+        'page_size': _normalize_page_size(params.get('page_size', '25')),
+        'search': params.get('search', '').strip(),
+        'country': params.get('country', '').strip(),
+        'course': params.get('course', '').strip(),
+        'start_date': params.get('start_date', '').strip(),
+        'end_date': params.get('end_date', '').strip(),
+        'assigned_user': params.get('assigned_user', '').strip(),
+        'preset': params.get('preset', '').strip(),
+    }
+
+
+def _apply_common_lead_filters(queryset, user, filters):
+    if filters['status']:
+        queryset = queryset.filter(status=filters['status'])
+
+    if filters['search']:
+        queryset = queryset.filter(
+            Q(name__icontains=filters['search']) |
+            Q(email__icontains=filters['search']) |
+            Q(mobile__icontains=filters['search']) |
+            Q(alt_mobile__icontains=filters['search']) |
+            Q(alt_email__icontains=filters['search'])
         )
-    
-    # Apply country filter
-    if country_filter:
-        leads = leads.filter(country__icontains=country_filter)
-    
-    # Apply course filter
-    if course_filter:
-        leads = leads.filter(course_name__icontains=course_filter)
-    
-    # Apply date range filter - include leads created, assigned, or transferred within date range
-    if start_date:
-        from datetime import datetime
+
+    if filters['country']:
+        queryset = queryset.filter(country__icontains=filters['country'])
+
+    if filters['course']:
+        queryset = queryset.filter(course_name__icontains=filters['course'])
+
+    if filters['start_date']:
         try:
-            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-            # Filter leads that were created, assigned, OR transferred on/after start date
-            leads = leads.filter(
+            start_date_obj = datetime.strptime(filters['start_date'], '%Y-%m-%d').date()
+            queryset = queryset.filter(
                 Q(created_at__date__gte=start_date_obj) |
                 Q(assigned_at__date__gte=start_date_obj) |
                 Q(transfer_date__date__gte=start_date_obj)
             )
         except ValueError:
-            pass  # Invalid date format, ignore filter
-    
-    if end_date:
+            pass
+
+    if filters['end_date']:
         try:
-            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
-            # Filter leads that were created, assigned, OR transferred on/before end date
-            leads = leads.filter(
+            end_date_obj = datetime.strptime(filters['end_date'], '%Y-%m-%d').date()
+            queryset = queryset.filter(
                 Q(created_at__date__lte=end_date_obj) |
                 Q(assigned_at__date__lte=end_date_obj) |
                 Q(transfer_date__date__lte=end_date_obj)
             )
         except ValueError:
-            pass  # Invalid date format, ignore filter
-    
-    # Apply assigned user filter
-    if assigned_user_filter:
+            pass
+
+    if filters['assigned_user']:
         try:
-            assigned_user_id = int(assigned_user_filter)
-            leads = leads.filter(assigned_user_id=assigned_user_id)
+            queryset = queryset.filter(assigned_user_id=int(filters['assigned_user']))
         except ValueError:
-            pass  # Invalid user ID, ignore filter
-    
-    # Handle preset filters
-    if preset_filter == 'my_team':
-        # Filter leads assigned to user's team members
-        if request.user.role in ['manager', 'owner']:
-            team_members = request.user.get_accessible_users()
-            leads = leads.filter(assigned_user__in=team_members)
-        elif request.user.role == 'team_lead':
-            team_agents = request.user.get_accessible_users()
-            leads = leads.filter(assigned_user__in=team_agents)
-        else:  # agent - filter by their own leads only
-            leads = leads.filter(assigned_user=request.user)
-    elif preset_filter == 'my':
-        # Filter leads assigned to current user
-        leads = leads.filter(assigned_user=request.user)
-    
-    # Apply sorting
-    valid_sort_fields = {
-        'created_at': 'created_at',
-        '-created_at': '-created_at',
-        'name': 'name',
-        '-name': '-name',
-        'status': 'status',
-        '-status': '-status',
-        'assigned_user': 'assigned_user__username',
-        '-assigned_user': '-assigned_user__username',
-        'priority': 'priority',
-        '-priority': '-priority',
-    }
-    
-    if sort_by in valid_sort_fields:
-        leads = leads.order_by(valid_sort_fields[sort_by])
-    else:
-        leads = leads.order_by('-created_at')  # Default: newest first
-    
-    # Optimize query with select_related
-    leads = leads.select_related('assigned_user', 'created_by')
-    
-    # Pagination with configurable page size
-    paginator = Paginator(leads, page_size)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
+            pass
+
+    if filters['preset'] == 'my_team':
+        if user.role in ['manager', 'owner']:
+            queryset = queryset.filter(assigned_user__in=user.get_accessible_users())
+        elif user.role == 'team_lead':
+            queryset = queryset.filter(assigned_user__in=user.get_accessible_users())
+        else:
+            queryset = queryset.filter(assigned_user=user)
+    elif filters['preset'] == 'my':
+        queryset = queryset.filter(assigned_user=user)
+
+    return queryset
+
+
+def _render_leads_list_page(request, base_queryset, page_title, default_sort='-created_at'):
+    filters = _extract_lead_filters(request.GET)
+    sort_by = filters['sort'] if filters['sort'] in LEAD_SORT_FIELDS else default_sort
+    leads_qs = _apply_common_lead_filters(base_queryset, request.user, filters)
+    leads_qs = leads_qs.order_by(LEAD_SORT_FIELDS.get(sort_by, default_sort)).select_related('assigned_user', 'created_by')
+
+    total_filtered_count = leads_qs.count()
+    paginator = Paginator(leads_qs, filters['page_size'])
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    filter_snapshot = request.GET.copy()
+    filter_snapshot.pop('page', None)
+
     context = {
         'page_obj': page_obj,
-        'leads': page_obj,  # Keep for backward compatibility
+        'leads': page_obj,
         'status_choices': Lead.STATUS_CHOICES,
-        'page_title': 'All Leads',
+        'page_title': page_title,
         'current_sort': sort_by,
-        'current_page_size': page_size,
-        'search_query': search_query,
-        'country_filter': country_filter,
-        'course_filter': course_filter,
-        'start_date': start_date,
-        'end_date': end_date,
-        'assigned_user_filter': assigned_user_filter,
-        'active_filters_count': len([filter for filter in [country_filter, course_filter, start_date, end_date, assigned_user_filter] if filter]),
+        'current_page_size': filters['page_size'],
+        'search_query': filters['search'],
+        'country_filter': filters['country'],
+        'course_filter': filters['course'],
+        'start_date': filters['start_date'],
+        'end_date': filters['end_date'],
+        'assigned_user_filter': filters['assigned_user'],
+        'preset_filter': filters['preset'],
+        'total_filtered_count': total_filtered_count,
+        'current_page_count': len(page_obj.object_list),
+        'selected_count': 0,
+        'scope_count': total_filtered_count,
+        'filter_snapshot': filter_snapshot.urlencode(),
+        'active_filters_count': len([
+            value for value in [
+                filters['country'],
+                filters['course'],
+                filters['start_date'],
+                filters['end_date'],
+                filters['assigned_user'],
+                filters['status'],
+                filters['preset'],
+                filters['search'],
+            ] if value
+        ]),
         'sort_options': [
             ('-created_at', 'Newest First'),
             ('created_at', 'Oldest First'),
@@ -288,352 +304,73 @@ def leads_list(request):
             ('-status', 'Status (Z-A)'),
             ('-priority', 'High Priority First'),
             ('priority', 'Low Priority First'),
-            ('assigned_user__username', 'Assigned User (A-Z)'),
-            ('-assigned_user__username', 'Assigned User (Z-A)'),
-        ]
+            ('assigned_user', 'Assigned User (A-Z)'),
+            ('-assigned_user', 'Assigned User (Z-A)'),
+        ],
     }
     return render(request, 'dashboard/leads_list.html', context)
+
+
+@login_required
+@hierarchy_required
+def leads_list(request):
+    base_queryset = request.hierarchy_context['accessible_leads'].filter(deleted=False)
+    return _render_leads_list_page(request, base_queryset, 'All Leads')
 
 @login_required
 @hierarchy_required
 def leads_fresh(request):
-    # Fresh leads - show leads assigned to the current user
-    page_size = request.GET.get('page_size', '25')
-    search_query = request.GET.get('search', '').strip()
-    country_filter = request.GET.get('country', '').strip()
-    course_filter = request.GET.get('course', '').strip()
-    start_date = request.GET.get('start_date', '').strip()
-    end_date = request.GET.get('end_date', '').strip()
-    assigned_user_filter = request.GET.get('assigned_user', '').strip()
-    preset_filter = request.GET.get('preset', '').strip()
-    
-    # Validate page size
-    valid_page_sizes = ['5', '10', '25', '50', '100', '200', '500']
-    if page_size not in valid_page_sizes:
-        page_size = '25'
-    page_size = int(page_size)
-    
-    accessible_leads = request.hierarchy_context['accessible_leads']
-    
-    # Get leads assigned to the current user, exclude sale_done leads
-    leads = accessible_leads.filter(assigned_user=request.user).exclude(status='sale_done').select_related('created_by', 'assigned_user').order_by('-created_at')
-    
-    # Apply search filter
-    if search_query:
-        leads = leads.filter(
-            Q(name__icontains=search_query) |
-            Q(email__icontains=search_query) |
-            Q(mobile__icontains=search_query) |
-            Q(alt_mobile__icontains=search_query) |
-            Q(alt_email__icontains=search_query)
-        )
-    
-    # Apply country filter
-    if country_filter:
-        leads = leads.filter(country__icontains=country_filter)
-    
-    # Apply course filter
-    if course_filter:
-        leads = leads.filter(course_name__icontains=course_filter)
-    
-    # Apply date range filter - include leads created, assigned, or transferred within date range
-    if start_date:
-        try:
-            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-            leads = leads.filter(
-                Q(created_at__date__gte=start_date_obj) |
-                Q(assigned_at__date__gte=start_date_obj) |
-                Q(transfer_date__date__gte=start_date_obj)
-            )
-        except ValueError:
-            pass  # Invalid date format, ignore filter
-    
-    if end_date:
-        try:
-            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
-            leads = leads.filter(
-                Q(created_at__date__lte=end_date_obj) |
-                Q(assigned_at__date__lte=end_date_obj) |
-                Q(transfer_date__date__lte=end_date_obj)
-            )
-        except ValueError:
-            pass  # Invalid date format, ignore filter
-    
-    # Apply assigned user filter
-    if assigned_user_filter:
-        try:
-            assigned_user_id = int(assigned_user_filter)
-            leads = leads.filter(assigned_user_id=assigned_user_id)
-        except ValueError:
-            pass  # Invalid user ID, ignore filter
-    
-    # Pagination with configurable page size
-    paginator = Paginator(leads, page_size)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
-    context = {
-        'page_obj': page_obj,
-        'leads': page_obj,  # Keep for backward compatibility
-        'status_choices': Lead.STATUS_CHOICES,
-        'page_title': 'New Leads',
-        'current_page_size': page_size,
-        'search_query': search_query,
-        'active_filters_count': len([filter for filter in [country_filter, course_filter, start_date, end_date, assigned_user_filter] if filter]),
-    }
-    return render(request, 'dashboard/leads_list.html', context)
+    base_queryset = request.hierarchy_context['accessible_leads'].filter(
+        deleted=False,
+        assigned_user=request.user
+    ).exclude(status='sale_done')
+    return _render_leads_list_page(request, base_queryset, 'New Leads')
 
 @login_required
 @hierarchy_required
 def leads_working(request):
-    # Leads assigned to current user and not converted
-    page_size = request.GET.get('page_size', '25')
-    search_query = request.GET.get('search', '').strip()
-    country_filter = request.GET.get('country', '').strip()
-    course_filter = request.GET.get('course', '').strip()
-    start_date = request.GET.get('start_date', '').strip()
-    end_date = request.GET.get('end_date', '').strip()
-    assigned_user_filter = request.GET.get('assigned_user', '').strip()
-    
-    # Validate page size
-    valid_page_sizes = ['5', '10', '25', '50', '100', '200', '500']
-    if page_size not in valid_page_sizes:
-        page_size = '25'
-    page_size = int(page_size)
-    
-    leads = request.hierarchy_context['accessible_leads'].filter(
+    base_queryset = request.hierarchy_context['accessible_leads'].filter(
+        deleted=False,
         assigned_user=request.user
-    ).exclude(status='sale_done').select_related('assigned_user', 'created_by').order_by('-created_at')
-    
-    # Apply search filter
-    if search_query:
-        leads = leads.filter(
-            Q(name__icontains=search_query) |
-            Q(email__icontains=search_query) |
-            Q(mobile__icontains=search_query) |
-            Q(alt_mobile__icontains=search_query) |
-            Q(alt_email__icontains=search_query)
-        )
-    
-    # Apply country filter
-    if country_filter:
-        leads = leads.filter(country__icontains=country_filter)
-    
-    # Apply course filter
-    if course_filter:
-        leads = leads.filter(course_name__icontains=course_filter)
-    
-    # Apply date range filter - include leads created, assigned, or transferred within date range
-    if start_date:
-        try:
-            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-            leads = leads.filter(
-                Q(created_at__date__gte=start_date_obj) |
-                Q(assigned_at__date__gte=start_date_obj) |
-                Q(transfer_date__date__gte=start_date_obj)
-            )
-        except ValueError:
-            pass  # Invalid date format, ignore filter
-    
-    if end_date:
-        try:
-            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
-            leads = leads.filter(
-                Q(created_at__date__lte=end_date_obj) |
-                Q(assigned_at__date__lte=end_date_obj) |
-                Q(transfer_date__date__lte=end_date_obj)
-            )
-        except ValueError:
-            pass  # Invalid date format, ignore filter
-    
-    # Apply assigned user filter
-    if assigned_user_filter:
-        try:
-            assigned_user_id = int(assigned_user_filter)
-            leads = leads.filter(assigned_user_id=assigned_user_id)
-        except ValueError:
-            pass  # Invalid user ID, ignore filter
-    
-    # Pagination with configurable page size
-    paginator = Paginator(leads, page_size)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
-    context = {
-        'page_obj': page_obj,
-        'leads': page_obj,  # Keep for backward compatibility
-        'status_choices': Lead.STATUS_CHOICES,
-        'page_title': 'My Working Leads',
-        'current_page_size': page_size,
-        'search_query': search_query,
-        'active_filters_count': len([filter for filter in [country_filter, course_filter, start_date, end_date, assigned_user_filter] if filter]),
-    }
-    return render(request, 'dashboard/leads_list.html', context)
+    ).exclude(status='sale_done')
+    return _render_leads_list_page(request, base_queryset, 'My Working Leads')
 
 @login_required
 @hierarchy_required
 def leads_transferred(request):
-    """Leads that were transferred by or to users in the current user's hierarchy"""
-    accessible_leads = request.hierarchy_context['accessible_leads']
-    page_size = request.GET.get('page_size', '25')
-    search_query = request.GET.get('search', '').strip()
-    country_filter = request.GET.get('country', '').strip()
-    course_filter = request.GET.get('course', '').strip()
-    start_date = request.GET.get('start_date', '').strip()
-    end_date = request.GET.get('end_date', '').strip()
-    assigned_user_filter = request.GET.get('assigned_user', '').strip()
-    
-    # Validate page size
-    valid_page_sizes = ['5', '10', '25', '50', '100', '200', '500']
-    if page_size not in valid_page_sizes:
-        page_size = '25'
-    page_size = int(page_size)
-    
-    # Get leads that have been transferred (have transfer_date not null)
-    transferred_leads = accessible_leads.filter(
+    base_queryset = request.hierarchy_context['accessible_leads'].filter(
+        deleted=False,
         transfer_date__isnull=False
-    ).select_related('assigned_user', 'created_by', 'assigned_by').order_by('-transfer_date', '-created_at')
-    
-    # For different roles, we might want to show different perspectives
-    if request.user.role == 'owner':
-        # Owner sees all transfers in the company
-        transferred_leads = transferred_leads.filter(company_id=request.user.company_id)
-    elif request.user.role == 'manager':
-        # Manager sees transfers involving their team leads and agents
+    )
+    if request.user.role == 'manager':
         team_users = request.user.get_accessible_users()
-        transferred_leads = transferred_leads.filter(
+        base_queryset = base_queryset.filter(
             Q(assigned_user__in=team_users) |
             Q(transfer_by__in=team_users.values('username')) |
             Q(created_by__in=team_users)
         )
     elif request.user.role == 'team_lead':
-        # Team Lead sees transfers involving their agents
         team_agents = request.user.get_accessible_users()
-        transferred_leads = transferred_leads.filter(
+        base_queryset = base_queryset.filter(
             Q(assigned_user__in=team_agents) |
             Q(transfer_by__in=team_agents.values('username')) |
             Q(created_by__in=team_agents)
         )
-    else:  # agent
-        # Agent sees transfers of their own leads
-        transferred_leads = transferred_leads.filter(
+    elif request.user.role == 'agent':
+        base_queryset = base_queryset.filter(
             Q(assigned_user=request.user) |
             Q(created_by=request.user)
         )
-    
-    # Apply search filter
-    if search_query:
-        transferred_leads = transferred_leads.filter(
-            Q(name__icontains=search_query) |
-            Q(email__icontains=search_query) |
-            Q(mobile__icontains=search_query) |
-            Q(alt_mobile__icontains=search_query) |
-            Q(alt_email__icontains=search_query)
-        )
-    
-    # Pagination with configurable page size
-    paginator = Paginator(transferred_leads, page_size)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
-    context = {
-        'page_obj': page_obj,
-        'leads': page_obj,  # Keep for backward compatibility
-        'status_choices': Lead.STATUS_CHOICES,
-        'page_title': 'Transferred Leads',
-        'current_page_size': page_size,
-        'search_query': search_query,
-        'active_filters_count': len([filter for filter in [country_filter, course_filter, start_date, end_date, assigned_user_filter] if filter]),
-    }
-    return render(request, 'dashboard/leads_list.html', context)
+    return _render_leads_list_page(request, base_queryset, 'Transferred Leads', default_sort='-created_at')
 
 @login_required
 @hierarchy_required
 def leads_converted(request):
-    # Leads with sale_done status within user's hierarchy
-    page_size = request.GET.get('page_size', '25')
-    search_query = request.GET.get('search', '').strip()
-    
-    # Validate page size
-    valid_page_sizes = ['5', '10', '25', '50', '100', '200', '500']
-    if page_size not in valid_page_sizes:
-        page_size = '25'
-    page_size = int(page_size)
-    
-    leads = request.hierarchy_context['accessible_leads'].filter(
+    base_queryset = request.hierarchy_context['accessible_leads'].filter(
+        deleted=False,
         status='sale_done'
-    ).select_related('assigned_user', 'created_by').order_by('-created_at')
-    
-    country_filter = request.GET.get('country', '').strip()
-    course_filter = request.GET.get('course', '').strip()
-    start_date = request.GET.get('start_date', '').strip()
-    end_date = request.GET.get('end_date', '').strip()
-    assigned_user_filter = request.GET.get('assigned_user', '').strip()
-    
-    # Apply search filter
-    if search_query:
-        leads = leads.filter(
-            Q(name__icontains=search_query) |
-            Q(email__icontains=search_query) |
-            Q(mobile__icontains=search_query) |
-            Q(alt_mobile__icontains=search_query) |
-            Q(alt_email__icontains=search_query)
-        )
-    
-    # Apply country filter
-    if country_filter:
-        leads = leads.filter(country__icontains=country_filter)
-    
-    # Apply course filter
-    if course_filter:
-        leads = leads.filter(course_name__icontains=course_filter)
-    
-    # Apply date range filter - include leads created, assigned, or converted within date range
-    if start_date:
-        try:
-            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-            leads = leads.filter(
-                Q(created_at__date__gte=start_date_obj) |
-                Q(assigned_at__date__gte=start_date_obj) |
-                Q(transfer_date__date__gte=start_date_obj)
-            )
-        except ValueError:
-            pass  # Invalid date format, ignore filter
-    
-    if end_date:
-        try:
-            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
-            leads = leads.filter(
-                Q(created_at__date__lte=end_date_obj) |
-                Q(assigned_at__date__lte=end_date_obj) |
-                Q(transfer_date__date__lte=end_date_obj)
-            )
-        except ValueError:
-            pass  # Invalid date format, ignore filter
-    
-    # Apply assigned user filter
-    if assigned_user_filter:
-        try:
-            assigned_user_id = int(assigned_user_filter)
-            leads = leads.filter(assigned_user_id=assigned_user_id)
-        except ValueError:
-            pass  # Invalid user ID, ignore filter
-    
-    # Pagination with configurable page size
-    paginator = Paginator(leads, page_size)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
-    context = {
-        'page_obj': page_obj,
-        'leads': page_obj,  # Keep for backward compatibility
-        'status_choices': Lead.STATUS_CHOICES,
-        'page_title': 'Converted Leads',
-        'current_page_size': page_size,
-        'search_query': search_query,
-        'active_filters_count': len([filter for filter in [country_filter, course_filter, start_date, end_date, assigned_user_filter] if filter]),
-    }
-    return render(request, 'dashboard/leads_list.html', context)
+    )
+    return _render_leads_list_page(request, base_queryset, 'Converted Leads')
 
 
 @login_required
@@ -673,85 +410,21 @@ def lead_create(request):
 @login_required
 @hierarchy_required
 def leads_team(request):
-    # Leads assigned to team members based on hierarchy
     if request.user.role in ['owner', 'manager', 'team_lead']:
-        accessible_users = request.hierarchy_context['accessible_users']
-        leads = request.hierarchy_context['accessible_leads'].filter(
-            assigned_user__in=accessible_users
-        ).select_related('assigned_user', 'created_by').order_by('-created_at')
-    else:
-        leads = Lead.objects.none()
-    
-    # Apply filters for team leads view
-    search_query = request.GET.get('search', '').strip()
-    country_filter = request.GET.get('country', '').strip()
-    course_filter = request.GET.get('course', '').strip()
-    start_date = request.GET.get('start_date', '').strip()
-    end_date = request.GET.get('end_date', '').strip()
-    assigned_user_filter = request.GET.get('assigned_user', '').strip()
-    
-    # Apply search filter
-    if search_query:
-        leads = leads.filter(
-            Q(name__icontains=search_query) |
-            Q(email__icontains=search_query) |
-            Q(mobile__icontains=search_query) |
-            Q(alt_mobile__icontains=search_query) |
-            Q(alt_email__icontains=search_query)
+        base_queryset = request.hierarchy_context['accessible_leads'].filter(
+            deleted=False,
+            assigned_user__in=request.hierarchy_context['accessible_users']
         )
-    
-    # Apply country filter
-    if country_filter:
-        leads = leads.filter(country__icontains=country_filter)
-    
-    # Apply course filter
-    if course_filter:
-        leads = leads.filter(course_name__icontains=course_filter)
-    
-    # Apply date range filter - include leads created, assigned, or transferred within date range
-    if start_date:
-        try:
-            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-            leads = leads.filter(
-                Q(created_at__date__gte=start_date_obj) |
-                Q(assigned_at__date__gte=start_date_obj) |
-                Q(transfer_date__date__gte=start_date_obj)
-            )
-        except ValueError:
-            pass  # Invalid date format, ignore filter
-    
-    if end_date:
-        try:
-            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
-            leads = leads.filter(
-                Q(created_at__date__lte=end_date_obj) |
-                Q(assigned_at__date__lte=end_date_obj) |
-                Q(transfer_date__date__lte=end_date_obj)
-            )
-        except ValueError:
-            pass  # Invalid date format, ignore filter
-    
-    # Apply assigned user filter
-    if assigned_user_filter:
-        try:
-            assigned_user_id = int(assigned_user_filter)
-            leads = leads.filter(assigned_user_id=assigned_user_id)
-        except ValueError:
-            pass  # Invalid user ID, ignore filter
-    
-    context = {
-        'leads': leads,
-        'status_choices': Lead.STATUS_CHOICES,
-        'page_title': 'My Team Leads',
-        'search_query': search_query,
-        'country_filter': country_filter,
-        'course_filter': course_filter,
-        'start_date': start_date,
-        'end_date': end_date,
-        'assigned_user_filter': assigned_user_filter,
-        'active_filters_count': len([filter for filter in [country_filter, course_filter, start_date, end_date, assigned_user_filter] if filter]),
-    }
-    return render(request, 'dashboard/leads_list.html', context)
+    else:
+        base_queryset = Lead.objects.none()
+    return _render_leads_list_page(request, base_queryset, 'My Team Leads')
+
+
+@login_required
+@hierarchy_required
+def leads_trash(request):
+    base_queryset = request.hierarchy_context['accessible_leads'].filter(deleted=True)
+    return _render_leads_list_page(request, base_queryset, 'Trash Leads')
 
 @login_required
 @can_access_lead_required
@@ -913,8 +586,15 @@ def lead_edit(request, pk):
     return render(request, "dashboard/lead_form.html", context)
 
 @login_required
+@role_required('owner', 'manager')
 def reports(request):
-    return render(request, 'dashboard/reports.html')
+    recent_operations = LeadOperationLog.objects.filter(
+        company_id=request.user.company_id
+    ).order_by('-created_at')[:100]
+    return render(request, 'dashboard/reports.html', {
+        'recent_operations': recent_operations,
+        'page_title': 'Reports',
+    })
 
 @login_required
 def settings(request):
@@ -1055,6 +735,7 @@ def bulk_lead_assign(request):
                     if can_assign and can_assign_to_target:
                         # Assign the lead
                         try:
+                            old_user = lead.assigned_user
                             lead.assign_to_user(assigned_user, request.user)
                             
                             # Create assignment history record
@@ -1062,7 +743,7 @@ def bulk_lead_assign(request):
                                 lead=lead,
                                 user=request.user,
                                 field_name='assigned_user',
-                                old_value=lead.assigned_user.username if lead.assigned_user else None,
+                                old_value=old_user.username if old_user else None,
                                 new_value=assigned_user.username,
                                 action=f'Bulk assigned to {assigned_user.username}'
                             )
@@ -1100,6 +781,210 @@ def bulk_lead_assign(request):
     return render(request, 'dashboard/bulk_lead_assign.html', context)
 
 
+def _resolve_bulk_scope_queryset(request, base_queryset):
+    """
+    Resolve bulk action targets using explicit scope contract:
+    - current_page: uses posted lead_ids
+    - all_filtered: reconstructs queryset from posted filter snapshot
+    """
+    action_scope = request.POST.get('action_scope', 'current_page').strip() or 'current_page'
+    selected_ids = request.POST.getlist('lead_ids')
+
+    if action_scope == 'all_filtered':
+        filter_snapshot = request.POST.get('filter_snapshot', '')
+        params = QueryDict(filter_snapshot, mutable=False) if filter_snapshot else request.GET
+        filters = _extract_lead_filters(params)
+        scoped_qs = _apply_common_lead_filters(base_queryset, request.user, filters)
+
+        excluded_ids = request.POST.getlist('excluded_ids')
+        if excluded_ids:
+            try:
+                excluded_ids_int = [int(value) for value in excluded_ids if str(value).strip()]
+                scoped_qs = scoped_qs.exclude(id_lead__in=excluded_ids_int)
+            except ValueError:
+                pass
+        return scoped_qs, action_scope
+
+    # current_page / explicit selection fallback
+    try:
+        selected_ids_int = [int(value) for value in selected_ids if str(value).strip()]
+    except ValueError:
+        selected_ids_int = []
+    return base_queryset.filter(id_lead__in=selected_ids_int), action_scope
+
+
+def _create_operation_log(request, operation_type, action_scope, scoped_qs, success_count=0, failed_count=0, skipped_count=0, metadata=None, requested_count_override=None):
+    requested_count = requested_count_override if requested_count_override is not None else scoped_qs.count()
+    operation_id = f"{operation_type}_{uuid.uuid4().hex[:12]}"
+    LeadOperationLog.objects.create(
+        operation_id=operation_id,
+        operation_type=operation_type,
+        user=request.user,
+        company_id=request.user.company_id,
+        action_scope=action_scope,
+        filter_snapshot=request.POST.get('filter_snapshot', ''),
+        requested_count=requested_count,
+        processed_count=success_count + failed_count + skipped_count,
+        success_count=success_count,
+        failed_count=failed_count,
+        skipped_count=skipped_count,
+        metadata=metadata or {},
+    )
+    return operation_id
+
+
+@login_required
+@hierarchy_required
+def bulk_lead_delete(request):
+    """Soft delete multiple leads selected from list views."""
+    if request.method != "POST":
+        return redirect("dashboard:leads_all")
+
+    # Keep delete action limited to non-agent roles.
+    if request.user.role == 'agent':
+        messages.error(request, "You don't have permission to delete leads.")
+        return redirect("dashboard:leads_all")
+
+    accessible_base = request.hierarchy_context['accessible_leads'].filter(deleted=False)
+    scoped_qs, action_scope = _resolve_bulk_scope_queryset(request, accessible_base)
+    leads_to_delete = list(scoped_qs.select_related('assigned_user'))
+    if not leads_to_delete:
+        messages.error(request, "No accessible leads found for deletion.")
+        return redirect("dashboard:leads_all")
+
+    deleted_count = 0
+    for lead in leads_to_delete:
+        if lead.deleted:
+            continue
+        lead.deleted = True
+        lead.modified_user = request.user
+        lead.save(update_fields=['deleted', 'modified_user'])
+        LeadActivity.objects.create(
+            lead=lead,
+            user=request.user,
+            activity_type='delete',
+            description='Lead deleted from leads list (bulk action).'
+        )
+        deleted_count += 1
+
+    requested_count = request.POST.get('scope_count')
+    try:
+        requested_count = int(requested_count)
+    except (TypeError, ValueError):
+        requested_count = len(leads_to_delete)
+    denied_count = max(requested_count - len(leads_to_delete), 0)
+    operation_id = _create_operation_log(
+        request,
+        operation_type='bulk_delete',
+        action_scope=action_scope,
+        scoped_qs=scoped_qs,
+        success_count=deleted_count,
+        failed_count=denied_count,
+        metadata={'requested_count': requested_count},
+    )
+
+    if deleted_count:
+        messages.success(request, f"Successfully deleted {deleted_count} leads. Operation ID: {operation_id}")
+    if denied_count:
+        messages.warning(request, f"{denied_count} selected leads were skipped due to access restrictions.")
+
+    return redirect("dashboard:leads_all")
+
+
+@login_required
+@hierarchy_required
+def bulk_lead_restore(request):
+    if request.method != "POST":
+        return redirect("dashboard:leads_trash")
+
+    if request.user.role == 'agent':
+        messages.error(request, "You don't have permission to restore leads.")
+        return redirect("dashboard:leads_trash")
+
+    base_queryset = request.hierarchy_context['accessible_leads'].filter(deleted=True)
+    scoped_qs, action_scope = _resolve_bulk_scope_queryset(request, base_queryset)
+    leads_to_restore = list(scoped_qs.select_related('assigned_user'))
+    if not leads_to_restore:
+        messages.error(request, "No trashed leads found for restore.")
+        return redirect("dashboard:leads_trash")
+
+    restored_count = 0
+    for lead in leads_to_restore:
+        lead.deleted = False
+        lead.modified_user = request.user
+        lead.save(update_fields=['deleted', 'modified_user'])
+        LeadActivity.objects.create(
+            lead=lead,
+            user=request.user,
+            activity_type='restore',
+            description='Lead restored from trash (bulk action).'
+        )
+        restored_count += 1
+
+    operation_id = _create_operation_log(
+        request,
+        operation_type='bulk_restore',
+        action_scope=action_scope,
+        scoped_qs=scoped_qs,
+        success_count=restored_count,
+    )
+    messages.success(request, f"Successfully restored {restored_count} leads. Operation ID: {operation_id}")
+    return redirect("dashboard:leads_trash")
+
+
+@login_required
+@hierarchy_required
+def leads_trash_purge(request):
+    if request.method != "POST":
+        return redirect("dashboard:leads_trash")
+    if request.user.role != 'owner':
+        messages.error(request, "Only owner can permanently purge trash.")
+        return redirect("dashboard:leads_trash")
+
+    confirm_text = request.POST.get('confirm_text', '').strip()
+    if confirm_text != 'PURGE':
+        messages.error(request, "Purge confirmation failed. Type PURGE to continue.")
+        return redirect("dashboard:leads_trash")
+
+    base_queryset = request.hierarchy_context['accessible_leads'].filter(deleted=True)
+    scoped_qs, action_scope = _resolve_bulk_scope_queryset(request, base_queryset)
+    purge_count = scoped_qs.count()
+    if purge_count == 0:
+        messages.error(request, "No trashed leads found to purge.")
+        return redirect("dashboard:leads_trash")
+
+    scoped_qs.delete()
+    operation_id = _create_operation_log(
+        request,
+        operation_type='trash_purge',
+        action_scope=action_scope,
+        scoped_qs=base_queryset.none(),
+        success_count=purge_count,
+        requested_count_override=purge_count,
+    )
+    messages.success(request, f"Permanently purged {purge_count} leads. Operation ID: {operation_id}")
+    return redirect("dashboard:leads_trash")
+
+
+@login_required
+@role_required('owner', 'manager')
+def operations_report_csv(request):
+    logs = LeadOperationLog.objects.filter(company_id=request.user.company_id).order_by('-created_at')[:5000]
+    lines = [
+        "operation_id,operation_type,scope,requested,processed,success,failed,skipped,created_at,user"
+    ]
+    for log in logs:
+        user_label = log.user.username if log.user else ''
+        lines.append(
+            f"{log.operation_id},{log.operation_type},{log.action_scope},{log.requested_count},"
+            f"{log.processed_count},{log.success_count},{log.failed_count},{log.skipped_count},"
+            f"{log.created_at.isoformat()},{user_label}"
+        )
+    response = HttpResponse("\n".join(lines), content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename=\"operation_report.csv\"'
+    return response
+
+
 # Lead Import Views
 @login_required
 @hierarchy_required
@@ -1120,12 +1005,22 @@ def download_demo_file(request):
 
 @login_required
 @hierarchy_required
-@csrf_exempt
 def lead_import(request):
     """Import leads from CSV/Excel file with enhanced duplicate detection - only owners can import leads"""
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+    def _error_response(message, status=400, form_instance=None):
+        messages.error(request, message)
+        if is_ajax:
+            return JsonResponse({'ok': False, 'error': message}, status=status)
+        return render(request, 'dashboard/lead_import.html', {'form': form_instance or LeadImportForm()})
+
     # Only owners can import leads
     if request.user.role != 'owner':
-        messages.error(request, "You don't have permission to import leads. Only owners can import leads.")
+        message = "You don't have permission to import leads. Only owners can import leads."
+        if is_ajax:
+            return JsonResponse({'ok': False, 'error': message}, status=403)
+        messages.error(request, message)
         return redirect("dashboard:leads_all")
     
     if request.method == "POST":
@@ -1137,8 +1032,7 @@ def lead_import(request):
                 # Read the file content first to check if it's empty
                 file_content = file.read()
                 if not file_content.strip():
-                    messages.error(request, "File is empty. Please upload a file with data.")
-                    return render(request, 'dashboard/lead_import.html', {'form': form})
+                    return _error_response("File is empty. Please upload a file with data.", form_instance=form)
                 
                 # Reset file pointer to beginning for pandas
                 file.seek(0)
@@ -1163,52 +1057,55 @@ def lead_import(request):
                 else:
                     # Excel files usually handle encoding better
                     df = pd.read_excel(file)
+
+                # Normalize column names so imports work with common header variants.
+                df.columns = [str(col).strip().lower() for col in df.columns]
                 
                 # Check if dataframe is empty
                 if df.empty:
-                    messages.error(request, "No data found in file. Please check file content.")
-                    return render(request, 'dashboard/lead_import.html', {'form': form})
+                    return _error_response("No data found in file. Please check file content.", form_instance=form)
                 
                 # Check if dataframe has columns
                 if len(df.columns) == 0:
-                    messages.error(request, "No columns found in file. Please check CSV format and headers.")
-                    return render(request, 'dashboard/lead_import.html', {'form': form})
+                    return _error_response("No columns found in file. Please check CSV format and headers.", form_instance=form)
                 
                 # Validate required columns
                 required_columns = ['name', 'mobile']
                 missing_columns = [col for col in required_columns if col not in df.columns]
                 
                 if missing_columns:
-                    messages.error(request, f"Missing required columns: {', '.join(missing_columns)}")
-                    return render(request, 'dashboard/lead_import.html', {'form': form})
+                    return _error_response(
+                        f"Missing required columns: {', '.join(missing_columns)}",
+                        form_instance=form
+                    )
                 
                 # Step 2: Duplicate Detection
                 # Convert DataFrame to list of dictionaries
                 leads_data = []
                 for index, row in df.iterrows():
                     lead_data = {
-                        'name': str(row.get('name', '')).strip(),
-                        'mobile': str(row.get('mobile', '')).strip(),
-                        'email': str(row.get('email', '')).strip(),
-                        'alt_mobile': str(row.get('alt_mobile', '')).strip(),
-                        'whatsapp_no': str(row.get('whatsapp_no', '')).strip(),
-                        'alt_email': str(row.get('alt_email', '')).strip(),
-                        'address': str(row.get('address', '')).strip(),
-                        'city': str(row.get('city', '')).strip(),
-                        'state': str(row.get('state', '')).strip(),
-                        'postalcode': str(row.get('postalcode', '')).strip(),
-                        'country': str(row.get('country', '')).strip(),
-                        'status': str(row.get('status', 'lead')).strip() or 'lead',
-                        'status_description': str(row.get('status_description', '')).strip(),
-                        'lead_source': str(row.get('lead_source', '')).strip(),
-                        'lead_source_description': str(row.get('lead_source_description', '')).strip(),
-                        'refered_by': str(row.get('refered_by', '')).strip(),
-                        'campaign_id': str(row.get('campaign_id', '')).strip(),
-                        'course_name': str(row.get('course_name', '')).strip(),
-                        'course_amount': str(row.get('course_amount', '')).strip(),
-                        'exp_revenue': str(row.get('exp_revenue', '')).strip(),
-                        'description': str(row.get('description', '')).strip(),
-                        'company': str(row.get('company', '')).strip(),  # For related lead detection
+                        'name': '' if pd.isna(row.get('name')) else str(row.get('name', '')).strip(),
+                        'mobile': '' if pd.isna(row.get('mobile')) else str(row.get('mobile', '')).strip(),
+                        'email': '' if pd.isna(row.get('email')) else str(row.get('email', '')).strip(),
+                        'alt_mobile': '' if pd.isna(row.get('alt_mobile')) else str(row.get('alt_mobile', '')).strip(),
+                        'whatsapp_no': '' if pd.isna(row.get('whatsapp_no')) else str(row.get('whatsapp_no', '')).strip(),
+                        'alt_email': '' if pd.isna(row.get('alt_email')) else str(row.get('alt_email', '')).strip(),
+                        'address': '' if pd.isna(row.get('address')) else str(row.get('address', '')).strip(),
+                        'city': '' if pd.isna(row.get('city')) else str(row.get('city', '')).strip(),
+                        'state': '' if pd.isna(row.get('state')) else str(row.get('state', '')).strip(),
+                        'postalcode': '' if pd.isna(row.get('postalcode')) else str(row.get('postalcode', '')).strip(),
+                        'country': '' if pd.isna(row.get('country')) else str(row.get('country', '')).strip(),
+                        'status': '' if pd.isna(row.get('status')) else str(row.get('status', 'lead')).strip() or 'lead',
+                        'status_description': '' if pd.isna(row.get('status_description')) else str(row.get('status_description', '')).strip(),
+                        'lead_source': '' if pd.isna(row.get('lead_source')) else str(row.get('lead_source', '')).strip(),
+                        'lead_source_description': '' if pd.isna(row.get('lead_source_description')) else str(row.get('lead_source_description', '')).strip(),
+                        'refered_by': '' if pd.isna(row.get('refered_by')) else str(row.get('refered_by', '')).strip(),
+                        'campaign_id': '' if pd.isna(row.get('campaign_id')) else str(row.get('campaign_id', '')).strip(),
+                        'course_name': '' if pd.isna(row.get('course_name')) else str(row.get('course_name', '')).strip(),
+                        'course_amount': '' if pd.isna(row.get('course_amount')) else str(row.get('course_amount', '')).strip(),
+                        'exp_revenue': '' if pd.isna(row.get('exp_revenue')) else str(row.get('exp_revenue', '')).strip(),
+                        'description': '' if pd.isna(row.get('description')) else str(row.get('description', '')).strip(),
+                        'company': '' if pd.isna(row.get('company')) else str(row.get('company', '')).strip(),  # For related lead detection
                     }
                     
                     # Add date fields if present
@@ -1228,22 +1125,80 @@ def lead_import(request):
                 
                 # Detect duplicates for all leads
                 duplicate_results = detector.batch_detect_duplicates(leads_data)
-                
-                # Store results in session for preview
-                request.session['import_data'] = {
-                    'leads_data': leads_data,
-                    'duplicate_results': duplicate_results,
-                    'file_name': file.name,
+
+                # Build immutable import session for reliable preview/process reconciliation.
+                file_hash = hashlib.sha256(file_content).hexdigest()
+                idempotency_key = f"{request.user.company_id}:{file_hash}"
+                existing_completed = LeadImportSession.objects.filter(
+                    company_id=request.user.company_id,
+                    idempotency_key=idempotency_key,
+                    status='completed',
+                ).first()
+                if existing_completed:
+                    messages.warning(
+                        request,
+                        "This file appears already processed before "
+                        f"(session: {existing_completed.session_id}). "
+                        "Continuing with a fresh import session."
+                    )
+
+                session_id = f"imp_{uuid.uuid4().hex[:16]}"
+                summary = {
+                    'total': len(duplicate_results),
+                    'new': len([r for r in duplicate_results if r['status'] == 'new']),
+                    'exact_duplicates': len([r for r in duplicate_results if r['status'] == 'exact_duplicate']),
+                    'potential_duplicates': len([r for r in duplicate_results if r['status'] == 'potential_duplicate']),
+                    'related': len([r for r in duplicate_results if r['status'] == 'related']),
                 }
+
+                LeadImportSession.objects.create(
+                    session_id=session_id,
+                    idempotency_key=idempotency_key,
+                    user=request.user,
+                    company_id=request.user.company_id,
+                    file_name=file.name,
+                    file_hash=file_hash,
+                    status='preview_ready',
+                    payload={
+                        'duplicate_results': duplicate_results,
+                        'summary': summary,
+                        'decisions': {},
+                    },
+                    total_rows=summary['total'],
+                    new_rows=summary['new'],
+                    exact_duplicates=summary['exact_duplicates'],
+                    potential_duplicates=summary['potential_duplicates'],
+                    related_rows=summary['related'],
+                )
+
+                _create_operation_log(
+                    request,
+                    operation_type='import_preview',
+                    action_scope='all_filtered',
+                    scoped_qs=request.hierarchy_context['accessible_leads'].none(),
+                    success_count=summary['total'],
+                    metadata={'session_id': session_id, 'file_name': file.name},
+                    requested_count_override=summary['total'],
+                )
+                request.session['import_session_id'] = session_id
                 
                 # Redirect to preview page
+                if is_ajax:
+                    return JsonResponse({
+                        'ok': True,
+                        'redirect_url': reverse('dashboard:lead_import_preview')
+                    })
                 return redirect("dashboard:lead_import_preview")
                 
             except Exception as e:
                 print(f"Import error: {e}")
                 import traceback
                 traceback.print_exc()
-                messages.error(request, f"Error processing file: {str(e)}. Please check file format and encoding.")
+                return _error_response(
+                    f"Error processing file: {str(e)}. Please check file format and encoding.",
+                    form_instance=form
+                )
+        return _error_response("Please upload a valid CSV/XLS/XLSX file.", form_instance=form)
     else:
         form = LeadImportForm()
     
@@ -1263,29 +1218,28 @@ def lead_import_preview(request):
         messages.error(request, "You don't have permission to import leads. Only owners can import leads.")
         return redirect("dashboard:leads_all")
     
-    # Get import data from session
-    import_data = request.session.get('import_data')
-    if not import_data:
+    session_id = request.session.get('import_session_id')
+    if not session_id:
         messages.error(request, "No import data found. Please upload a file first.")
         return redirect("dashboard:lead_import")
-    
-    leads_data = import_data['leads_data']
-    duplicate_results = import_data['duplicate_results']
-    file_name = import_data['file_name']
-    
-    # Calculate summary statistics
-    summary = {
-        'total': len(duplicate_results),
-        'new': len([r for r in duplicate_results if r['status'] == 'new']),
-        'exact_duplicates': len([r for r in duplicate_results if r['status'] == 'exact_duplicate']),
-        'potential_duplicates': len([r for r in duplicate_results if r['status'] == 'potential_duplicate']),
-        'related': len([r for r in duplicate_results if r['status'] == 'related']),
-    }
+    import_session = LeadImportSession.objects.filter(
+        session_id=session_id,
+        company_id=request.user.company_id
+    ).first()
+    if not import_session:
+        messages.error(request, "Import session expired. Please upload file again.")
+        return redirect("dashboard:lead_import")
+
+    payload = import_session.payload or {}
+    duplicate_results = payload.get('duplicate_results', [])
+    summary = payload.get('summary', {})
+    file_name = import_session.file_name
     
     # Prepare table data with additional info
     table_data = []
     for result in duplicate_results:
         lead_data = result['lead_data']
+        duplicate_items = result['duplicates'][:3] if result.get('duplicates') else []
         row = {
             'row_index': result['row_index'],
             'name': lead_data['name'],
@@ -1294,22 +1248,72 @@ def lead_import_preview(request):
             'status': result['status'],
             'duplicate_type': result['duplicate_type'],
             'confidence': result['confidence'],
-            'duplicates': result['duplicates'],
+            'duplicates': duplicate_items,
+            'duplicate_total': len(result.get('duplicates', [])),
+            'extra_duplicates_count': max(len(result.get('duplicates', [])) - len(duplicate_items), 0),
             'action': 'import' if result['status'] == 'new' else 'skip',
             'selected': result['status'] == 'new',  # Auto-select new leads
         }
         table_data.append(row)
+
+    # Large imports can create huge HTML payloads and freeze browsers.
+    paginator = Paginator(table_data, 200)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
     
     context = {
         'page_title': 'Import Preview',
+        'import_session_id': import_session.session_id,
         'file_name': file_name,
         'summary': summary,
-        'table_data': table_data,
-        'leads_data': leads_data,
+        'table_data': page_obj.object_list,
+        'page_obj': page_obj,
         'duplicate_results': duplicate_results,
     }
     
     return render(request, 'dashboard/lead_import_preview.html', context)
+
+
+@login_required
+@hierarchy_required
+def lead_import_status(request):
+    """Return live import progress for the active import session."""
+    if request.user.role != 'owner':
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+
+    session_id = request.GET.get('session_id') or request.session.get('import_session_id')
+    if not session_id:
+        return JsonResponse({'error': 'No import session found'}, status=404)
+
+    import_session = LeadImportSession.objects.filter(
+        session_id=session_id,
+        company_id=request.user.company_id
+    ).first()
+    if not import_session:
+        return JsonResponse({'error': 'Import session not found'}, status=404)
+
+    total_rows = import_session.total_rows or 0
+    processed_rows = (
+        (import_session.imported_rows or 0)
+        + (import_session.updated_rows or 0)
+        + (import_session.skipped_rows or 0)
+        + (import_session.failed_rows or 0)
+    )
+    percent = int((processed_rows / total_rows) * 100) if total_rows > 0 else 0
+    if import_session.status == 'completed':
+        percent = 100
+
+    return JsonResponse({
+        'session_id': import_session.session_id,
+        'status': import_session.status,
+        'total_rows': total_rows,
+        'processed_rows': processed_rows,
+        'imported_rows': import_session.imported_rows or 0,
+        'updated_rows': import_session.updated_rows or 0,
+        'skipped_rows': import_session.skipped_rows or 0,
+        'failed_rows': import_session.failed_rows or 0,
+        'percent': percent,
+    })
 
 
 @login_required
@@ -1324,87 +1328,120 @@ def lead_import_process(request):
     if request.method != 'POST':
         return redirect("dashboard:lead_import")
     
-    # Get import data from session
-    import_data = request.session.get('import_data')
-    if not import_data:
+    session_id = request.session.get('import_session_id')
+    if not session_id:
         messages.error(request, "No import data found. Please upload a file first.")
         return redirect("dashboard:lead_import")
-    
-    leads_data = import_data['leads_data']
-    duplicate_results = import_data['duplicate_results']
+
+    import_session = LeadImportSession.objects.filter(
+        session_id=session_id,
+        company_id=request.user.company_id
+    ).first()
+    if not import_session:
+        messages.error(request, "Import session expired. Please upload file again.")
+        return redirect("dashboard:lead_import")
+    if import_session.status == 'completed':
+        messages.warning(request, f"This import session was already processed: {import_session.session_id}")
+        return redirect("dashboard:leads_all")
+
+    payload = import_session.payload or {}
+    duplicate_results = payload.get('duplicate_results', [])
     
     # Get user decisions
-    actions = request.POST.getlist('actions')
     selected_rows = request.POST.getlist('selected_rows')
+    bulk_action_mode = request.POST.get('bulk_action_mode', 'custom').strip().lower()
+    decisions = {}
     
-    # Process import
+    def _create_lead_from_import(lead_data, result, importing_user):
+        lead = Lead.objects.create(
+            name=lead_data['name'],
+            mobile=lead_data['mobile'],
+            email=lead_data['email'] if lead_data['email'] else None,
+            alt_mobile=lead_data['alt_mobile'] if lead_data['alt_mobile'] else None,
+            whatsapp_no=lead_data['whatsapp_no'] if lead_data['whatsapp_no'] else None,
+            alt_email=lead_data['alt_email'] if lead_data['alt_email'] else None,
+            address=lead_data['address'] if lead_data['address'] else None,
+            city=lead_data['city'] if lead_data['city'] else None,
+            state=lead_data['state'] if lead_data['state'] else None,
+            postalcode=lead_data['postalcode'] if lead_data['postalcode'] else None,
+            country=lead_data['country'] if lead_data['country'] else None,
+            status=lead_data['status'],
+            status_description=lead_data['status_description'] if lead_data['status_description'] else None,
+            lead_source=lead_data['lead_source'] if lead_data['lead_source'] else None,
+            lead_source_description=lead_data['lead_source_description'] if lead_data['lead_source_description'] else None,
+            refered_by=lead_data['refered_by'] if lead_data['refered_by'] else None,
+            campaign_id=lead_data['campaign_id'] if lead_data['campaign_id'] else None,
+            course_name=lead_data['course_name'] if lead_data['course_name'] else None,
+            course_amount=lead_data['course_amount'] if lead_data['course_amount'] else None,
+            exp_revenue=lead_data['exp_revenue'] if lead_data['exp_revenue'] else None,
+            description=lead_data['description'] if lead_data['description'] else None,
+            company_id=importing_user.company_id,
+            created_by=importing_user,
+            assigned_user=None,  # Leave unassigned by default
+            duplicate_status=result['status'],
+            duplicate_info=result,
+        )
+
+        if 'exp_close_date' in lead_data:
+            lead.exp_close_date = lead_data['exp_close_date']
+        if 'followup_datetime' in lead_data:
+            lead.followup_datetime = lead_data['followup_datetime']
+        if 'birthdate' in lead_data:
+            lead.birthdate = lead_data['birthdate']
+
+        lead.save()
+        LeadActivity.objects.create(
+            lead=lead,
+            user=importing_user,
+            activity_type='import',
+            description=f'Lead imported from {import_session.file_name}'
+        )
+        return lead
+
+    import_session.status = 'processing'
+    import_session.save(update_fields=['status', 'updated_at'])
+
+    # Process import in chunks for high-volume safety.
     imported_count = 0
     skipped_count = 0
     updated_count = 0
-    
+    failed_count = 0
+    chunk_size = 500
+    if len(duplicate_results) > 10000:
+        messages.info(
+            request,
+            "Large import detected. Processing in chunked mode with reconciliation logging."
+        )
+
     for i, result in enumerate(duplicate_results):
         lead_data = result['lead_data']
-        
-        # Determine action for this lead
-        if str(i) in selected_rows:
-            action = actions[i] if i < len(actions) else 'import'
+
+        # Global bulk modes override per-row form payload and work across all pages.
+        if bulk_action_mode == 'import_all':
+            action = 'import'
+        elif bulk_action_mode == 'import_all_new':
+            action = 'import' if result['status'] == 'new' else 'skip'
         else:
-            action = 'skip'
+            # With paginated preview, POST only contains rows from visible page.
+            # Keep default behavior for rows not present in payload.
+            action_field = request.POST.get(f'actions_{i}')
+            if action_field is None:
+                action = 'import' if result['status'] == 'new' else 'skip'
+            elif str(i) in selected_rows:
+                action = action_field
+            else:
+                action = 'skip'
+        decisions[str(i)] = action
         
         if action == 'skip':
             skipped_count += 1
             continue
         
         try:
-            if action == 'import' and result['status'] == 'new':
-                # Create new lead
-                lead = Lead.objects.create(
-                    name=lead_data['name'],
-                    mobile=lead_data['mobile'],
-                    email=lead_data['email'] if lead_data['email'] else None,
-                    alt_mobile=lead_data['alt_mobile'] if lead_data['alt_mobile'] else None,
-                    whatsapp_no=lead_data['whatsapp_no'] if lead_data['whatsapp_no'] else None,
-                    alt_email=lead_data['alt_email'] if lead_data['alt_email'] else None,
-                    address=lead_data['address'] if lead_data['address'] else None,
-                    city=lead_data['city'] if lead_data['city'] else None,
-                    state=lead_data['state'] if lead_data['state'] else None,
-                    postalcode=lead_data['postalcode'] if lead_data['postalcode'] else None,
-                    country=lead_data['country'] if lead_data['country'] else None,
-                    status=lead_data['status'],
-                    status_description=lead_data['status_description'] if lead_data['status_description'] else None,
-                    lead_source=lead_data['lead_source'] if lead_data['lead_source'] else None,
-                    lead_source_description=lead_data['lead_source_description'] if lead_data['lead_source_description'] else None,
-                    refered_by=lead_data['refered_by'] if lead_data['refered_by'] else None,
-                    campaign_id=lead_data['campaign_id'] if lead_data['campaign_id'] else None,
-                    course_name=lead_data['course_name'] if lead_data['course_name'] else None,
-                    course_amount=lead_data['course_amount'] if lead_data['course_amount'] else None,
-                    exp_revenue=lead_data['exp_revenue'] if lead_data['exp_revenue'] else None,
-                    description=lead_data['description'] if lead_data['description'] else None,
-                    company_id=request.user.company_id,
-                    created_by=request.user,
-                    assigned_user=None,  # Leave unassigned by default
-                    duplicate_status=result['status'],
-                    duplicate_info=result,
-                )
-                
-                # Handle date fields
-                if 'exp_close_date' in lead_data:
-                    lead.exp_close_date = lead_data['exp_close_date']
-                if 'followup_datetime' in lead_data:
-                    lead.followup_datetime = lead_data['followup_datetime']
-                if 'birthdate' in lead_data:
-                    lead.birthdate = lead_data['birthdate']
-                
-                lead.save()
+            if action == 'import':
+                # Import explicitly selected rows, including duplicate-marked ones.
+                _create_lead_from_import(lead_data, result, request.user)
                 imported_count += 1
-                
-                # Log activity
-                LeadActivity.objects.create(
-                    lead=lead,
-                    user=request.user,
-                    activity_type='import',
-                    description=f'Lead imported from {import_data["file_name"]}'
-                )
             
             elif action == 'update' and result['duplicates']:
                 # Update existing lead (most recent duplicate)
@@ -1436,26 +1473,91 @@ def lead_import_process(request):
                         lead=duplicate_lead,
                         user=request.user,
                         activity_type='update',
-                        description=f'Lead updated during import from {import_data["file_name"]}'
+                        description=f'Lead updated during import from {import_session.file_name}'
                     )
         
         except Exception as e:
             print(f"Error processing lead {i}: {e}")
-            skipped_count += 1
+            failed_count += 1
             continue
+
+        # Persist progress every chunk.
+        if (i + 1) % chunk_size == 0:
+            import_session.imported_rows = imported_count
+            import_session.updated_rows = updated_count
+            import_session.skipped_rows = skipped_count
+            import_session.failed_rows = failed_count
+            import_session.payload = {
+                **payload,
+                'decisions': decisions,
+            }
+            import_session.save(update_fields=[
+                'imported_rows', 'updated_rows', 'skipped_rows', 'failed_rows',
+                'payload', 'updated_at'
+            ])
     
-    # Clear session data
-    if 'import_data' in request.session:
-        del request.session['import_data']
+    import_session.status = 'completed'
+    import_session.imported_rows = imported_count
+    import_session.updated_rows = updated_count
+    import_session.skipped_rows = skipped_count
+    import_session.failed_rows = failed_count
+    import_session.payload = {
+        **payload,
+        'decisions': decisions,
+    }
+    import_session.save(update_fields=[
+        'status', 'imported_rows', 'updated_rows', 'skipped_rows',
+        'failed_rows', 'payload', 'updated_at'
+    ])
+
+    _create_operation_log(
+        request,
+        operation_type='import_process',
+        action_scope='all_filtered',
+        scoped_qs=request.hierarchy_context['accessible_leads'].none(),
+        success_count=imported_count + updated_count,
+        failed_count=failed_count,
+        skipped_count=skipped_count,
+        metadata={
+            'session_id': import_session.session_id,
+            'file_name': import_session.file_name,
+            'imported': imported_count,
+            'updated': updated_count,
+        },
+        requested_count_override=len(duplicate_results),
+    )
+
+    # Keep only session id; clear active import pointer.
+    if 'import_session_id' in request.session:
+        del request.session['import_session_id']
     
     # Show results
+    completion_summary = (
+        f"Import completed. Imported {imported_count}, updated {updated_count}, "
+        f"skipped {skipped_count}, failed {failed_count}."
+    )
+    messages.success(request, completion_summary)
+
     if imported_count > 0:
         messages.success(request, f"Successfully imported {imported_count} new leads.")
     if updated_count > 0:
         messages.info(request, f"Updated {updated_count} existing leads.")
     if skipped_count > 0:
         messages.warning(request, f"Skipped {skipped_count} leads.")
-    
+    if failed_count > 0:
+        messages.error(request, f"Failed to process {failed_count} leads. Check operations report for details.")
+
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({
+            'ok': True,
+            'summary': completion_summary,
+            'redirect_url': reverse('dashboard:leads_all'),
+            'imported': imported_count,
+            'updated': updated_count,
+            'skipped': skipped_count,
+            'failed': failed_count,
+        })
+
     return redirect("dashboard:leads_all")
 
 
@@ -1485,8 +1587,7 @@ def lead_status_update(request, pk):
                     field_name='status',
                     old_value=old_status,
                     new_value=updated_lead.status,
-                    action='Status Updated',
-                    description=updated_lead.status_description
+                    action='Status Updated'
                 )
                 
                 # Create activity log
@@ -1494,7 +1595,10 @@ def lead_status_update(request, pk):
                     lead=lead,
                     user=request.user,
                     activity_type='status_change',
-                    description=f'Status changed from {old_status} to {updated_lead.status}'
+                    description=(
+                        f'Status changed from {old_status} to {updated_lead.status}. '
+                        f'{updated_lead.status_description or ""}'
+                    ).strip()
                 )
             
             updated_lead.save()

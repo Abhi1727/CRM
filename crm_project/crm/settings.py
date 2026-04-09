@@ -98,13 +98,43 @@ WSGI_APPLICATION = 'crm.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+DB_ENGINE = os.getenv('DB_ENGINE', 'sqlite3').strip().lower()
+db_host_raw = os.getenv('DB_HOST', 'localhost').strip()
+db_port = os.getenv('DB_PORT', '3306').strip()
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# Support DB_HOST values like "127.0.0.1:3306"
+if ':' in db_host_raw and db_host_raw.count(':') == 1:
+    host_part, port_part = db_host_raw.split(':', 1)
+    if port_part.isdigit():
+        db_host_raw = host_part
+        db_port = port_part
+
+if DB_ENGINE == 'mysql':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': os.getenv('DB_NAME', ''),
+            'USER': os.getenv('DB_USER', ''),
+            'PASSWORD': os.getenv('DB_PASSWORD', ''),
+            'HOST': db_host_raw,
+            'PORT': db_port,
+            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+            },
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+
+# Import preview posts one action per row; larger CSVs exceed Django's default
+# 1000-field parser limit and raise 400. Keep this configurable for production.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = int(os.getenv('DATA_UPLOAD_MAX_NUMBER_FIELDS', '50000'))
 
 
 # Password validation

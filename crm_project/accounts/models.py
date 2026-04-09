@@ -67,6 +67,8 @@ class User(AbstractUser):
     
     def can_manage_user(self, target_user):
         """Check if current user can manage target user based on hierarchy"""
+        if not target_user or target_user.company_id != self.company_id:
+            return False
         if self.role == 'owner':
             return target_user.role in ['manager', 'team_lead', 'agent']
         elif self.role == 'manager':

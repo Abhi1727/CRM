@@ -3,6 +3,7 @@ import uuid
 from difflib import SequenceMatcher
 from typing import List, Dict, Tuple, Optional
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 from dashboard.models import Lead
 from accounts.models import User
@@ -19,25 +20,28 @@ class DuplicateDetector:
     
     def find_exact_duplicates(self, mobile: str = None, email: str = None) -> List[Lead]:
         """
-        Find exact duplicates based on mobile or email match.
+        Find exact duplicates only when BOTH mobile and email match.
         """
+        mobile = self.normalize_phone_number(mobile or "")
+        email = (email or "").lower().strip()
+
+        # Business rule: exact duplicate requires both fields to match.
+        if not mobile or not email:
+            return []
+
         duplicates = Lead.objects.filter(
             company_id=self.company_id,
-            deleted=False
+            deleted=False,
+            mobile=mobile,
+            email__iexact=email,
         )
-        
-        if mobile:
-            mobile = self.normalize_phone_number(mobile)
-            duplicates = duplicates.filter(mobile=mobile)
-        
-        if email:
-            duplicates = duplicates.filter(email__iexact=email.lower().strip())
-        
         return list(duplicates)
     
     def find_potential_duplicates(self, name: str = None, mobile: str = None, email: str = None) -> List[Lead]:
         """
-        Find potential duplicates using fuzzy matching on names and exact matching on contact info.
+        Find potential duplicates using fuzzy matching on names.
+        Contact-field exact matching is handled by find_exact_duplicates
+        using strict mobile+email matching.
         """
         if not name and not mobile and not email:
             return []
@@ -46,19 +50,6 @@ class DuplicateDetector:
             company_id=self.company_id,
             deleted=False
         )
-        
-        # Filter by mobile if provided
-        if mobile:
-            mobile = self.normalize_phone_number(mobile)
-            mobile_matches = duplicates.filter(mobile=mobile)
-            if mobile_matches.exists():
-                return list(mobile_matches)
-        
-        # Filter by email if provided
-        if email:
-            email_matches = duplicates.filter(email__iexact=email.lower().strip())
-            if email_matches.exists():
-                return list(email_matches)
         
         # If no exact matches, try fuzzy name matching
         if name:
@@ -204,12 +195,8 @@ class DuplicateDetector:
         Comprehensive duplicate detection for a single lead.
         Returns a dictionary with duplicate information.
         """
-        name = str(lead_data.get('name', '')).strip()
         mobile = str(lead_data.get('mobile', '')).strip()
         email = str(lead_data.get('email', '')).strip()
-        address = str(lead_data.get('address', '')).strip()
-        city = str(lead_data.get('city', '')).strip()
-        company = str(lead_data.get('company', '')).strip() or str(lead_data.get('course_name', '')).strip()
         
         result = {
             'status': 'new',
@@ -236,45 +223,8 @@ class DuplicateDetector:
                 for dup in exact_duplicates
             ]
             return result
-        
-        # Check for potential duplicates
-        potential_duplicates = self.find_potential_duplicates(name, mobile, email)
-        if potential_duplicates:
-            result['status'] = 'potential_duplicate'
-            result['duplicate_type'] = 'POTENTIAL'
-            result['confidence'] = 0.8
-            result['duplicates'] = [
-                {
-                    'id': dup.id_lead,
-                    'name': dup.name,
-                    'mobile': dup.mobile,
-                    'email': dup.email,
-                    'status': dup.status,
-                    'created_at': dup.created_at.isoformat() if dup.created_at else None,
-                    'similarity': self.calculate_name_similarity(name, dup.name) if name else 0.0
-                }
-                for dup in potential_duplicates
-            ]
-            return result
-        
-        # Check for related leads
-        related_leads = self.find_related_leads(address, city, company)
-        if related_leads:
-            result['status'] = 'related'
-            result['duplicate_type'] = 'RELATED'
-            result['confidence'] = 0.6
-            result['duplicates'] = [
-                {
-                    'id': dup.id_lead,
-                    'name': dup.name,
-                    'mobile': dup.mobile,
-                    'email': dup.email,
-                    'status': dup.status,
-                    'created_at': dup.created_at.isoformat() if dup.created_at else None
-                }
-                for dup in related_leads
-            ]
-        
+        # Business rule: if exact (mobile+email) is not matched against existing DB,
+        # treat as new.
         return result
     
     def batch_detect_duplicates(self, leads_data: List[Dict]) -> List[Dict]:
@@ -282,14 +232,103 @@ class DuplicateDetector:
         Detect duplicates for multiple leads in batch.
         Returns a list of duplicate detection results.
         """
+        if not leads_data:
+            return []
+
+        def _clean_text(value):
+            return str(value or '').strip()
+
+        def _dedupe_by_id(leads):
+            seen = set()
+            out = []
+            for lead in leads:
+                if lead.id_lead in seen:
+                    continue
+                seen.add(lead.id_lead)
+                out.append(lead)
+            return out
+
+        def _serialize_lead(lead):
+            return {
+                'id': lead.id_lead,
+                'name': lead.name,
+                'mobile': lead.mobile,
+                'email': lead.email,
+                'status': lead.status,
+                'created_at': lead.created_at.isoformat() if lead.created_at else None,
+            }
+
+        normalized_rows = []
+        mobiles = set()
+        emails = set()
+        for i, row in enumerate(leads_data):
+            mobile = self.normalize_phone_number(_clean_text(row.get('mobile')))
+            email = _clean_text(row.get('email')).lower()
+
+            normalized = {
+                'index': i,
+                'raw': row,
+                'mobile': mobile,
+                'email': email,
+            }
+            normalized_rows.append(normalized)
+
+            if mobile:
+                mobiles.add(mobile)
+            if email:
+                emails.add(email)
+
+        q = Q()
+        if mobiles:
+            q |= Q(mobile__in=mobiles)
+        if emails:
+            q |= Q(email__in=emails)
+
+        candidate_qs = Lead.objects.filter(company_id=self.company_id, deleted=False)
+        if q:
+            candidate_qs = candidate_qs.filter(q).only(
+                'id_lead', 'name', 'mobile', 'email', 'status', 'created_at'
+            ).order_by('-created_at')
+            candidates = list(candidate_qs)
+        else:
+            candidates = []
+
+        by_mobile_email = {}
+
+        for lead in candidates:
+            if lead.mobile and lead.email:
+                mobile_key = self.normalize_phone_number(lead.mobile)
+                email_key = lead.email.strip().lower()
+                if mobile_key and email_key:
+                    by_mobile_email.setdefault((mobile_key, email_key), []).append(lead)
+
         results = []
-        
-        for i, lead_data in enumerate(leads_data):
-            result = self.detect_duplicates_for_lead(lead_data)
-            result['row_index'] = i
-            result['lead_data'] = lead_data
+        for row in normalized_rows:
+            exact = []
+            if row['mobile'] and row['email']:
+                exact = _dedupe_by_id(
+                    by_mobile_email.get((row['mobile'], row['email']), [])
+                )
+
+            if exact:
+                result = {
+                    'status': 'exact_duplicate',
+                    'duplicates': [_serialize_lead(dup) for dup in exact],
+                    'duplicate_type': 'EXACT',
+                    'confidence': 1.0,
+                }
+            else:
+                result = {
+                    'status': 'new',
+                    'duplicates': [],
+                    'duplicate_type': None,
+                    'confidence': 0.0,
+                }
+
+            result['row_index'] = row['index']
+            result['lead_data'] = row['raw']
             results.append(result)
-        
+
         return results
     
     def create_duplicate_group(self, lead_ids: List[int], group_type: str = 'auto') -> str:

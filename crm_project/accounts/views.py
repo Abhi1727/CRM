@@ -5,11 +5,80 @@ from django.contrib import messages
 from django.db.models import Count, Sum, Q
 from django.utils import timezone
 from django.http import JsonResponse
+from django.http import QueryDict
 from django.core.paginator import Paginator
+from datetime import datetime
+import uuid
 from .models import User
-from dashboard.models import Lead
+from dashboard.models import Lead, LeadOperationLog
 from .permissions import role_required, can_manage_user_required, hierarchy_required
 from .forms import UserCreationForm, UserAssignmentForm
+
+
+def _apply_lead_snapshot_filters(queryset, user, filter_snapshot):
+    params = QueryDict(filter_snapshot or '', mutable=False)
+
+    search_query = params.get('search', '').strip()
+    country_filter = params.get('country', '').strip()
+    course_filter = params.get('course', '').strip()
+    start_date = params.get('start_date', '').strip()
+    end_date = params.get('end_date', '').strip()
+    assigned_user_filter = params.get('assigned_user', '').strip()
+    status_filter = params.get('status', '').strip()
+    preset_filter = params.get('preset', '').strip()
+
+    if status_filter:
+        queryset = queryset.filter(status=status_filter)
+    if search_query:
+        queryset = queryset.filter(
+            Q(name__icontains=search_query) |
+            Q(email__icontains=search_query) |
+            Q(mobile__icontains=search_query) |
+            Q(alt_mobile__icontains=search_query) |
+            Q(alt_email__icontains=search_query)
+        )
+    if country_filter:
+        queryset = queryset.filter(country__icontains=country_filter)
+    if course_filter:
+        queryset = queryset.filter(course_name__icontains=course_filter)
+
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+            queryset = queryset.filter(
+                Q(created_at__date__gte=start_date_obj) |
+                Q(assigned_at__date__gte=start_date_obj) |
+                Q(transfer_date__date__gte=start_date_obj)
+            )
+        except ValueError:
+            pass
+
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            queryset = queryset.filter(
+                Q(created_at__date__lte=end_date_obj) |
+                Q(assigned_at__date__lte=end_date_obj) |
+                Q(transfer_date__date__lte=end_date_obj)
+            )
+        except ValueError:
+            pass
+
+    if assigned_user_filter:
+        try:
+            queryset = queryset.filter(assigned_user_id=int(assigned_user_filter))
+        except ValueError:
+            pass
+
+    if preset_filter == 'my_team':
+        if user.role in ['manager', 'owner', 'team_lead']:
+            queryset = queryset.filter(assigned_user__in=user.get_accessible_users())
+        else:
+            queryset = queryset.filter(assigned_user=user)
+    elif preset_filter == 'my':
+        queryset = queryset.filter(assigned_user=user)
+
+    return queryset
 
 def login_view(request):
     if request.user.is_authenticated:
@@ -19,15 +88,9 @@ def login_view(request):
         username = request.POST.get('username')
         password = request.POST.get('password')
         
-        # Debug information
-        print(f"Login attempt - Username: {username}")
-        print(f"Login attempt - Password provided: {'Yes' if password else 'No'}")
-        
         user = authenticate(request, username=username, password=password)
         
         if user is not None:
-            print(f"Authentication successful for: {user.username}")
-            
             # Check if user is blocked/inactive
             if not user.is_active or user.account_status == 'inactive':
                 messages.error(request, 'Your account has been blocked by the administrator. Please contact your admin.')
@@ -37,20 +100,15 @@ def login_view(request):
             messages.success(request, f'Welcome back, {user.first_name or user.username}!')
             return redirect('dashboard:home')
         else:
-            print(f"Authentication failed for: {username}")
             # Check if user exists
             try:
                 user_obj = User.objects.get(username=username)
-                print(f"User exists: {user_obj.username}, Active: {user_obj.is_active}")
-                print(f"Has password: {user_obj.has_usable_password()}")
-                
                 # Check if user is blocked/inactive
                 if not user_obj.is_active or user_obj.account_status == 'inactive':
                     messages.error(request, 'Your account has been blocked by the administrator. Please contact your admin.')
                 else:
                     messages.error(request, 'Invalid username or password.')
             except User.DoesNotExist:
-                print(f"User does not exist: {username}")
                 messages.error(request, 'Invalid username or password.')
     
     return render(request, 'accounts/login.html')
@@ -125,7 +183,7 @@ def create_user(request):
 @can_manage_user_required
 def edit_user(request, user_id):
     """Edit user details"""
-    target_user = get_object_or_404(User, id=user_id)
+    target_user = get_object_or_404(User, id=user_id, company_id=request.user.company_id)
     
     if request.method == 'POST':
         # Handle user update logic
@@ -183,8 +241,10 @@ def assign_lead(request):
                     
                     # Add remarks to assignment history if provided
                     if remarks:
-                        assignment_history = lead.assignment_history or []
-                        assignment_history.append({
+                        assignment_history = lead.assignment_history or {}
+                        if not isinstance(assignment_history, dict):
+                            assignment_history = {'assignments': []}
+                        assignment_history.setdefault('assignments', []).append({
                             'action': 'assignment_with_remarks',
                             'assigned_to': assigned_user.id,
                             'assigned_to_name': assigned_user.get_full_name() or assigned_user.username,
@@ -297,7 +357,7 @@ def get_users_by_role(request):
             leads_converted_count = Lead.objects.filter(
                 assigned_user=user,
                 company_id=request.user.company_id,
-                status='converted'
+                status='sale_done'
             ).count()
             
             user_data.append({
@@ -327,9 +387,11 @@ def bulk_assign_leads(request):
     if request.method == 'POST':
         assigned_user_id = request.POST.get('assigned_user')
         lead_ids = request.POST.getlist('lead_ids')
-        remarks = request.POST.get('remarks', '')
+        remarks = request.POST.get('remarks', '') or request.POST.get('assignment_notes', '')
+        action_scope = request.POST.get('action_scope', 'current_page').strip() or 'current_page'
+        filter_snapshot = request.POST.get('filter_snapshot', '')
         
-        if not lead_ids:
+        if action_scope == 'current_page' and not lead_ids:
             messages.error(request, 'Please select at least one lead to assign.')
             return redirect('accounts:bulk_assign')
         
@@ -346,13 +408,24 @@ def bulk_assign_leads(request):
                 messages.error(request, 'You cannot assign leads to this user due to hierarchy restrictions.')
                 return redirect('accounts:bulk_assign')
             
+            if action_scope == 'all_filtered':
+                target_leads_qs = _apply_lead_snapshot_filters(
+                    accessible_leads.filter(deleted=False),
+                    request.user,
+                    filter_snapshot
+                )
+            else:
+                target_leads_qs = accessible_leads.filter(id_lead__in=lead_ids, deleted=False)
+
+            if not target_leads_qs.exists():
+                messages.error(request, 'No leads found for bulk assignment in selected scope.')
+                return redirect('dashboard:leads_all')
+
             successful_assignments = 0
             failed_assignments = 0
             
-            for lead_id in lead_ids:
+            for lead in target_leads_qs:
                 try:
-                    lead = accessible_leads.get(id_lead=lead_id)
-                    
                     if lead.can_be_assigned_by(request.user) and lead.can_be_assigned_to_user(assigned_user, request.user):
                         success = lead.assign_to_user(assigned_user, request.user)
                         if success:
@@ -360,8 +433,10 @@ def bulk_assign_leads(request):
                             
                             # Add remarks to assignment history if provided
                             if remarks:
-                                assignment_history = lead.assignment_history or []
-                                assignment_history.append({
+                                assignment_history = lead.assignment_history or {}
+                                if not isinstance(assignment_history, dict):
+                                    assignment_history = {'assignments': []}
+                                assignment_history.setdefault('assignments', []).append({
                                     'action': 'bulk_assignment_with_remarks',
                                     'assigned_to': assigned_user.id,
                                     'assigned_to_name': assigned_user.get_full_name() or assigned_user.username,
@@ -385,6 +460,20 @@ def bulk_assign_leads(request):
             
             if failed_assignments > 0:
                 messages.warning(request, f'Failed to assign {failed_assignments} leads due to permission restrictions.')
+
+            LeadOperationLog.objects.create(
+                operation_id=f"bulk_assign_{uuid.uuid4().hex[:14]}",
+                operation_type='bulk_assign',
+                user=request.user,
+                company_id=request.user.company_id,
+                action_scope=action_scope,
+                filter_snapshot=filter_snapshot,
+                requested_count=target_leads_qs.count(),
+                processed_count=successful_assignments + failed_assignments,
+                success_count=successful_assignments,
+                failed_count=failed_assignments,
+                metadata={'assigned_user_id': assigned_user.id},
+            )
                 
         except User.DoesNotExist:
             messages.error(request, 'Selected user not found.')
@@ -463,16 +552,24 @@ def user_performance(request):
     accessible_users = request.hierarchy_context['accessible_users']
     accessible_leads = request.hierarchy_context['accessible_leads']
     
+    aggregated = {
+        row['assigned_user']: row
+        for row in accessible_leads.values('assigned_user').annotate(
+            total_leads=Count('id_lead'),
+            converted_leads=Count('id_lead', filter=Q(status='sale_done')),
+        )
+    }
+
     user_performance_data = []
     for user in accessible_users:
-        user_leads = accessible_leads.filter(assigned_user=user)
-        converted_leads = user_leads.filter(status='sale_done')
-        
+        stats = aggregated.get(user.id, {})
+        total_leads = stats.get('total_leads', 0)
+        converted_leads = stats.get('converted_leads', 0)
         performance_data = {
             'user': user,
-            'total_leads': user_leads.count(),
-            'converted_leads': converted_leads.count(),
-            'conversion_rate': (converted_leads.count() / user_leads.count() * 100) if user_leads.count() > 0 else 0,
+            'total_leads': total_leads,
+            'converted_leads': converted_leads,
+            'conversion_rate': (converted_leads / total_leads * 100) if total_leads > 0 else 0,
             'last_activity': user.last_activity,
         }
         user_performance_data.append(performance_data)
@@ -558,7 +655,7 @@ def team_hierarchy(request):
 @role_required('owner')
 def delete_user(request, user_id):
     """Delete user with intelligent lead reassignment and sales credit preservation"""
-    target_user = get_object_or_404(User, id=user_id)
+    target_user = get_object_or_404(User, id=user_id, company_id=request.user.company_id)
     
     # Check if current user can delete the target user
     if not can_delete_user(request.user, target_user):
@@ -753,6 +850,8 @@ def delete_user(request, user_id):
 
 def can_delete_user(current_user, target_user):
     """Check if current user can delete target user based on hierarchy"""
+    if target_user.company_id != current_user.company_id:
+        return False
     # Cannot delete admin/superuser
     if target_user.is_superuser:
         return False
@@ -779,7 +878,7 @@ def can_delete_user(current_user, target_user):
 
 
 @login_required
-@role_required(['owner', 'manager', 'team_lead'])
+@role_required('owner', 'manager', 'team_lead')
 def check_username_availability(request):
     """
     Check if a username is available for use.

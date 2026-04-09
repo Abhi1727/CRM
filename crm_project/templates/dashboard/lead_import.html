@@ -66,7 +66,7 @@
                     <i class="fas fa-download"></i> Download Demo
                 </a>
             </div>
-            <form method="post" enctype="multipart/form-data">
+            <form method="post" enctype="multipart/form-data" id="importUploadForm">
                 {% csrf_token %}
                 
                 <div class="form-group">
@@ -81,7 +81,7 @@
                 </div>
                 
                 <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">
+                    <button type="submit" class="btn btn-primary" id="uploadBtn">
                         <i class="fas fa-upload"></i> Import Leads
                     </button>
                     <a href="{% url 'dashboard:leads_all' %}" class="btn btn-outline">
@@ -89,6 +89,19 @@
                     </a>
                 </div>
             </form>
+
+            <div id="uploadProgressWrap" style="display:none; margin-top: 18px;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px; color:#a8adb7; font-size:13px;">
+                    <span id="uploadStatusText">Uploading file...</span>
+                    <span id="uploadPercentText">0%</span>
+                </div>
+                <div style="height:10px; background:#2d3139; border-radius:999px; overflow:hidden;">
+                    <div id="uploadProgressBar" style="height:100%; width:0%; background:linear-gradient(135deg, #667eea 0%, #764ba2 100%); transition:width .15s ease;"></div>
+                </div>
+                <div style="margin-top:8px; color:#8c93a0; font-size:12px;">
+                    Large files may take some time while duplicate checks are processed.
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -294,4 +307,85 @@
     }
 }
 </style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const form = document.getElementById('importUploadForm');
+    const fileInput = document.getElementById('file');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const wrap = document.getElementById('uploadProgressWrap');
+    const bar = document.getElementById('uploadProgressBar');
+    const percent = document.getElementById('uploadPercentText');
+    const statusText = document.getElementById('uploadStatusText');
+
+    if (!form) return;
+
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+            return;
+        }
+
+        uploadBtn.disabled = true;
+        uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
+        wrap.style.display = 'block';
+        bar.style.width = '0%';
+        percent.textContent = '0%';
+        statusText.textContent = 'Uploading file...';
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', form.action || window.location.href, true);
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+        xhr.upload.onprogress = function (event) {
+            if (!event.lengthComputable) return;
+            const p = Math.round((event.loaded / event.total) * 100);
+            bar.style.width = p + '%';
+            percent.textContent = p + '%';
+            if (p >= 100) {
+                statusText.textContent = 'Upload complete. Processing duplicates...';
+            }
+        };
+
+        xhr.onload = function () {
+            let payload = null;
+            try {
+                payload = JSON.parse(xhr.responseText || '{}');
+            } catch (e) {
+                payload = null;
+            }
+
+            if (xhr.status >= 200 && xhr.status < 400 && payload && payload.ok) {
+                window.location.href = payload.redirect_url || "{% url 'dashboard:lead_import_preview' %}";
+                return;
+            }
+
+            uploadBtn.disabled = false;
+            uploadBtn.innerHTML = '<i class="fas fa-upload"></i> Import Leads';
+
+            if (xhr.status === 413) {
+                statusText.textContent = 'Upload failed: file too large (server limit exceeded).';
+                return;
+            }
+            if (xhr.status === 504) {
+                statusText.textContent = 'Upload timed out. Please retry with a smaller file.';
+                return;
+            }
+            if (payload && payload.error) {
+                statusText.textContent = payload.error;
+                return;
+            }
+            statusText.textContent = `Upload failed (HTTP ${xhr.status}). Please retry.`;
+        };
+
+        xhr.onerror = function () {
+            uploadBtn.disabled = false;
+            uploadBtn.innerHTML = '<i class="fas fa-upload"></i> Import Leads';
+            statusText.textContent = 'Network error during upload. Please retry.';
+        };
+
+        xhr.send(new FormData(form));
+    });
+});
+</script>
 {% endblock %}

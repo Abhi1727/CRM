@@ -16,6 +16,29 @@
             <button id="bulk-assign-btn" class="btn btn-warning" style="display: none;">
                 <i class="fas fa-users"></i> Bulk Assign (<span id="selected-count">0</span>)
             </button>
+            <button id="bulk-delete-btn" class="btn btn-danger" style="display: none;">
+                <i class="fas fa-trash"></i> Delete Selected (<span id="delete-selected-count">0</span>)
+            </button>
+            {% if page_title == 'Trash Leads' %}
+            <button id="bulk-restore-btn" class="btn btn-success" style="display: none;">
+                <i class="fas fa-undo"></i> Restore Selected (<span id="restore-selected-count">0</span>)
+            </button>
+            {% if user.role == 'owner' %}
+            <button id="purge-trash-btn" class="btn btn-danger">
+                <i class="fas fa-fire"></i> Purge Trash
+            </button>
+            {% endif %}
+            {% endif %}
+            {% endif %}
+            {% if user.role != 'agent' and page_title != 'Trash Leads' %}
+            <a href="{% url 'dashboard:leads_trash' %}" class="btn btn-secondary">
+                <i class="fas fa-trash-restore"></i> Trash
+            </a>
+            {% endif %}
+            {% if page_title == 'Trash Leads' %}
+            <a href="{% url 'dashboard:leads_all' %}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Active Leads
+            </a>
             {% endif %}
             {% if user.role == 'owner' %}
             <a href="{% url 'dashboard:lead_create' %}" class="btn btn-primary">
@@ -23,6 +46,10 @@
             </a>
             {% endif %}
         </div>
+    </div>
+    <div style="margin-bottom:12px; color:var(--text-secondary);">
+        Total filtered leads: <strong>{{ total_filtered_count|default:0 }}</strong> |
+        Current page: <strong>{{ current_page_count|default:0 }}</strong>
     </div>
     
     <div class="filters">
@@ -46,6 +73,7 @@
             
             {% if user.role != 'agent' %}
             <button id="select-all-btn" class="btn btn-sm btn-outline">Select All</button>
+            <button id="select-all-filtered-btn" class="btn btn-sm btn-outline">Select All Filtered ({{ total_filtered_count|default:0 }})</button>
             <button id="clear-selection-btn" class="btn btn-sm btn-outline">Clear Selection</button>
             {% endif %}
             
@@ -767,6 +795,25 @@
     box-shadow: 0 5px 15px rgba(255, 193, 7, 0.4);
 }
 
+.btn-danger {
+    padding: 12px 24px;
+    background: var(--danger-color);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-danger:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(220, 53, 69, 0.35);
+}
+
 .btn-sm {
     padding: 6px 12px;
     font-size: 12px;
@@ -1245,6 +1292,30 @@
     </div>
 </div>
 
+<form id="bulk-delete-form" method="post" action="{% url 'dashboard:bulk_lead_delete' %}" style="display:none;">
+    {% csrf_token %}
+    <input type="hidden" name="action_scope" id="bulk-delete-action-scope" value="current_page">
+    <input type="hidden" name="filter_snapshot" id="bulk-delete-filter-snapshot" value="{{ filter_snapshot|default:'' }}">
+    <input type="hidden" name="scope_count" id="bulk-delete-scope-count" value="{{ total_filtered_count|default:0 }}">
+    <div id="bulk-delete-lead-ids"></div>
+</form>
+
+<form id="bulk-restore-form" method="post" action="{% url 'dashboard:bulk_lead_restore' %}" style="display:none;">
+    {% csrf_token %}
+    <input type="hidden" name="action_scope" id="bulk-restore-action-scope" value="current_page">
+    <input type="hidden" name="filter_snapshot" id="bulk-restore-filter-snapshot" value="{{ filter_snapshot|default:'' }}">
+    <input type="hidden" name="scope_count" id="bulk-restore-scope-count" value="{{ total_filtered_count|default:0 }}">
+    <div id="bulk-restore-lead-ids"></div>
+</form>
+
+<form id="purge-trash-form" method="post" action="{% url 'dashboard:leads_trash_purge' %}" style="display:none;">
+    {% csrf_token %}
+    <input type="hidden" name="action_scope" id="purge-action-scope" value="all_filtered">
+    <input type="hidden" name="filter_snapshot" id="purge-filter-snapshot" value="{{ filter_snapshot|default:'' }}">
+    <input type="hidden" name="scope_count" id="purge-scope-count" value="{{ total_filtered_count|default:0 }}">
+    <input type="hidden" name="confirm_text" id="purge-confirm-text" value="">
+</form>
+
 <script>
 // Search functionality
 let searchTimeout;
@@ -1550,8 +1621,14 @@ document.addEventListener("DOMContentLoaded", function() {
     const selectAllCheckbox = document.getElementById('select-all-checkbox');
     const leadCheckboxes = document.querySelectorAll('.lead-checkbox');
     const bulkAssignBtn = document.getElementById('bulk-assign-btn');
+    const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+    const bulkRestoreBtn = document.getElementById('bulk-restore-btn');
+    const purgeTrashBtn = document.getElementById('purge-trash-btn');
     const selectedCountSpan = document.getElementById('selected-count');
+    const deleteSelectedCountSpan = document.getElementById('delete-selected-count');
+    const restoreSelectedCountSpan = document.getElementById('restore-selected-count');
     const selectAllBtn = document.getElementById('select-all-btn');
+    const selectAllFilteredBtn = document.getElementById('select-all-filtered-btn');
     const clearSelectionBtn = document.getElementById('clear-selection-btn');
     const searchInput = document.getElementById('search-input');
     const clearSearchBtn = document.getElementById('clear-search');
@@ -1561,6 +1638,8 @@ document.addEventListener("DOMContentLoaded", function() {
     const applyFiltersBtn = document.getElementById('apply-filters');
     const clearFiltersBtn = document.getElementById('clear-filters');
     const presetBtns = document.querySelectorAll('.preset-btn');
+    const totalFilteredCount = parseInt('{{ total_filtered_count|default:0 }}', 10) || 0;
+    let selectionScope = 'current_page';
     
     // Restore search focus and cursor position after page load
     if (searchInput) {
@@ -1642,19 +1721,22 @@ document.addEventListener("DOMContentLoaded", function() {
     }
     
     // Select all functionality
-    selectAllCheckbox.addEventListener('change', function() {
-        leadCheckboxes.forEach(function(checkbox) {
-            checkbox.checked = this.checked;
-            const leadId = checkbox.dataset.leadId;
-            if (this.checked) {
-                selectedLeads.add(leadId);
-            } else {
-                selectedLeads.delete(leadId);
-            }
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function() {
+            leadCheckboxes.forEach(function(checkbox) {
+                checkbox.checked = this.checked;
+                const leadId = checkbox.dataset.leadId;
+                if (this.checked) {
+                    selectedLeads.add(leadId);
+                } else {
+                    selectedLeads.delete(leadId);
+                }
+            });
+            selectionScope = 'current_page';
+            updateBulkActionButtons();
+            updateSelectAllCheckbox();
         });
-        updateBulkAssignButton();
-        updateSelectAllCheckbox();
-    });
+    }
     
     // Individual checkbox changes
     leadCheckboxes.forEach(function(checkbox) {
@@ -1665,47 +1747,164 @@ document.addEventListener("DOMContentLoaded", function() {
             } else {
                 selectedLeads.delete(leadId);
             }
-            updateBulkAssignButton();
+            selectionScope = 'current_page';
+            updateBulkActionButtons();
             updateSelectAllCheckbox();
         });
     });
     
     // Select all button
-    selectAllBtn.addEventListener('click', function() {
-        leadCheckboxes.forEach(function(checkbox) {
-            checkbox.checked = true;
-            selectedLeads.add(checkbox.dataset.leadId);
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', function() {
+            leadCheckboxes.forEach(function(checkbox) {
+                checkbox.checked = true;
+                selectedLeads.add(checkbox.dataset.leadId);
+            });
+            if (selectAllCheckbox) {
+                selectAllCheckbox.checked = true;
+            }
+            selectionScope = 'current_page';
+            updateBulkActionButtons();
         });
-        selectAllCheckbox.checked = true;
-        updateBulkAssignButton();
-    });
+    }
+
+    if (selectAllFilteredBtn) {
+        selectAllFilteredBtn.addEventListener('click', function() {
+            selectedLeads.clear();
+            leadCheckboxes.forEach(function(checkbox) {
+                checkbox.checked = false;
+            });
+            if (selectAllCheckbox) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            }
+            selectionScope = 'all_filtered';
+            updateBulkActionButtons();
+            showNotification(`All filtered leads selected (${totalFilteredCount}).`, 'success');
+        });
+    }
     
     // Clear selection button
-    clearSelectionBtn.addEventListener('click', function() {
-        // Clear checkbox selections (existing functionality)
-        leadCheckboxes.forEach(function(checkbox) {
-            checkbox.checked = false;
+    if (clearSelectionBtn) {
+        clearSelectionBtn.addEventListener('click', function() {
+            leadCheckboxes.forEach(function(checkbox) {
+                checkbox.checked = false;
+            });
+            selectedLeads.clear();
+            if (selectAllCheckbox) {
+                selectAllCheckbox.checked = false;
+            }
+            selectionScope = 'current_page';
+            updateBulkActionButtons();
         });
-        selectedLeads.clear();
-        selectAllCheckbox.checked = false;
-        updateBulkAssignButton();
-        
-        // Clear advanced filters (new functionality)
-        clearAllFilters();
-    });
+    }
     
     // Bulk assign button click
-    bulkAssignBtn.addEventListener('click', function() {
-        openBulkAssignModal();
-    });
+    if (bulkAssignBtn) {
+        bulkAssignBtn.addEventListener('click', function() {
+            openBulkAssignModal();
+        });
+    }
     
-    function updateBulkAssignButton() {
-        const count = selectedLeads.size;
-        selectedCountSpan.textContent = count;
-        bulkAssignBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+    if (bulkDeleteBtn) {
+        bulkDeleteBtn.addEventListener('click', function() {
+            if (selectionScope === 'current_page' && selectedLeads.size === 0) {
+                alert('Please select at least one lead to delete.');
+                return;
+            }
+            const scopeTarget = selectionScope === 'all_filtered' ? totalFilteredCount : selectedLeads.size;
+            const confirmed = confirm(`Are you sure you want to delete ${scopeTarget} lead(s)? Scope: ${selectionScope === 'all_filtered' ? 'all filtered results' : 'current page selection'}.`);
+            if (!confirmed) return;
+
+            const form = document.getElementById('bulk-delete-form');
+            const container = document.getElementById('bulk-delete-lead-ids');
+            container.innerHTML = '';
+            if (selectionScope === 'current_page') {
+                selectedLeads.forEach(function(leadId) {
+                    const hiddenInput = document.createElement('input');
+                    hiddenInput.type = 'hidden';
+                    hiddenInput.name = 'lead_ids';
+                    hiddenInput.value = leadId;
+                    container.appendChild(hiddenInput);
+                });
+            }
+            document.getElementById('bulk-delete-action-scope').value = selectionScope;
+            document.getElementById('bulk-delete-filter-snapshot').value = '{{ filter_snapshot|default:"" }}';
+            document.getElementById('bulk-delete-scope-count').value = scopeTarget;
+            form.submit();
+        });
+    }
+
+    if (bulkRestoreBtn) {
+        bulkRestoreBtn.addEventListener('click', function() {
+            if (selectionScope === 'current_page' && selectedLeads.size === 0) {
+                alert('Please select at least one lead to restore.');
+                return;
+            }
+            const scopeTarget = selectionScope === 'all_filtered' ? totalFilteredCount : selectedLeads.size;
+            const confirmed = confirm(`Restore ${scopeTarget} lead(s)? Scope: ${selectionScope === 'all_filtered' ? 'all filtered results' : 'current page selection'}.`);
+            if (!confirmed) return;
+
+            const form = document.getElementById('bulk-restore-form');
+            const container = document.getElementById('bulk-restore-lead-ids');
+            container.innerHTML = '';
+            if (selectionScope === 'current_page') {
+                selectedLeads.forEach(function(leadId) {
+                    const hiddenInput = document.createElement('input');
+                    hiddenInput.type = 'hidden';
+                    hiddenInput.name = 'lead_ids';
+                    hiddenInput.value = leadId;
+                    container.appendChild(hiddenInput);
+                });
+            }
+            document.getElementById('bulk-restore-action-scope').value = selectionScope;
+            document.getElementById('bulk-restore-filter-snapshot').value = '{{ filter_snapshot|default:"" }}';
+            document.getElementById('bulk-restore-scope-count').value = scopeTarget;
+            form.submit();
+        });
+    }
+
+    if (purgeTrashBtn) {
+        purgeTrashBtn.addEventListener('click', function() {
+            const confirmation = prompt('Type PURGE to permanently delete all filtered trash leads.');
+            if (confirmation !== 'PURGE') {
+                showNotification('Purge cancelled.', 'error');
+                return;
+            }
+            document.getElementById('purge-confirm-text').value = confirmation;
+            document.getElementById('purge-filter-snapshot').value = '{{ filter_snapshot|default:"" }}';
+            document.getElementById('purge-scope-count').value = totalFilteredCount;
+            document.getElementById('purge-trash-form').submit();
+        });
+    }
+
+    function updateBulkActionButtons() {
+        const count = selectionScope === 'all_filtered' ? totalFilteredCount : selectedLeads.size;
+        if (selectedCountSpan) {
+            selectedCountSpan.textContent = count;
+        }
+        if (deleteSelectedCountSpan) {
+            deleteSelectedCountSpan.textContent = count;
+        }
+        if (restoreSelectedCountSpan) {
+            restoreSelectedCountSpan.textContent = count;
+        }
+        if (bulkAssignBtn) {
+            bulkAssignBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+        if (bulkDeleteBtn) {
+            bulkDeleteBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+        if (bulkRestoreBtn) {
+            bulkRestoreBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+        if (selectAllFilteredBtn) {
+            selectAllFilteredBtn.classList.toggle('active', selectionScope === 'all_filtered');
+        }
     }
     
     function updateSelectAllCheckbox() {
+        if (!selectAllCheckbox) return;
         const totalCheckboxes = leadCheckboxes.length;
         const checkedCheckboxes = document.querySelectorAll('.lead-checkbox:checked').length;
         selectAllCheckbox.checked = totalCheckboxes > 0 && totalCheckboxes === checkedCheckboxes;
@@ -1727,35 +1926,56 @@ document.addEventListener("DOMContentLoaded", function() {
     };
     
     function openBulkAssignModal() {
-        if (selectedLeads.size === 0) {
+        if (selectionScope === 'current_page' && selectedLeads.size === 0) {
             alert('Please select at least one lead to assign.');
             return;
         }
-        
+
+        const scopeTarget = selectionScope === 'all_filtered' ? totalFilteredCount : selectedLeads.size;
         // Update modal content
-        document.getElementById('modal-selected-count').textContent = selectedLeads.size;
-        
-        // Create hidden inputs for each lead ID instead of a single comma-separated string
+        document.getElementById('modal-selected-count').textContent = scopeTarget;
+
+        // Create hidden inputs for selected scope.
         const leadIdsContainer = document.getElementById('lead_ids');
-        leadIdsContainer.innerHTML = ''; // Clear existing hidden inputs
-        
-        selectedLeads.forEach(function(leadId) {
-            const hiddenInput = document.createElement('input');
-            hiddenInput.type = 'hidden';
-            hiddenInput.name = 'lead_ids';
-            hiddenInput.value = leadId;
-            leadIdsContainer.appendChild(hiddenInput);
-        });
+        leadIdsContainer.innerHTML = '';
+
+        const scopeInput = document.createElement('input');
+        scopeInput.type = 'hidden';
+        scopeInput.name = 'action_scope';
+        scopeInput.value = selectionScope;
+        leadIdsContainer.appendChild(scopeInput);
+
+        const filterInput = document.createElement('input');
+        filterInput.type = 'hidden';
+        filterInput.name = 'filter_snapshot';
+        filterInput.value = '{{ filter_snapshot|default:"" }}';
+        leadIdsContainer.appendChild(filterInput);
+
+        if (selectionScope === 'current_page') {
+            selectedLeads.forEach(function(leadId) {
+                const hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.name = 'lead_ids';
+                hiddenInput.value = leadId;
+                leadIdsContainer.appendChild(hiddenInput);
+            });
+        }
         
         // Update selected leads list
         const leadsList = document.getElementById('selected-leads-list');
         leadsList.innerHTML = '';
-        document.querySelectorAll('.lead-checkbox:checked').forEach(function(checkbox) {
-            const leadName = checkbox.dataset.leadName;
+        if (selectionScope === 'all_filtered') {
             const leadItem = document.createElement('div');
-            leadItem.textContent = '• ' + leadName;
+            leadItem.textContent = `• All filtered leads (${totalFilteredCount})`;
             leadsList.appendChild(leadItem);
-        });
+        } else {
+            document.querySelectorAll('.lead-checkbox:checked').forEach(function(checkbox) {
+                const leadName = checkbox.dataset.leadName;
+                const leadItem = document.createElement('div');
+                leadItem.textContent = '• ' + leadName;
+                leadsList.appendChild(leadItem);
+            });
+        }
         
         // Load roles for selection
         loadAvailableRoles();

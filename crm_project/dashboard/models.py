@@ -158,7 +158,7 @@ class Lead(models.Model):
     
     def can_be_accessed_by(self, user):
         """Check if user can access this lead based on hierarchy"""
-        return self in user.get_accessible_leads_queryset()
+        return user.get_accessible_leads_queryset().filter(id_lead=self.id_lead).exists()
     
     def get_status_display_value(self, status_value):
         """Get display value for any status choice"""
@@ -167,11 +167,13 @@ class Lead(models.Model):
     
     def can_update_status_by(self, user):
         """Check if user can update this lead's status - more permissive than general access"""
+        if self.company_id != user.company_id:
+            return False
         if user.role == 'owner':
-            return True
+            return self.can_be_accessed_by(user)
         elif user.role == 'manager':
             # Managers can update status for leads in their accessible scope
-            return self in user.get_accessible_leads_queryset()
+            return self.can_be_accessed_by(user)
         elif user.role == 'team_lead':
             # Team leads can update status for leads assigned to their team members or themselves
             return (self.assigned_user == user or 
@@ -183,15 +185,17 @@ class Lead(models.Model):
     
     def can_be_assigned_by(self, user):
         """Check if user can assign this lead"""
+        if self.company_id != user.company_id:
+            return False
         if user.role == 'owner':
-            return True
+            return self.can_be_accessed_by(user)
         elif user.role == 'manager':
             # Manager can assign leads in their accessible scope OR leads assigned to their manager (owner)
-            return (self in user.get_accessible_leads_queryset() or 
+            return (self.can_be_accessed_by(user) or 
                    (self.assigned_user and self.assigned_user.role == 'owner'))
         elif user.role == 'team_lead':
             # Team Lead can assign leads in their accessible scope OR leads assigned to their manager
-            return (self in user.get_accessible_leads_queryset() or 
+            return (self.can_be_accessed_by(user) or 
                    (self.assigned_user and self.assigned_user.role in ['manager', 'owner']))
         return False
     
@@ -449,6 +453,84 @@ class LeadActivity(models.Model):
     class Meta:
         ordering = ['-created_at']
         verbose_name_plural = 'Lead Activities'
+
+
+class LeadOperationLog(models.Model):
+    OPERATION_CHOICES = [
+        ('import_preview', 'Import Preview'),
+        ('import_process', 'Import Process'),
+        ('bulk_delete', 'Bulk Delete'),
+        ('bulk_restore', 'Bulk Restore'),
+        ('trash_purge', 'Trash Purge'),
+        ('bulk_assign', 'Bulk Assign'),
+    ]
+
+    operation_id = models.CharField(max_length=64, unique=True, db_index=True)
+    operation_type = models.CharField(max_length=32, choices=OPERATION_CHOICES)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    company_id = models.IntegerField(default=1, db_index=True)
+    action_scope = models.CharField(max_length=20, default='current_page')
+    filter_snapshot = models.TextField(blank=True, null=True)
+
+    requested_count = models.PositiveIntegerField(default=0)
+    processed_count = models.PositiveIntegerField(default=0)
+    success_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
+    skipped_count = models.PositiveIntegerField(default=0)
+
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['company_id', 'operation_type', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.operation_type} ({self.operation_id})"
+
+
+class LeadImportSession(models.Model):
+    STATUS_CHOICES = [
+        ('preview_ready', 'Preview Ready'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+
+    session_id = models.CharField(max_length=64, unique=True, db_index=True)
+    idempotency_key = models.CharField(max_length=128, db_index=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    company_id = models.IntegerField(default=1, db_index=True)
+    file_name = models.CharField(max_length=255)
+    file_hash = models.CharField(max_length=64, blank=True, null=True)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='preview_ready')
+    payload = models.JSONField(default=dict, blank=True)
+
+    total_rows = models.PositiveIntegerField(default=0)
+    new_rows = models.PositiveIntegerField(default=0)
+    exact_duplicates = models.PositiveIntegerField(default=0)
+    potential_duplicates = models.PositiveIntegerField(default=0)
+    related_rows = models.PositiveIntegerField(default=0)
+    imported_rows = models.PositiveIntegerField(default=0)
+    updated_rows = models.PositiveIntegerField(default=0)
+    skipped_rows = models.PositiveIntegerField(default=0)
+    failed_rows = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['company_id', 'status', 'created_at']),
+            models.Index(fields=['company_id', 'idempotency_key']),
+        ]
+
+    def __str__(self):
+        return f"ImportSession {self.session_id} ({self.status})"
 
 class InternalFollowUpReminder(models.Model):
     PRIORITY_LEVELS = [

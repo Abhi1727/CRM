@@ -50,6 +50,8 @@ def can_manage_user_required(view_func):
         if user_id:
             try:
                 target_user = User.objects.get(id=user_id)
+                if target_user.company_id != request.user.company_id:
+                    raise PermissionDenied("You don't have permission to manage this user.")
                 if not request.user.can_manage_user(target_user):
                     if request.headers.get('Accept') == 'application/json':
                         return JsonResponse({'error': 'Cannot manage this user'}, status=403)

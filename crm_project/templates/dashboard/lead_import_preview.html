@@ -171,6 +171,51 @@
     margin-right: 8px;
 }
 
+.import-progress-wrap {
+    display: none;
+    margin-top: 18px;
+    padding: 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.import-progress-head {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    color: #334155;
+    font-size: 13px;
+}
+
+.import-progress-track {
+    height: 12px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.import-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    transition: width .2s ease;
+}
+
+.import-progress-meta {
+    margin-top: 8px;
+    color: #475569;
+    font-size: 12px;
+}
+
+.import-success-note {
+    display: none;
+    margin-top: 10px;
+    color: #166534;
+    font-size: 13px;
+    font-weight: 600;
+}
+
 @media (max-width: 768px) {
     .summary-cards {
         grid-template-columns: repeat(2, 1fr);
@@ -214,21 +259,19 @@
         </div>
         <div class="summary-card potential-duplicates">
             <h3>{{ summary.potential_duplicates }}</h3>
-            <p>Potential Duplicates</p>
+            <p>Potential Duplicates (disabled)</p>
         </div>
         <div class="summary-card related">
             <h3>{{ summary.related }}</h3>
-            <p>Related Leads</p>
+            <p>Related Leads (disabled)</p>
         </div>
     </div>
     
     <!-- Filter Buttons -->
     <div class="filter-buttons">
-        <button class="filter-btn active" onclick="filterRows('all')">All Leads ({{ summary.total }})</button>
-        <button class="filter-btn" onclick="filterRows('new')">New ({{ summary.new }})</button>
-        <button class="filter-btn" onclick="filterRows('exact_duplicate')">Exact Duplicates ({{ summary.exact_duplicates }})</button>
-        <button class="filter-btn" onclick="filterRows('potential_duplicate')">Potential Duplicates ({{ summary.potential_duplicates }})</button>
-        <button class="filter-btn" onclick="filterRows('related')">Related ({{ summary.related }})</button>
+        <button class="filter-btn active" onclick="filterRows(event, 'all')">All Leads ({{ summary.total }})</button>
+        <button class="filter-btn" onclick="filterRows(event, 'new')">New ({{ summary.new }})</button>
+        <button class="filter-btn" onclick="filterRows(event, 'exact_duplicate')">Exact Duplicates ({{ summary.exact_duplicates }})</button>
     </div>
     
     <!-- Select All Container -->
@@ -245,6 +288,7 @@
     <!-- Preview Table -->
     <form method="post" action="{% url 'dashboard:lead_import_process' %}" id="importForm">
         {% csrf_token %}
+        <input type="hidden" name="bulk_action_mode" id="bulkActionMode" value="custom">
         <div class="preview-table">
             <table>
                 <thead>
@@ -291,13 +335,18 @@
                                         {% endif %}
                                     </div>
                                     {% endfor %}
+                                    {% if row.extra_duplicates_count > 0 %}
+                                        <div class="duplicate-lead">
+                                            <em>+{{ row.extra_duplicates_count }} more matches not shown</em>
+                                        </div>
+                                    {% endif %}
                                 </div>
                             {% else %}
                                 <span class="text-muted">No duplicates found</span>
                             {% endif %}
                         </td>
                         <td>
-                            <select class="form-control action-select" name="actions">
+                            <select class="form-control action-select" name="actions_{{ row.row_index }}">
                                 <option value="import" {% if row.action == 'import' %}selected{% endif %}>Import</option>
                                 <option value="skip" {% if row.action == 'skip' %}selected{% endif %}>Skip</option>
                                 {% if row.duplicates %}
@@ -311,33 +360,74 @@
                 </tbody>
             </table>
         </div>
+
+        {% if page_obj and page_obj.paginator.num_pages > 1 %}
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; color:#a8adb7;">
+            <div>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</div>
+            <div style="display:flex; gap:8px;">
+                {% if page_obj.has_previous %}
+                    <a class="btn btn-secondary" href="?page={{ page_obj.previous_page_number }}">Previous</a>
+                {% endif %}
+                {% if page_obj.has_next %}
+                    <a class="btn btn-secondary" href="?page={{ page_obj.next_page_number }}">Next</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
         
         <!-- Action Buttons -->
         <div class="action-buttons">
-            <button type="submit" class="btn btn-success">
+            <button type="submit" class="btn btn-success" id="processImportBtn">
                 <i class="fas fa-upload"></i> Import Selected Leads
             </button>
-            <button type="button" class="btn btn-info" onclick="importAllNew()">
-                <i class="fas fa-check-double"></i> Import All New Leads
+            <button type="button" class="btn btn-info" onclick="submitImportAllLeads()">
+                <i class="fas fa-check-double"></i> Import All Leads
             </button>
-            <button type="button" class="btn btn-warning" onclick="selectAllDuplicates()">
-                <i class="fas fa-copy"></i> Select All Duplicates
+            <button type="button" class="btn btn-warning" onclick="submitImportAllNew()">
+                <i class="fas fa-bolt"></i> Import All New Only
             </button>
             <a href="{% url 'dashboard:lead_import' %}" class="btn btn-secondary">
                 <i class="fas fa-times"></i> Cancel
             </a>
         </div>
+
+        <div id="importProgressWrap" class="import-progress-wrap">
+            <div class="import-progress-head">
+                <span id="importProgressStatus">Preparing import...</span>
+                <span id="importProgressPercent">0%</span>
+            </div>
+            <div class="import-progress-track">
+                <div id="importProgressBar" class="import-progress-bar"></div>
+            </div>
+            <div id="importProgressMeta" class="import-progress-meta">
+                Processed 0 / {{ summary.total|default:0 }} rows
+            </div>
+            <div id="importSuccessNote" class="import-success-note">
+                Import completed successfully.
+            </div>
+        </div>
     </form>
 </div>
 
 <script>
-function filterRows(status) {
+const importUrls = {
+    process: "{% url 'dashboard:lead_import_process' %}",
+    status: "{% url 'dashboard:lead_import_status' %}",
+    redirectAfterComplete: "{% url 'dashboard:leads_all' %}",
+};
+
+let importInFlight = false;
+let statusPollTimer = null;
+
+function filterRows(event, status) {
     const rows = document.querySelectorAll('.table-row');
     const buttons = document.querySelectorAll('.filter-btn');
     
     // Update active button
     buttons.forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
+    if (event && event.target) {
+        event.target.classList.add('active');
+    }
     
     // Filter rows
     rows.forEach(row => {
@@ -367,36 +457,154 @@ function updateSelectedCount() {
     document.getElementById('selectedCount').textContent = checkedBoxes.length;
 }
 
-function importAllNew() {
-    const rows = document.querySelectorAll('.table-row');
-    rows.forEach(row => {
-        if (row.dataset.status === 'new') {
-            const checkbox = row.querySelector('.row-checkbox');
-            const actionSelect = row.querySelector('.action-select');
-            checkbox.checked = true;
-            actionSelect.value = 'import';
-        } else {
-            const checkbox = row.querySelector('.row-checkbox');
-            checkbox.checked = false;
-        }
-    });
-    updateSelectedCount();
+function submitImportAllLeads() {
+    startImportProcessing('import_all', 'Import all rows from this file?');
 }
 
-function selectAllDuplicates() {
-    const rows = document.querySelectorAll('.table-row');
-    rows.forEach(row => {
-        if (row.dataset.status !== 'new') {
-            const checkbox = row.querySelector('.row-checkbox');
-            checkbox.checked = true;
-        }
+function submitImportAllNew() {
+    startImportProcessing('import_all_new', 'Import all NEW rows and skip exact duplicates?');
+}
+
+function getCsrfToken() {
+    const csrfInput = document.querySelector('#importForm input[name="csrfmiddlewaretoken"]');
+    return csrfInput ? csrfInput.value : '';
+}
+
+function setImportProgress(percent, statusText, metaText) {
+    const progressWrap = document.getElementById('importProgressWrap');
+    const progressBar = document.getElementById('importProgressBar');
+    const percentText = document.getElementById('importProgressPercent');
+    const statusNode = document.getElementById('importProgressStatus');
+    const metaNode = document.getElementById('importProgressMeta');
+    if (progressWrap) progressWrap.style.display = 'block';
+    if (progressBar) progressBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    if (percentText) percentText.textContent = `${Math.max(0, Math.min(100, percent))}%`;
+    if (statusNode && statusText) statusNode.textContent = statusText;
+    if (metaNode && metaText) metaNode.textContent = metaText;
+}
+
+function setFormDisabled(disabled) {
+    const form = document.getElementById('importForm');
+    if (!form) return;
+    const controls = form.querySelectorAll('button, select, input[type="checkbox"]');
+    controls.forEach(control => {
+        if (control.id === 'bulkActionMode') return;
+        control.disabled = disabled;
     });
-    updateSelectedCount();
+}
+
+async function pollImportProgress(sessionId) {
+    try {
+        const response = await fetch(`${importUrls.status}?session_id=${encodeURIComponent(sessionId)}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin',
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        const processed = Number(data.processed_rows || 0);
+        const total = Number(data.total_rows || 0);
+        const percent = Number(data.percent || 0);
+        const statusText = data.status === 'completed'
+            ? 'Import completed. Finalizing...'
+            : 'Importing data...';
+        setImportProgress(percent, statusText, `Processed ${processed} / ${total} rows`);
+    } catch (error) {
+        // Silent fallback while main import request is still processing.
+    }
+}
+
+async function startImportProcessing(mode, confirmationMessage) {
+    if (importInFlight) return;
+    if (confirmationMessage && !confirm(confirmationMessage)) return;
+
+    importInFlight = true;
+    const form = document.getElementById('importForm');
+    const submitBtn = document.getElementById('processImportBtn');
+    const successNote = document.getElementById('importSuccessNote');
+    const modeInput = document.getElementById('bulkActionMode');
+    const sessionId = "{{ import_session_id }}";
+
+    if (!form) {
+        importInFlight = false;
+        return;
+    }
+    if (modeInput) modeInput.value = mode || 'custom';
+    if (successNote) successNote.style.display = 'none';
+    if (submitBtn) submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+
+    setFormDisabled(true);
+    setImportProgress(0, 'Starting import...', 'Preparing rows for processing...');
+
+    statusPollTimer = setInterval(() => {
+        pollImportProgress(sessionId);
+    }, 1200);
+
+    try {
+        const response = await fetch(importUrls.process, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRFToken': getCsrfToken(),
+            },
+            credentials: 'same-origin',
+        });
+
+        let data = null;
+        try {
+            data = await response.json();
+        } catch (jsonError) {
+            data = null;
+        }
+
+        if (!response.ok || !data || data.ok !== true) {
+            throw new Error('Import request failed.');
+        }
+
+        setImportProgress(100, 'Import completed successfully.', data.summary || 'Import finished.');
+        if (successNote) {
+            successNote.textContent = data.summary || 'Import completed successfully.';
+            successNote.style.display = 'block';
+        }
+        setTimeout(() => {
+            window.location.href = data.redirect_url || importUrls.redirectAfterComplete;
+        }, 1200);
+    } catch (error) {
+        setImportProgress(0, 'Import failed. Please retry.', 'The server could not complete the import request.');
+        setFormDisabled(false);
+        if (submitBtn) submitBtn.innerHTML = '<i class="fas fa-upload"></i> Import Selected Leads';
+        importInFlight = false;
+    } finally {
+        if (statusPollTimer) {
+            clearInterval(statusPollTimer);
+            statusPollTimer = null;
+        }
+    }
 }
 
 // Initialize selected count
 document.addEventListener('DOMContentLoaded', function() {
     updateSelectedCount();
+
+    const form = document.getElementById('importForm');
+    const submitBtn = document.getElementById('processImportBtn');
+    if (form && submitBtn) {
+        const checkboxes = document.querySelectorAll('.row-checkbox');
+        const actionSelects = document.querySelectorAll('.action-select');
+        checkboxes.forEach(cb => cb.addEventListener('change', () => {
+            const mode = document.getElementById('bulkActionMode');
+            if (mode) mode.value = 'custom';
+        }));
+        actionSelects.forEach(sel => sel.addEventListener('change', () => {
+            const mode = document.getElementById('bulkActionMode');
+            if (mode) mode.value = 'custom';
+        }));
+
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            startImportProcessing('custom', '');
+        });
+    }
 });
 </script>
 {% endblock %}
