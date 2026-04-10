@@ -36,9 +36,29 @@ ALLOWED_HOSTS = [
 CSRF_TRUSTED_ORIGINS = [
     origin.strip() for origin in os.getenv(
         'DJANGO_CSRF_TRUSTED_ORIGINS',
-        'http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:51822,http://127.0.0.1:54227,http://127.0.0.1:59157'
+        'http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:51822,http://127.0.0.1:54227,http://127.0.0.1:59157,http://127.0.0.1:61705'
     ).split(',') if origin.strip()
 ]
+
+# Add additional development ports for browser preview
+if DEBUG:
+    # Common development ports for browser preview and hot reload
+    additional_ports = [
+        'http://127.0.0.1:59676',
+        'http://localhost:59676',
+        'http://127.0.0.1:61705',
+        'http://localhost:61705',
+    ]
+    
+    # Add any additional ports from environment variable
+    extra_origins = os.getenv('DJANGO_EXTRA_CSRF_ORIGINS', '')
+    if extra_origins:
+        additional_ports.extend([
+            origin.strip() for origin in extra_origins.split(',') 
+            if origin.strip()
+        ])
+    
+    CSRF_TRUSTED_ORIGINS.extend(additional_ports)
 
 # Additional CSRF settings for development
 CSRF_COOKIE_SECURE = not DEBUG
