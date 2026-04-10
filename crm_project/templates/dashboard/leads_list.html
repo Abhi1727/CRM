@@ -1508,10 +1508,10 @@ function applyPreset(preset) {
             break;
         case 'team':
             // This will be handled by backend based on user role
-            params.team_filter = 'my_team';
+            params.preset = 'my_team';
             break;
         case 'my':
-            params.assigned_user = '{{ user.id }}';
+            params.preset = 'my';
             break;
     }
     
@@ -1579,8 +1579,8 @@ function updateUrl(params) {
         url.searchParams.delete('search');
     }
     
-    if (params.team_filter !== undefined) {
-        url.searchParams.set('preset', params.team_filter);
+    if (params.preset !== undefined && params.preset !== '') {
+        url.searchParams.set('preset', params.preset);
     } else {
         url.searchParams.delete('preset');
     }
@@ -1638,6 +1638,7 @@ document.addEventListener("DOMContentLoaded", function() {
     const applyFiltersBtn = document.getElementById('apply-filters');
     const clearFiltersBtn = document.getElementById('clear-filters');
     const presetBtns = document.querySelectorAll('.preset-btn');
+    const pageSizeSelect = document.getElementById('page-size-select');
     const totalFilteredCount = parseInt('{{ total_filtered_count|default:0 }}', 10) || 0;
     let selectionScope = 'current_page';
     
@@ -1717,6 +1718,23 @@ document.addEventListener("DOMContentLoaded", function() {
     if (sortSelect) {
         sortSelect.addEventListener('change', function() {
             updateUrl({sort: this.value, status: statusSelect ? statusSelect.value : '{{ request.GET.status|default:"" }}', search: getCurrentSearch()});
+        });
+    }
+    
+    // Page size select event listener
+    if (pageSizeSelect) {
+        pageSizeSelect.addEventListener('change', function() {
+            updateUrl({
+                page_size: this.value, 
+                status: statusSelect ? statusSelect.value : '{{ request.GET.status|default:"" }}',
+                sort: sortSelect ? sortSelect.value : '{{ current_sort }}',
+                search: getCurrentSearch(),
+                country: document.getElementById('country-select') ? document.getElementById('country-select').value : '{{ request.GET.country|default:"" }}',
+                course: document.getElementById('course-select') ? document.getElementById('course-select').value : '{{ request.GET.course|default:"" }}',
+                start_date: document.getElementById('start-date') ? document.getElementById('start-date').value : '{{ request.GET.start_date|default:"" }}',
+                end_date: document.getElementById('end-date') ? document.getElementById('end-date').value : '{{ request.GET.end_date|default:"" }}',
+                assigned_user: document.getElementById('assigned-user-select') ? document.getElementById('assigned-user-select').value : '{{ request.GET.assigned_user|default:"" }}'
+            });
         });
     }
     

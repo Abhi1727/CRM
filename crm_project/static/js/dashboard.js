@@ -164,4 +164,199 @@ document.addEventListener('DOMContentLoaded', function() {
             }, 300);
         }, 5000);
     });
+    
+    // Duplicate Management Pagination Enhancements
+    initDuplicatePagination();
 });
+
+function initDuplicatePagination() {
+    // Enhanced page size change for duplicate views
+    const pageSizeSelect = document.getElementById('page-size');
+    if (pageSizeSelect) {
+        pageSizeSelect.addEventListener('change', function() {
+            changePageSize(this.value);
+        });
+    }
+    
+    // Auto-refresh pagination on filter changes
+    const filterSelects = document.querySelectorAll('select[name="status"], select[name="type"]');
+    filterSelects.forEach(select => {
+        select.addEventListener('change', function() {
+            // Reset to first page when filters change
+            const urlParams = new URLSearchParams(window.location.search);
+            urlParams.set('page', '1');
+            urlParams.set(this.name, this.value);
+            window.location.href = window.location.pathname + '?' + urlParams.toString();
+        });
+    });
+    
+    // Preserve expanded groups across pagination
+    preserveGroupExpansion();
+}
+
+function preserveGroupExpansion() {
+    // Store expanded group IDs in sessionStorage
+    const expandedGroups = JSON.parse(sessionStorage.getItem('expandedDuplicateGroups') || '[]');
+    
+    // Re-expand groups that were previously expanded
+    expandedGroups.forEach(groupId => {
+        const detailsRow = document.getElementById('group-' + groupId);
+        const expandBtn = document.querySelector('[data-group-id="' + groupId + '"] .expand-btn i');
+        
+        if (detailsRow && expandBtn) {
+            detailsRow.style.display = 'table-row';
+            expandBtn.className = 'fas fa-chevron-up';
+        }
+    });
+    
+    // Update toggleGroup function to save state
+    const originalToggleGroup = window.toggleGroup;
+    window.toggleGroup = function(groupId) {
+        if (originalToggleGroup) {
+            originalToggleGroup(groupId);
+        }
+        
+        // Save expanded state
+        const detailsRow = document.getElementById('group-' + groupId);
+        const isExpanded = detailsRow && detailsRow.style.display !== 'none';
+        
+        let expandedGroups = JSON.parse(sessionStorage.getItem('expandedDuplicateGroups') || '[]');
+        
+        if (isExpanded) {
+            if (!expandedGroups.includes(groupId)) {
+                expandedGroups.push(groupId);
+            }
+        } else {
+            expandedGroups = expandedGroups.filter(id => id !== groupId);
+        }
+        
+        sessionStorage.setItem('expandedDuplicateGroups', JSON.stringify(expandedGroups));
+    };
+}
+
+// Enhanced duplicate filtering with AJAX (optional enhancement)
+function filterDuplicates() {
+    const status = document.querySelector('select[name="status"]')?.value || '';
+    const type = document.querySelector('select[name="type"]')?.value || '';
+    const pageSize = document.getElementById('page-size')?.value || '20';
+    
+    // Build URL with all parameters
+    const urlParams = new URLSearchParams({
+        'status': status,
+        'type': type,
+        'page_size': pageSize,
+        'page': 1
+    });
+    
+    // Navigate to filtered results
+    window.location.href = window.location.pathname + '?' + urlParams.toString();
+}
+
+// Bulk actions with pagination awareness
+function performBulkAction(action) {
+    const selectedGroups = getSelectedGroups();
+    if (selectedGroups.length === 0) {
+        alert('Please select at least one group to perform this action.');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to ${action} ${selectedGroups.length} group(s)?`)) {
+        return;
+    }
+    
+    // Include current page and filters in the form submission
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = window.location.pathname;
+    
+    // Add CSRF token
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
+    if (csrfToken) {
+        const csrfInput = document.createElement('input');
+        csrfInput.type = 'hidden';
+        csrfInput.name = 'csrfmiddlewaretoken';
+        csrfInput.value = csrfToken.value;
+        form.appendChild(csrfInput);
+    }
+    
+    // Add action
+    const actionInput = document.createElement('input');
+    actionInput.type = 'hidden';
+    actionInput.name = 'action';
+    actionInput.value = action;
+    form.appendChild(actionInput);
+    
+    // Add selected groups
+    selectedGroups.forEach(groupId => {
+        const groupInput = document.createElement('input');
+        groupInput.type = 'hidden';
+        groupInput.name = 'group_ids';
+        groupInput.value = groupId;
+        form.appendChild(groupInput);
+    });
+    
+    // Preserve current page and filters
+    const urlParams = new URLSearchParams(window.location.search);
+    ['page', 'page_size', 'status', 'type'].forEach(param => {
+        if (urlParams.has(param)) {
+            const paramInput = document.createElement('input');
+            paramInput.type = 'hidden';
+            paramInput.name = param;
+            paramInput.value = urlParams.get(param);
+            form.appendChild(paramInput);
+        }
+    });
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function getSelectedGroups() {
+    const checkboxes = document.querySelectorAll('input[name="group_ids"]:checked');
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
+// Keyboard shortcuts for pagination
+document.addEventListener('keydown', function(e) {
+    // Only on duplicate pages
+    if (!window.location.pathname.includes('duplicate')) {
+        return;
+    }
+    
+    // Ctrl/Cmd + Arrow keys for pagination
+    if (e.ctrlKey || e.metaKey) {
+        switch(e.key) {
+            case 'ArrowLeft':
+                e.preventDefault();
+                navigateToPage('prev');
+                break;
+            case 'ArrowRight':
+                e.preventDefault();
+                navigateToPage('next');
+                break;
+        }
+    }
+});
+
+function navigateToPage(direction) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const currentPage = parseInt(urlParams.get('page') || '1');
+    
+    let newPage;
+    if (direction === 'prev') {
+        newPage = Math.max(1, currentPage - 1);
+    } else if (direction === 'next') {
+        // We need to determine if there's a next page
+        const nextPageLink = document.querySelector('.page-btn[title="Next page"]');
+        if (nextPageLink) {
+            newPage = currentPage + 1;
+        } else {
+            return; // No next page available
+        }
+    }
+    
+    if (newPage && newPage !== currentPage) {
+        urlParams.set('page', newPage);
+        window.location.href = window.location.pathname + '?' + urlParams.toString();
+    }
+}

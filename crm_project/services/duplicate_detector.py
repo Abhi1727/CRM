@@ -379,6 +379,101 @@ class DuplicateDetector:
         
         return list(groups.values())
     
+    def find_duplicate_groups_paginated(self, status: str = None, duplicate_type: str = None, 
+                                      page: int = 1, page_size: int = 20, user_role: str = None, user=None) -> Dict:
+        """
+        Find duplicate groups with database-level pagination.
+        Returns paginated results with total count.
+        """
+        from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+        from django.db.models import Count, Max
+        
+        # Base queryset for groups
+        leads_qs = Lead.objects.filter(
+            company_id=self.company_id,
+            duplicate_status__in=['exact_duplicate', 'potential_duplicate'],
+            deleted=False
+        ).exclude(duplicate_group_id__isnull=True)
+        
+        # Apply status filter
+        if status:
+            leads_qs = leads_qs.filter(duplicate_resolution_status=status)
+        
+        # Apply duplicate type filter
+        if duplicate_type:
+            leads_qs = leads_qs.filter(duplicate_status=duplicate_type)
+        
+        # Apply role-based filtering
+        if user_role and user:
+            if user_role == 'agent':
+                leads_qs = leads_qs.filter(assigned_user=user)
+            elif user_role == 'team_lead':
+                team_agents = user.get_accessible_users()
+                leads_qs = leads_qs.filter(assigned_user__in=team_agents)
+            elif user_role == 'manager':
+                team_users = user.get_accessible_users()
+                leads_qs = leads_qs.filter(assigned_user__in=team_users)
+            # owner sees all
+        
+        # Group by duplicate_group_id with aggregation
+        groups_data = leads_qs.values('duplicate_group_id').annotate(
+            lead_count=Count('id_lead'),
+            max_created_at=Max('created_at'),
+            status=Max('duplicate_resolution_status')
+        ).order_by('-max_created_at')
+        
+        # Get total count
+        total_count = groups_data.count()
+        
+        # Apply pagination
+        paginator = Paginator(groups_data, page_size)
+        
+        try:
+            page_obj = paginator.page(page)
+        except PageNotAnInteger:
+            page_obj = paginator.page(1)
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)
+        
+        # Get full group data for current page
+        group_ids = [item['duplicate_group_id'] for item in page_obj.object_list]
+        groups_leads = Lead.objects.filter(
+            duplicate_group_id__in=group_ids,
+            company_id=self.company_id
+        ).select_related('assigned_user').order_by('-created_at')
+        
+        # Organize leads by group
+        groups_dict = {}
+        for lead in groups_leads:
+            group_id = lead.duplicate_group_id
+            if group_id not in groups_dict:
+                groups_dict[group_id] = {
+                    'group_id': group_id,
+                    'leads': [],
+                    'status': lead.duplicate_resolution_status,
+                    'created_at': lead.created_at
+                }
+            groups_dict[group_id]['leads'].append(lead)
+        
+        # Build result list in the same order as paginated groups
+        result_groups = []
+        for group_data in page_obj.object_list:
+            group_id = group_data['duplicate_group_id']
+            if group_id in groups_dict:
+                result_groups.append(groups_dict[group_id])
+        
+        return {
+            'page_obj': page_obj,
+            'groups': result_groups,
+            'total_count': total_count,
+            'has_next': page_obj.has_next(),
+            'has_previous': page_obj.has_previous(),
+            'num_pages': paginator.num_pages,
+            'current_page': page_obj.number,
+            'start_index': page_obj.start_index(),
+            'end_index': page_obj.end_index()
+        }
+    
     def get_duplicate_statistics(self) -> Dict:
         """
         Get duplicate statistics for the company.

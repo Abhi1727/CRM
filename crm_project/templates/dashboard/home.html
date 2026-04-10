@@ -38,80 +38,110 @@
     </div>
     
     <div class="leads-status-grid">
-        <div class="status-card">
-            <div class="status-label">SALE DONE</div>
-            <div class="status-value">{{ leads_by_status.sale_done.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=sale_done" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">SALE DONE</div>
+                <div class="status-value">{{ leads_by_status.sale_done.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">INTERESTED- FOLLOW UP</div>
-            <div class="status-value">{{ leads_by_status.interested_follow_up.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=interested_follow_up" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">INTERESTED- FOLLOW UP</div>
+                <div class="status-value">{{ leads_by_status.interested_follow_up.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">NOT AVAILABLE</div>
-            <div class="status-value">{{ leads_by_status.not_available.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=not_available" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">NOT AVAILABLE</div>
+                <div class="status-value">{{ leads_by_status.not_available.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">RNR</div>
-            <div class="status-value">{{ leads_by_status.rnr.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=rnr" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">RNR</div>
+                <div class="status-value">{{ leads_by_status.rnr.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">NOT INTERESTED</div>
-            <div class="status-value">{{ leads_by_status.not_interested.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=not_interested" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">NOT INTERESTED</div>
+                <div class="status-value">{{ leads_by_status.not_interested.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">OUT OF COUNTRY</div>
-            <div class="status-value">{{ leads_by_status.out_of_country.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=out_of_country" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">OUT OF COUNTRY</div>
+                <div class="status-value">{{ leads_by_status.out_of_country.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">GETTING BETTER DEAL</div>
-            <div class="status-value">{{ leads_by_status.getting_better_deal.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=getting_better_deal" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">GETTING BETTER DEAL</div>
+                <div class="status-value">{{ leads_by_status.getting_better_deal.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">PRODUCT IS EXPENSIVE</div>
-            <div class="status-value">{{ leads_by_status.product_expensive.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=product_expensive" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">PRODUCT IS EXPENSIVE</div>
+                <div class="status-value">{{ leads_by_status.product_expensive.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">NOT ELIGIBLE FOR EMI</div>
-            <div class="status-value">{{ leads_by_status.not_eligible_emi.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=not_eligible_emi" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">NOT ELIGIBLE FOR EMI</div>
+                <div class="status-value">{{ leads_by_status.not_eligible_emi.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">WRONG NUMBER</div>
-            <div class="status-value">{{ leads_by_status.wrong_number.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=wrong_number" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">WRONG NUMBER</div>
+                <div class="status-value">{{ leads_by_status.wrong_number.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">SWITCHED OFF</div>
-            <div class="status-value">{{ leads_by_status.switched_off.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=switched_off" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">SWITCHED OFF</div>
+                <div class="status-value">{{ leads_by_status.switched_off.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">CLOSED</div>
-            <div class="status-value">{{ leads_by_status.closed.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=closed" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">CLOSED</div>
+                <div class="status-value">{{ leads_by_status.closed.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">CALL BACK</div>
-            <div class="status-value">{{ leads_by_status.call_back.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=call_back" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">CALL BACK</div>
+                <div class="status-value">{{ leads_by_status.call_back.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">IN FEW MONTHS</div>
-            <div class="status-value">{{ leads_by_status.in_few_months.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=in_few_months" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">IN FEW MONTHS</div>
+                <div class="status-value">{{ leads_by_status.in_few_months.count|default:0 }}</div>
+            </div>
+        </a>
         
-        <div class="status-card">
-            <div class="status-label">CONTACTED</div>
-            <div class="status-value">{{ leads_by_status.contacted.count|default:0 }}</div>
-        </div>
+        <a href="{% url 'dashboard:leads_all' %}?status=contacted" class="status-card-link">
+            <div class="status-card">
+                <div class="status-label">CONTACTED</div>
+                <div class="status-value">{{ leads_by_status.contacted.count|default:0 }}</div>
+            </div>
+        </a>
     </div>
 
     <!-- Role-specific performance sections -->
@@ -183,4 +213,181 @@
         </div>
     {% endif %}
 </div>
+
+<!-- Enhanced Status Cards JavaScript -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add click feedback to status cards
+    const statusCardLinks = document.querySelectorAll('.status-card-link');
+    
+    statusCardLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+            // Add loading state
+            const card = this.querySelector('.status-card');
+            const originalContent = card.innerHTML;
+            
+            // Show loading state
+            card.style.opacity = '0.7';
+            card.style.cursor = 'wait';
+            
+            // Add subtle animation
+            card.style.transform = 'scale(0.98)';
+            
+            // Reset after a short delay (in case navigation is slow)
+            setTimeout(() => {
+                card.style.opacity = '';
+                card.style.cursor = '';
+                card.style.transform = '';
+            }, 2000);
+        });
+        
+        // Add keyboard navigation support
+        link.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                this.click();
+            }
+        });
+        
+        // Add hover sound effect (optional - using Web Audio API)
+        link.addEventListener('mouseenter', function() {
+            // Create a subtle hover sound if user has interacted before
+            if (sessionStorage.getItem('hasInteracted')) {
+                playHoverSound();
+            }
+        });
+    });
+    
+    // Mark user as having interacted with the page
+    document.addEventListener('click', function() {
+        sessionStorage.setItem('hasInteracted', 'true');
+    }, { once: true });
+    
+    // Function to play subtle hover sound
+    function playHoverSound() {
+        try {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.value = 800;
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.1);
+        } catch (e) {
+            // Silently fail if audio is not supported
+        }
+    }
+    
+    // Add ripple effect on click
+    statusCardLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+            const card = this.querySelector('.status-card');
+            const ripple = document.createElement('div');
+            ripple.className = 'status-card-ripple';
+            
+            const rect = card.getBoundingClientRect();
+            const size = Math.max(rect.width, rect.height);
+            const x = e.clientX - rect.left - size / 2;
+            const y = e.clientY - rect.top - size / 2;
+            
+            ripple.style.width = ripple.style.height = size + 'px';
+            ripple.style.left = x + 'px';
+            ripple.style.top = y + 'px';
+            
+            card.appendChild(ripple);
+            
+            setTimeout(() => {
+                ripple.remove();
+            }, 600);
+        });
+    });
+});
+</script>
+
+<style>
+/* Ripple effect for status cards */
+.status-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.status-card-ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(102, 126, 234, 0.3);
+    transform: scale(0);
+    animation: status-card-ripple-animation 0.6s ease-out;
+    pointer-events: none;
+}
+
+@keyframes status-card-ripple-animation {
+    to {
+        transform: scale(4);
+        opacity: 0;
+    }
+}
+
+/* Enhanced hover effects */
+.status-card-link {
+    position: relative;
+}
+
+.status-card-link::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(45deg, transparent, rgba(102, 126, 234, 0.1), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.6s ease;
+    pointer-events: none;
+}
+
+.status-card-link:hover::after {
+    transform: translateX(100%);
+}
+
+/* Loading state animation */
+.status-card.loading {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* Enhanced focus styles for better accessibility */
+.status-card-link:focus-visible {
+    outline: 3px solid var(--accent-color);
+    outline-offset: 3px;
+    border-radius: 12px;
+    box-shadow: 0 0 0 6px rgba(102, 126, 234, 0.2);
+}
+
+/* Mobile-friendly touch targets */
+@media (max-width: 768px) {
+    .status-card-link {
+        min-height: 44px; /* iOS touch target minimum */
+    }
+    
+    .status-card {
+        padding: 20px; /* Slightly smaller padding on mobile */
+    }
+}
+</style>
 {% endblock %}
