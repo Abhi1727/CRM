@@ -36,9 +36,29 @@ ALLOWED_HOSTS = [
 CSRF_TRUSTED_ORIGINS = [
     origin.strip() for origin in os.getenv(
         'DJANGO_CSRF_TRUSTED_ORIGINS',
-        'http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:51822,http://127.0.0.1:54227,http://127.0.0.1:59157'
+        'http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:51822,http://127.0.0.1:54227,http://127.0.0.1:59157,http://127.0.0.1:59676,http://127.0.0.1:61705'
     ).split(',') if origin.strip()
 ]
+
+# Add additional development ports for browser preview
+if DEBUG:
+    # Common development ports for browser preview and hot reload
+    additional_ports = [
+        'http://127.0.0.1:59676',
+        'http://localhost:59676',
+        'http://127.0.0.1:61705',
+        'http://localhost:61705',
+    ]
+    
+    # Add any additional ports from environment variable
+    extra_origins = os.getenv('DJANGO_EXTRA_CSRF_ORIGINS', '')
+    if extra_origins:
+        additional_ports.extend([
+            origin.strip() for origin in extra_origins.split(',') 
+            if origin.strip()
+        ])
+    
+    CSRF_TRUSTED_ORIGINS.extend(additional_ports)
 
 # Additional CSRF settings for development
 CSRF_COOKIE_SECURE = not DEBUG
@@ -70,6 +90,8 @@ MIDDLEWARE = [
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'django.middleware.cache.FetchFromCacheMiddleware',
+    'django.middleware.cache.UpdateCacheMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -118,10 +140,15 @@ if DB_ENGINE == 'mysql':
             'PASSWORD': os.getenv('DB_PASSWORD', ''),
             'HOST': db_host_raw,
             'PORT': db_port,
-            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
+            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '300')),  # Increased to 5 minutes for better connection reuse
             'OPTIONS': {
                 'charset': 'utf8mb4',
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+                'connect_timeout': 60,
+                'read_timeout': 30,
+                'write_timeout': 30,
             },
+            'ATOMIC_REQUESTS': True,
         }
     }
 else:
@@ -189,7 +216,81 @@ AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',  # Fallback to default
 ]
 
+# Caching configuration for performance optimization
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'crm-cache',
+        'TIMEOUT': 300,  # 5 minutes default TTL
+        'OPTIONS': {
+            'MAX_ENTRIES': 1000,
+            'CULL_FREQUENCY': 3,
+        }
+    },
+    'dashboard_stats': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'dashboard-stats-cache',
+        'TIMEOUT': 300,  # 5 minutes TTL for dashboard statistics
+        'OPTIONS': {
+            'MAX_ENTRIES': 500,
+            'CULL_FREQUENCY': 3,
+        }
+    },
+    'user_hierarchy': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'user-hierarchy-cache',
+        'TIMEOUT': 600,  # 10 minutes TTL for hierarchy data
+        'OPTIONS': {
+            'MAX_ENTRIES': 200,
+            'CULL_FREQUENCY': 2,
+        }
+    }
+}
+
 # Login URLs
 LOGIN_URL = 'accounts:login'
 LOGIN_REDIRECT_URL = 'dashboard:home'
 LOGOUT_REDIRECT_URL = 'accounts:login'
+
+# Logging configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'debug.log',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'dashboard': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+}

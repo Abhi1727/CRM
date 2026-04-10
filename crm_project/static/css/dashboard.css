@@ -988,6 +988,25 @@ html[data-theme="dark"] .theme-toggle {
     gap: 20px;
 }
 
+.status-card-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.status-card-link:hover {
+    text-decoration: none;
+    color: inherit;
+    transform: translateY(-2px);
+}
+
+.status-card-link:focus {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+    border-radius: 12px;
+}
+
 .status-card {
     background: var(--card-bg);
     backdrop-filter: blur(10px);

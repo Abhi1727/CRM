@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.db.models import Q
 from django.core.exceptions import ValidationError
+from django.core.cache import cache
 import re
 
 class User(AbstractUser):
@@ -79,36 +80,56 @@ class User(AbstractUser):
     
     def get_accessible_users(self):
         """Get users this user can access based on hierarchy"""
+        cache_key = f"accessible_users_{self.id}_{self.company_id}_{self.role}"
+        cached_users = cache.get(cache_key)
+        
+        if cached_users:
+            return cached_users
+        
         if self.role == 'owner':
-            return User.objects.filter(company_id=self.company_id).exclude(id=self.id)
+            users = User.objects.filter(company_id=self.company_id).exclude(id=self.id).select_related('manager', 'team_lead')
         elif self.role == 'manager':
-            return User.objects.filter(
+            users = User.objects.filter(
                 Q(manager=self) | Q(team_lead__manager=self)
-            ).exclude(id=self.id)
+            ).exclude(id=self.id).select_related('manager', 'team_lead')
         elif self.role == 'team_lead':
-            return User.objects.filter(team_lead=self).exclude(id=self.id)
+            users = User.objects.filter(team_lead=self).exclude(id=self.id).select_related('manager', 'team_lead')
         else:
-            return User.objects.filter(id=self.id)
+            users = User.objects.filter(id=self.id).select_related('manager', 'team_lead')
+        
+        # Cache for 10 minutes
+        cache.set(cache_key, users, 600)
+        return users
     
     def get_accessible_leads_queryset(self):
         """Get leads this user can access based on hierarchy"""
         from dashboard.models import Lead  # Import here to avoid circular import
         
+        cache_key = f"accessible_leads_{self.id}_{self.company_id}_{self.role}"
+        cached_leads = cache.get(cache_key)
+        
+        if cached_leads:
+            return cached_leads
+        
         if self.role == 'owner':
-            return Lead.objects.filter(company_id=self.company_id)
+            leads = Lead.objects.filter(company_id=self.company_id).select_related('assigned_user', 'created_by')
         elif self.role == 'manager':
-            return Lead.objects.filter(
+            leads = Lead.objects.filter(
                 Q(assigned_user__manager=self) |
                 Q(assigned_user__team_lead__manager=self) |
                 Q(assigned_user=self)  # Manager can see their own leads too
-            )
+            ).select_related('assigned_user', 'created_by', 'assigned_user__manager', 'assigned_user__team_lead')
         elif self.role == 'team_lead':
-            return Lead.objects.filter(
+            leads = Lead.objects.filter(
                 Q(assigned_user__team_lead=self) |  # Leads assigned to their agents
                 Q(assigned_user=self)  # Their own leads
-            )
+            ).select_related('assigned_user', 'created_by', 'assigned_user__team_lead')
         else:  # agent
-            return Lead.objects.filter(assigned_user=self)
+            leads = Lead.objects.filter(assigned_user=self).select_related('assigned_user', 'created_by')
+        
+        # Cache for 10 minutes
+        cache.set(cache_key, leads, 600)
+        return leads
     
     def save(self, *args, **kwargs):
         """
@@ -121,5 +142,45 @@ class User(AbstractUser):
         elif self.account_status in ['inactive', 'suspended']:
             self.is_active = False
         
+        # Clear relevant caches when user data changes
+        self._clear_user_caches()
+        
         # Call the original save method
         super().save(*args, **kwargs)
+    
+    def _clear_user_caches(self):
+        """Clear all caches related to this user and their hierarchy"""
+        from django.core.cache import cache
+        
+        # Clear this user's caches
+        cache.delete(f"accessible_users_{self.id}_{self.company_id}_{self.role}")
+        cache.delete(f"accessible_leads_{self.id}_{self.company_id}_{self.role}")
+        
+        # Clear caches for users who might be affected by this user's changes
+        if self.manager:
+            cache.delete(f"accessible_users_{self.manager.id}_{self.company_id}_{self.manager.role}")
+            cache.delete(f"accessible_leads_{self.manager.id}_{self.company_id}_{self.manager.role}")
+        
+        if self.team_lead:
+            cache.delete(f"accessible_users_{self.team_lead.id}_{self.company_id}_{self.team_lead.role}")
+            cache.delete(f"accessible_leads_{self.team_lead.id}_{self.company_id}_{self.team_lead.role}")
+        
+        # Clear caches for users managed by this user (if this user is a manager/team_lead)
+        if self.role in ['manager', 'team_lead']:
+            affected_users = User.objects.filter(
+                Q(manager=self) | Q(team_lead=self)
+            ).values_list('id', 'role', 'company_id')
+            
+            for user_id, user_role, user_company_id in affected_users:
+                cache.delete(f"accessible_users_{user_id}_{user_company_id}_{user_role}")
+                cache.delete(f"accessible_leads_{user_id}_{user_company_id}_{user_role}")
+        
+        # Clear dashboard statistics caches for all users in the company
+        # This is a bit aggressive but ensures consistency
+        all_company_users = User.objects.filter(company_id=self.company_id).values_list('id', flat=True)
+        for user_id in all_company_users:
+            cache.delete(f"dashboard_stats_{user_id}_{self.company_id}_main")
+            cache.delete(f"dashboard_stats_{user_id}_{self.company_id}_role_owner")
+            cache.delete(f"dashboard_stats_{user_id}_{self.company_id}_role_manager")
+            cache.delete(f"dashboard_stats_{user_id}_{self.company_id}_role_team_lead")
+            cache.delete(f"dashboard_stats_{user_id}_{self.company_id}_role_agent")

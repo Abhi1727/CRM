@@ -10,12 +10,13 @@ from django.core.paginator import Paginator
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
 from django.http import QueryDict, Http404
+from django.core.cache import cache
 import pandas as pd
 import json
 import os
 import uuid
 import hashlib
-from datetime import datetime
+from datetime import datetime, time
 
 from .models import Lead, LeadActivity, LeadHistory, LeadImportSession, LeadOperationLog
 from .forms import (
@@ -54,88 +55,164 @@ def home(request):
     else:
         greeting_time = "Evening"
     
-    # Get user's accessible leads only
-    accessible_leads = request.hierarchy_context['accessible_leads']
+    # Generate cache keys for dashboard statistics
+    cache_key_prefix = f"dashboard_stats_{request.user.id}_{request.user.company_id}"
     
-    # Get total leads count
-    total_leads = accessible_leads.count()
+    # Try to get cached statistics
+    cached_stats = cache.get(f"{cache_key_prefix}_main")
     
-    # Get today's follow-ups
-    today = timezone.now().date()
-    today_follow_ups = accessible_leads.filter(followup_datetime__date=today).count()
-    
-    # Get expected revenue
-    exp_revenue = accessible_leads.aggregate(total=Sum('exp_revenue'))['total'] or 0
-    
-    # Get course amount total (as actual revenue)
-    course_amount_total = accessible_leads.aggregate(total=Sum('course_amount'))['total'] or 0
-    
-    # Get leads by status
-    leads_by_status = {}
-    for status_code, status_name in Lead.STATUS_CHOICES:
-        count = accessible_leads.filter(status=status_code).count()
-        leads_by_status[status_code] = {
-            'name': status_name,
-            'count': count
+    if cached_stats:
+        # Use cached data
+        total_leads = cached_stats['total_leads']
+        today_follow_ups = cached_stats['today_follow_ups']
+        exp_revenue = cached_stats['exp_revenue']
+        course_amount_total = cached_stats['course_amount_total']
+        formatted_leads_by_status = cached_stats['formatted_leads_by_status']
+    else:
+        # Compute and cache statistics
+        # Get user's accessible leads only
+        accessible_leads = request.hierarchy_context['accessible_leads']
+        
+        # Get total leads count
+        total_leads = accessible_leads.count()
+        
+        # Get today's follow-ups
+        today = timezone.now().date()
+        today_follow_ups = accessible_leads.filter(followup_datetime__date=today).count()
+        
+        # Get expected revenue
+        exp_revenue = accessible_leads.aggregate(total=Sum('exp_revenue'))['total'] or 0
+        
+        # Get course amount total (as actual revenue)
+        course_amount_total = accessible_leads.aggregate(total=Sum('course_amount'))['total'] or 0
+        
+        # Get leads by status with optimized single query
+        leads_by_status = dict(
+            accessible_leads.values('status')
+            .annotate(count=Count('id_lead'))
+            .values_list('status', 'count')
+        )
+        
+        # Format leads_by_status to match expected structure
+        formatted_leads_by_status = {}
+        for status_code, status_name in Lead.STATUS_CHOICES:
+            formatted_leads_by_status[status_code] = {
+                'name': status_name,
+                'count': leads_by_status.get(status_code, 0)
+            }
+        
+        # Cache the main statistics for 5 minutes
+        stats_data = {
+            'total_leads': total_leads,
+            'today_follow_ups': today_follow_ups,
+            'exp_revenue': exp_revenue,
+            'course_amount_total': course_amount_total,
+            'formatted_leads_by_status': formatted_leads_by_status,
         }
+        cache.set(f"{cache_key_prefix}_main", stats_data, 300)
     
-    # Role-specific metrics
-    role_context = {}
+    # Role-specific metrics with caching
+    role_cache_key = f"{cache_key_prefix}_role_{request.user.role}"
+    cached_role_stats = cache.get(role_cache_key)
     
-    if request.user.role == 'agent':
-        # Agent metrics
-        my_leads = accessible_leads.filter(assigned_user=request.user)
-        converted_leads = my_leads.filter(status='sale_done').count()
-        pending_leads = my_leads.exclude(status='sale_done').count()
+    if cached_role_stats:
+        role_context = cached_role_stats
+    else:
+        role_context = {}
+        accessible_leads = request.hierarchy_context['accessible_leads']
         
-        role_context.update({
-            'my_leads_count': my_leads.count(),
-            'converted_leads': converted_leads,
-            'pending_leads': pending_leads,
-            'conversion_rate': (converted_leads / my_leads.count() * 100) if my_leads.count() > 0 else 0,
-        })
-    
-    elif request.user.role == 'team_lead':
-        # Team Lead metrics
-        team_agents = request.user.get_accessible_users()
-        agent_performance = []
-        for agent in team_agents:
-            agent_leads = accessible_leads.filter(assigned_user=agent)
-            converted = agent_leads.filter(status='sale_done').count()
-            agent_performance.append({
-                'agent': agent,
-                'total_leads': agent_leads.count(),
-                'converted': converted,
-                'conversion_rate': (converted / agent_leads.count() * 100) if agent_leads.count() > 0 else 0,
+        if request.user.role == 'agent':
+            # Agent metrics - optimized with single query
+            my_leads_qs = accessible_leads.filter(assigned_user=request.user)
+            agent_stats = my_leads_qs.aggregate(
+                total_leads=Count('id_lead'),
+                converted_leads=Count('id_lead', filter=Q(status='sale_done'))
+            )
+            
+            total_leads_count = agent_stats['total_leads']
+            converted_count = agent_stats['converted_leads']
+            pending_count = total_leads_count - converted_count
+            
+            role_context.update({
+                'my_leads_count': total_leads_count,
+                'converted_leads': converted_count,
+                'pending_leads': pending_count,
+                'conversion_rate': (converted_count / total_leads_count * 100) if total_leads_count > 0 else 0,
             })
         
-        role_context.update({
-            'team_agents_count': team_agents.count(),
-            'agent_performance': agent_performance,
-        })
-    
-    elif request.user.role == 'manager':
-        # Manager metrics
-        team_leads = request.user.get_accessible_users().filter(role='team_lead')
-        team_performance = []
-        for team_lead in team_leads:
-            team_agents = User.objects.filter(team_lead=team_lead)
-            team_leads_count = accessible_leads.filter(assigned_user__in=team_agents).count()
-            team_converted = accessible_leads.filter(
-                assigned_user__in=team_agents,
-                status='sale_done'
-            ).count()
-            team_performance.append({
-                'team_lead': team_lead,
-                'total_leads': team_leads_count,
-                'converted': team_converted,
-                'conversion_rate': (team_converted / team_leads_count * 100) if team_leads_count > 0 else 0,
+        elif request.user.role == 'team_lead':
+            # Team Lead metrics - optimized with bulk query
+            team_agents = request.user.get_accessible_users().select_related('team_lead')
+            
+            # Get all team agent lead stats in single query
+            team_stats = accessible_leads.filter(
+                assigned_user__in=team_agents
+            ).values('assigned_user').annotate(
+                total_leads=Count('id_lead'),
+                converted_leads=Count('id_lead', filter=Q(status='sale_done'))
+            )
+            
+            # Create lookup dict for stats
+            stats_lookup = {stat['assigned_user']: stat for stat in team_stats}
+            
+            agent_performance = []
+            for agent in team_agents:
+                agent_stat = stats_lookup.get(agent.id, {'total_leads': 0, 'converted_leads': 0})
+                total_leads = agent_stat['total_leads']
+                converted = agent_stat['converted_leads']
+                
+                agent_performance.append({
+                    'agent': agent,
+                    'total_leads': total_leads,
+                    'converted': converted,
+                    'conversion_rate': (converted / total_leads * 100) if total_leads > 0 else 0,
+                })
+            
+            role_context.update({
+                'team_agents_count': team_agents.count(),
+                'agent_performance': agent_performance,
             })
         
-        role_context.update({
-            'team_leads_count': team_leads.count(),
-            'team_performance': team_performance,
-        })
+        elif request.user.role == 'manager':
+            # Manager metrics - optimized with bulk queries
+            team_leads = request.user.get_accessible_users().filter(role='team_lead').select_related('manager')
+            
+            # Get all team agents for all team leads in single query
+            all_team_agents = User.objects.filter(
+                team_lead__in=team_leads
+            ).select_related('team_lead')
+            
+            # Get lead stats for all team agents in single query
+            team_stats = accessible_leads.filter(
+                assigned_user__in=all_team_agents
+            ).values('assigned_user__team_lead').annotate(
+                total_leads=Count('id_lead'),
+                converted_leads=Count('id_lead', filter=Q(status='sale_done'))
+            )
+            
+            # Create lookup dict for team lead stats
+            stats_lookup = {stat['assigned_user__team_lead']: stat for stat in team_stats}
+            
+            team_performance = []
+            for team_lead in team_leads:
+                team_stat = stats_lookup.get(team_lead.id, {'total_leads': 0, 'converted_leads': 0})
+                total_leads = team_stat['total_leads']
+                converted = team_stat['converted_leads']
+                
+                team_performance.append({
+                    'team_lead': team_lead,
+                    'total_leads': total_leads,
+                    'converted': converted,
+                    'conversion_rate': (converted / total_leads * 100) if total_leads > 0 else 0,
+                })
+            
+            role_context.update({
+                'team_leads_count': team_leads.count(),
+                'team_performance': team_performance,
+            })
+        
+        # Cache role-specific statistics for 5 minutes
+        cache.set(role_cache_key, role_context, 300)
     
     context = {
         'user': request.user,
@@ -145,7 +222,7 @@ def home(request):
         'today_follow_ups': today_follow_ups,
         'expected_revenue': exp_revenue,
         'actual_revenue': course_amount_total,
-        'leads_by_status': leads_by_status,
+        'leads_by_status': formatted_leads_by_status,
         **role_context,  # Add role-specific metrics
     }
     return render(request, 'dashboard/home.html', context)
@@ -192,74 +269,216 @@ def _extract_lead_filters(params):
 
 
 def _apply_common_lead_filters(queryset, user, filters):
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # DEBUG: Log initial state
+    logger.debug(f"DEBUG: _apply_common_lead_filters called")
+    logger.debug(f"DEBUG: User: {user.username} (role: {user.role}, company_id: {user.company_id})")
+    logger.debug(f"DEBUG: Initial queryset count: {queryset.count()}")
+    logger.debug(f"DEBUG: Filters received: {filters}")
+    
     if filters['status']:
         queryset = queryset.filter(status=filters['status'])
+        logger.debug(f"DEBUG: After status filter ({filters['status']}): {queryset.count()}")
 
     if filters['search']:
-        queryset = queryset.filter(
-            Q(name__icontains=filters['search']) |
-            Q(email__icontains=filters['search']) |
-            Q(mobile__icontains=filters['search']) |
-            Q(alt_mobile__icontains=filters['search']) |
-            Q(alt_email__icontains=filters['search'])
-        )
+        # Optimize search query by using database-specific optimizations
+        search_term = filters['search'].strip()
+        
+        # Skip empty searches
+        if not search_term:
+            logger.debug(f"DEBUG: Empty search term, skipping search filter")
+        else:
+            # Use optimized search based on database engine
+            if hasattr(queryset.model._meta.db_table, 'lower'):  # MySQL optimization
+                # For MySQL, use LOWER() function for case-insensitive search
+                search_conditions = (
+                    Q(name__icontains=search_term) |
+                    Q(email__icontains=search_term) |
+                    Q(mobile__icontains=search_term) |
+                    Q(alt_mobile__icontains=search_term) |
+                    Q(alt_email__icontains=search_term)
+                )
+                
+                # Add phone number search optimization (exact match for phone fields)
+                if search_term.replace('-', '').replace(' ', '').isdigit():
+                    search_conditions |= (
+                        Q(mobile__regex=f'^[\\-\\s]*{re.escape(search_term)}[\\-\\s]*$') |
+                        Q(alt_mobile__regex=f'^[\\-\\s]*{re.escape(search_term)}[\\-\\s]*$')
+                    )
+            else:
+                # Standard search for other databases
+                search_conditions = Q()
+                search_fields = ['name', 'email', 'mobile', 'alt_mobile', 'alt_email']
+                
+                for field in search_fields:
+                    search_conditions |= Q(**{f'{field}__icontains': search_term})
+            
+            queryset = queryset.filter(search_conditions)
+            logger.debug(f"DEBUG: After search filter ({search_term}): {queryset.count()}")
 
     if filters['country']:
         queryset = queryset.filter(country__icontains=filters['country'])
+        logger.debug(f"DEBUG: After country filter ({filters['country']}): {queryset.count()}")
 
     if filters['course']:
         queryset = queryset.filter(course_name__icontains=filters['course'])
+        logger.debug(f"DEBUG: After course filter ({filters['course']}): {queryset.count()}")
 
     if filters['start_date']:
         try:
             start_date_obj = datetime.strptime(filters['start_date'], '%Y-%m-%d').date()
-            queryset = queryset.filter(
-                Q(created_at__date__gte=start_date_obj) |
-                Q(assigned_at__date__gte=start_date_obj) |
-                Q(transfer_date__date__gte=start_date_obj)
+            # Convert to timezone-aware datetime for MySQL compatibility
+            start_datetime = timezone.make_aware(datetime.combine(start_date_obj, time.min))
+            
+            # Optimize date range query by using a single Q object
+            date_conditions = Q(
+                created_at__gte=start_datetime
+            ) | Q(
+                assigned_at__gte=start_datetime
+            ) | Q(
+                transfer_date__gte=start_datetime
             )
+            
+            queryset = queryset.filter(date_conditions)
+            logger.debug(f"DEBUG: After start_date filter ({filters['start_date']} -> {start_datetime}): {queryset.count()}")
         except ValueError:
-            pass
+            logger.debug(f"DEBUG: Invalid start_date format: {filters['start_date']}")
 
     if filters['end_date']:
         try:
             end_date_obj = datetime.strptime(filters['end_date'], '%Y-%m-%d').date()
-            queryset = queryset.filter(
-                Q(created_at__date__lte=end_date_obj) |
-                Q(assigned_at__date__lte=end_date_obj) |
-                Q(transfer_date__date__lte=end_date_obj)
+            # Convert to timezone-aware datetime for MySQL compatibility
+            end_datetime = timezone.make_aware(datetime.combine(end_date_obj, time.max))
+            
+            # Optimize date range query by using a single Q object
+            date_conditions = Q(
+                created_at__lte=end_datetime
+            ) | Q(
+                assigned_at__lte=end_datetime
+            ) | Q(
+                transfer_date__lte=end_datetime
             )
+            
+            queryset = queryset.filter(date_conditions)
+            logger.debug(f"DEBUG: After end_date filter ({filters['end_date']} -> {end_datetime}): {queryset.count()}")
         except ValueError:
-            pass
+            logger.debug(f"DEBUG: Invalid end_date format: {filters['end_date']}")
 
     if filters['assigned_user']:
         try:
             queryset = queryset.filter(assigned_user_id=int(filters['assigned_user']))
+            logger.debug(f"DEBUG: After assigned_user filter ({filters['assigned_user']}): {queryset.count()}")
         except ValueError:
-            pass
+            logger.debug(f"DEBUG: Invalid assigned_user format: {filters['assigned_user']}")
 
-    if filters['preset'] == 'my_team':
-        if user.role in ['manager', 'owner']:
-            queryset = queryset.filter(assigned_user__in=user.get_accessible_users())
-        elif user.role == 'team_lead':
-            queryset = queryset.filter(assigned_user__in=user.get_accessible_users())
+    # Handle preset filters with comprehensive logging
+    if filters['preset']:
+        logger.debug(f"DEBUG: Processing preset: {filters['preset']}")
+        
+        if filters['preset'] == 'my_team':
+            accessible_users = user.get_accessible_users()
+            logger.debug(f"DEBUG: Accessible users for {user.username}: {list(accessible_users.values_list('username', flat=True))}")
+            
+            if user.role in ['manager', 'owner']:
+                queryset = queryset.filter(assigned_user__in=accessible_users)
+            elif user.role == 'team_lead':
+                queryset = queryset.filter(assigned_user__in=accessible_users)
+            else:
+                queryset = queryset.filter(assigned_user=user)
+            logger.debug(f"DEBUG: After my_team preset: {queryset.count()}")
+            
+        elif filters['preset'] == 'my':
+            # Check if user has any assigned leads
+            user_assigned_leads = queryset.filter(assigned_user=user)
+            user_assigned_count = user_assigned_leads.count()
+            
+            logger.debug(f"DEBUG: User {user.username} has {user_assigned_count} assigned leads")
+            
+            if user_assigned_count > 0:
+                # User has assigned leads, show only their leads (current behavior)
+                queryset = user_assigned_leads
+                logger.debug(f"DEBUG: Showing user's assigned leads: {queryset.count()}")
+            else:
+                # User has no assigned leads, show all unassigned leads (new behavior)
+                queryset = queryset.filter(assigned_user__isnull=True)
+                logger.debug(f"DEBUG: User has no assigned leads, showing unassigned leads: {queryset.count()}")
+            
+        elif filters['preset'] == 'today':
+            today = timezone.now().date()
+            today_start = timezone.make_aware(datetime.combine(today, time.min))
+            today_end = timezone.make_aware(datetime.combine(today, time.max))
+            queryset = queryset.filter(created_at__gte=today_start, created_at__lte=today_end)
+            logger.debug(f"DEBUG: After today preset (date={today}, range={today_start} to {today_end}): {queryset.count()}")
+            
+        elif filters['preset'] == 'week':
+            week_ago_date = timezone.now().date() - timezone.timedelta(days=7)
+            week_start = timezone.make_aware(datetime.combine(week_ago_date, time.min))
+            queryset = queryset.filter(created_at__gte=week_start)
+            logger.debug(f"DEBUG: After week preset (since={week_start}): {queryset.count()}")
+            
+        elif filters['preset'] == 'month':
+            month_ago_date = timezone.now().date() - timezone.timedelta(days=30)
+            month_start = timezone.make_aware(datetime.combine(month_ago_date, time.min))
+            queryset = queryset.filter(created_at__gte=month_start)
+            logger.debug(f"DEBUG: After month preset (since={month_start}): {queryset.count()}")
+            
         else:
-            queryset = queryset.filter(assigned_user=user)
-    elif filters['preset'] == 'my':
-        queryset = queryset.filter(assigned_user=user)
+            logger.debug(f"DEBUG: Unknown preset value: {filters['preset']}")
 
+    logger.debug(f"DEBUG: Final queryset count: {queryset.count()}")
     return queryset
 
 
 def _render_leads_list_page(request, base_queryset, page_title, default_sort='-created_at'):
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.debug(f"DEBUG: _render_leads_list_page called for {page_title}")
+    logger.debug(f"DEBUG: Request GET params: {dict(request.GET)}")
+    
     filters = _extract_lead_filters(request.GET)
+    logger.debug(f"DEBUG: Extracted filters: {filters}")
+    
     sort_by = filters['sort'] if filters['sort'] in LEAD_SORT_FIELDS else default_sort
     leads_qs = _apply_common_lead_filters(base_queryset, request.user, filters)
-    leads_qs = leads_qs.order_by(LEAD_SORT_FIELDS.get(sort_by, default_sort)).select_related('assigned_user', 'created_by')
-
-    total_filtered_count = leads_qs.count()
+    
+    # Optimize: Apply ordering and select_related before count to avoid duplicate queries
+    leads_qs = leads_qs.order_by(LEAD_SORT_FIELDS.get(sort_by, default_sort))
+    
+    # Use count() with optimization for large datasets
+    try:
+        # For MySQL, use SQL_CALC_FOUND_ROWS for better performance on large datasets
+        total_filtered_count = leads_qs.count()
+    except Exception:
+        # Fallback to len() if count() fails
+        total_filtered_count = len(leads_qs)
+    
+    logger.debug(f"DEBUG: Final filtered leads count: {total_filtered_count}")
+    
+    # Create paginator with optimized queryset
     paginator = Paginator(leads_qs, filters['page_size'])
     page_obj = paginator.get_page(request.GET.get('page'))
+    
+    # Optimize: Only apply select_related to the current page objects
+    if page_obj.object_list:
+        # Get the IDs from current page and fetch with select_related
+        page_lead_ids = [lead.id_lead for lead in page_obj.object_list]
+        optimized_leads = Lead.objects.filter(
+            id_lead__in=page_lead_ids
+        ).select_related(
+            'assigned_user', 'created_by', 
+            'assigned_user__manager', 'assigned_user__team_lead'
+        ).order_by(LEAD_SORT_FIELDS.get(sort_by, default_sort))
+        
+        # Create a lookup dict for quick access
+        leads_lookup = {lead.id_lead: lead for lead in optimized_leads}
+        
+        # Replace the page objects with optimized ones
+        page_obj.object_list = [
+            leads_lookup[lead.id_lead] for lead in page_obj.object_list
+        ]
 
     filter_snapshot = request.GET.copy()
     filter_snapshot.pop('page', None)
@@ -315,16 +534,16 @@ def _render_leads_list_page(request, base_queryset, page_title, default_sort='-c
 @hierarchy_required
 def leads_list(request):
     base_queryset = request.hierarchy_context['accessible_leads'].filter(deleted=False)
-    return _render_leads_list_page(request, base_queryset, 'All Leads')
+    return _render_leads_list_page(request, base_queryset, 'All Leads', default_sort='-created_at')
 
 @login_required
 @hierarchy_required
 def leads_fresh(request):
     base_queryset = request.hierarchy_context['accessible_leads'].filter(
         deleted=False,
-        assigned_user=request.user
+        assigned_user__isnull=True
     ).exclude(status='sale_done')
-    return _render_leads_list_page(request, base_queryset, 'New Leads')
+    return _render_leads_list_page(request, base_queryset, 'New Leads', default_sort='-created_at')
 
 @login_required
 @hierarchy_required
@@ -333,34 +552,27 @@ def leads_working(request):
         deleted=False,
         assigned_user=request.user
     ).exclude(status='sale_done')
-    return _render_leads_list_page(request, base_queryset, 'My Working Leads')
+    return _render_leads_list_page(request, base_queryset, 'My Working Leads', default_sort='-created_at')
 
 @login_required
 @hierarchy_required
 def leads_transferred(request):
-    base_queryset = request.hierarchy_context['accessible_leads'].filter(
+    # Show leads assigned by current user (including bulk assignments from unassigned)
+    assigned_by_user_leads = request.hierarchy_context['accessible_leads'].filter(
         deleted=False,
+        assigned_by=request.user,
+        assigned_at__isnull=False
+    )
+    
+    # Also include formal transfers
+    transfer_leads = request.hierarchy_context['accessible_leads'].filter(
+        deleted=False,
+        transfer_by=request.user.username,
         transfer_date__isnull=False
     )
-    if request.user.role == 'manager':
-        team_users = request.user.get_accessible_users()
-        base_queryset = base_queryset.filter(
-            Q(assigned_user__in=team_users) |
-            Q(transfer_by__in=team_users.values('username')) |
-            Q(created_by__in=team_users)
-        )
-    elif request.user.role == 'team_lead':
-        team_agents = request.user.get_accessible_users()
-        base_queryset = base_queryset.filter(
-            Q(assigned_user__in=team_agents) |
-            Q(transfer_by__in=team_agents.values('username')) |
-            Q(created_by__in=team_agents)
-        )
-    elif request.user.role == 'agent':
-        base_queryset = base_queryset.filter(
-            Q(assigned_user=request.user) |
-            Q(created_by=request.user)
-        )
+    
+    # Combine both datasets
+    base_queryset = (assigned_by_user_leads | transfer_leads).distinct()
     return _render_leads_list_page(request, base_queryset, 'Transferred Leads', default_sort='-created_at')
 
 @login_required
@@ -370,7 +582,7 @@ def leads_converted(request):
         deleted=False,
         status='sale_done'
     )
-    return _render_leads_list_page(request, base_queryset, 'Converted Leads')
+    return _render_leads_list_page(request, base_queryset, 'Converted Leads', default_sort='-created_at')
 
 
 @login_required
@@ -417,46 +629,53 @@ def leads_team(request):
         )
     else:
         base_queryset = Lead.objects.none()
-    return _render_leads_list_page(request, base_queryset, 'My Team Leads')
+    return _render_leads_list_page(request, base_queryset, 'My Team Leads', default_sort='-created_at')
 
 
 @login_required
 @hierarchy_required
 def leads_trash(request):
     base_queryset = request.hierarchy_context['accessible_leads'].filter(deleted=True)
-    return _render_leads_list_page(request, base_queryset, 'Trash Leads')
+    return _render_leads_list_page(request, base_queryset, 'Trash Leads', default_sort='-created_at')
 
 @login_required
 @can_access_lead_required
 def lead_detail(request, pk):
     lead = request.current_lead  # Set by the decorator
     
-    # Fetch comprehensive history data
-    activities = lead.activities.all()
-    lead_history = lead.history.all()
+    # Fetch comprehensive history data with optimized queries
+    activities = lead.activities.select_related('user').all()
+    lead_history = lead.history.select_related('user').all()
     communications = lead.communications.all()
     bo_updates = lead.bo_updates.all()
-    comments = lead.comments.all()
+    comments = lead.comments.select_related('user').all()
     
-    # Parse assignment history from JSON field
+    # Parse assignment history from JSON field with optimized user fetching
     assignment_history = []
     if lead.assignment_history and 'assignments' in lead.assignment_history:
         assignment_data = lead.assignment_history['assignments']
+        
+        # Collect all user IDs needed for batch fetching
+        user_ids = set()
         for assignment in assignment_data:
-            # Get user objects for assignment details
-            from_user = None
-            to_user = None
-            by_user = None
-            
-            try:
-                if assignment.get('from', {}).get('user'):
-                    from_user = User.objects.get(id=assignment['from']['user'])
-                if assignment.get('to', {}).get('user'):
-                    to_user = User.objects.get(id=assignment['to']['user'])
-                if assignment.get('by'):
-                    by_user = User.objects.get(id=assignment['by'])
-            except User.DoesNotExist:
-                continue
+            if assignment.get('from', {}).get('user'):
+                user_ids.add(assignment['from']['user'])
+            if assignment.get('to', {}).get('user'):
+                user_ids.add(assignment['to']['user'])
+            if assignment.get('by'):
+                user_ids.add(assignment['by'])
+        
+        # Batch fetch all users at once
+        users_lookup = {
+            user.id: user 
+            for user in User.objects.filter(id__in=user_ids)
+        }
+        
+        for assignment in assignment_data:
+            # Get user objects from lookup
+            from_user = users_lookup.get(assignment.get('from', {}).get('user'))
+            to_user = users_lookup.get(assignment.get('to', {}).get('user'))
+            by_user = users_lookup.get(assignment.get('by'))
             
             assignment_history.append({
                 'action': assignment.get('action', 'assignment'),
@@ -665,7 +884,9 @@ def lead_assign(request, pk):
             else:
                 # Assign the lead
                 old_user = lead.assigned_user
-                lead.assign_to_user(assigned_user, request.user)
+                # Use bulk_assignment=True when assigning from unassigned state
+                is_bulk_from_unassigned = not old_user
+                lead.assign_to_user(assigned_user, request.user, bulk_assignment=is_bulk_from_unassigned)
                 
                 # Create assignment history record
                 LeadHistory.objects.create(
@@ -726,44 +947,84 @@ def bulk_lead_assign(request):
             successful_assignments = 0
             failed_assignments = 0
             
-            for lead in accessible_leads:
+            # Batch optimize: collect all valid assignments first
+            valid_assignments = []
+            assignment_history_data = []
+            activity_data = []
+            
+            for lead in accessible_leads.select_related('assigned_user'):
                 try:
                     # Check if user can assign this lead
                     can_assign = lead.can_be_assigned_by(request.user)
                     can_assign_to_target = lead.can_be_assigned_to_user(assigned_user, request.user)
                     
                     if can_assign and can_assign_to_target:
-                        # Assign the lead
-                        try:
-                            old_user = lead.assigned_user
-                            lead.assign_to_user(assigned_user, request.user)
-                            
-                            # Create assignment history record
-                            LeadHistory.objects.create(
-                                lead=lead,
-                                user=request.user,
-                                field_name='assigned_user',
-                                old_value=old_user.username if old_user else None,
-                                new_value=assigned_user.username,
-                                action=f'Bulk assigned to {assigned_user.username}'
-                            )
-                            
-                            # Create activity log
-                            LeadActivity.objects.create(
-                                lead=lead,
-                                user=request.user,
-                                activity_type='bulk_assignment',
-                                description=f'Bulk assigned to {assigned_user.username}. {assignment_notes}'
-                            )
-                            
-                            successful_assignments += 1
-                        except Exception as assign_error:
-                            print(f"Error assigning lead {lead.name}: {assign_error}")
-                            failed_assignments += 1
+                        old_user = lead.assigned_user
+                        valid_assignments.append({
+                            'lead': lead,
+                            'old_user': old_user,
+                        })
+                        
+                        # Prepare assignment history data
+                        assignment_history_data.append(LeadHistory(
+                            lead=lead,
+                            user=request.user,
+                            field_name='assigned_user',
+                            old_value=old_user.username if old_user else None,
+                            new_value=assigned_user.username,
+                            action=f'Bulk assigned to {assigned_user.username}'
+                        ))
+                        
+                        # Prepare activity data
+                        activity_data.append(LeadActivity(
+                            lead=lead,
+                            user=request.user,
+                            activity_type='bulk_assignment',
+                            description=f'Bulk assigned to {assigned_user.username}. {assignment_notes}'
+                        ))
+                        
+                        successful_assignments += 1
                     else:
                         failed_assignments += 1
                 except Exception as e:
                     failed_assignments += 1
+            
+            # Batch update assignments using bulk operations
+            if valid_assignments:
+                # Update lead assignments in batch
+                leads_to_update = []
+                for assignment in valid_assignments:
+                    lead = assignment['lead']
+                    old_user = assignment['old_user']
+                    
+                    # Update lead fields
+                    lead.assigned_user = assigned_user
+                    lead.assigned_by = request.user
+                    lead.assigned_at = timezone.now()
+                    
+                    # Handle transfer fields
+                    is_transfer = (old_user and old_user != assigned_user) or (not old_user)  # bulk assignment from unassigned
+                    if is_transfer:
+                        if old_user:
+                            lead.transfer_from = old_user.get_full_name() or old_user.username
+                        else:
+                            lead.transfer_from = "Unassigned"
+                        lead.transfer_by = request.user.get_full_name() or request.user.username
+                        lead.transfer_date = timezone.now()
+                    
+                    leads_to_update.append(lead)
+                
+                # Bulk update leads
+                Lead.objects.bulk_update(leads_to_update, [
+                    'assigned_user', 'assigned_by', 'assigned_at', 
+                    'transfer_from', 'transfer_by', 'transfer_date'
+                ])
+                
+                # Bulk create history and activity records
+                if assignment_history_data:
+                    LeadHistory.objects.bulk_create(assignment_history_data)
+                if activity_data:
+                    LeadActivity.objects.bulk_create(activity_data)
             
             if successful_assignments > 0:
                 messages.success(request, f"Successfully assigned {successful_assignments} leads to {assigned_user.username}.")
@@ -853,19 +1114,31 @@ def bulk_lead_delete(request):
         return redirect("dashboard:leads_all")
 
     deleted_count = 0
+    activity_data = []
+    leads_to_update = []
+    
     for lead in leads_to_delete:
         if lead.deleted:
             continue
         lead.deleted = True
         lead.modified_user = request.user
-        lead.save(update_fields=['deleted', 'modified_user'])
-        LeadActivity.objects.create(
+        leads_to_update.append(lead)
+        
+        activity_data.append(LeadActivity(
             lead=lead,
             user=request.user,
             activity_type='delete',
             description='Lead deleted from leads list (bulk action).'
-        )
+        ))
         deleted_count += 1
+
+    # Bulk update leads
+    if leads_to_update:
+        Lead.objects.bulk_update(leads_to_update, ['deleted', 'modified_user'])
+    
+    # Bulk create activities
+    if activity_data:
+        LeadActivity.objects.bulk_create(activity_data)
 
     requested_count = request.POST.get('scope_count')
     try:
@@ -909,17 +1182,29 @@ def bulk_lead_restore(request):
         return redirect("dashboard:leads_trash")
 
     restored_count = 0
+    activity_data = []
+    leads_to_update = []
+    
     for lead in leads_to_restore:
         lead.deleted = False
         lead.modified_user = request.user
-        lead.save(update_fields=['deleted', 'modified_user'])
-        LeadActivity.objects.create(
+        leads_to_update.append(lead)
+        
+        activity_data.append(LeadActivity(
             lead=lead,
             user=request.user,
             activity_type='restore',
             description='Lead restored from trash (bulk action).'
-        )
+        ))
         restored_count += 1
+
+    # Bulk update leads
+    if leads_to_update:
+        Lead.objects.bulk_update(leads_to_update, ['deleted', 'modified_user'])
+    
+    # Bulk create activities
+    if activity_data:
+        LeadActivity.objects.bulk_create(activity_data)
 
     operation_id = _create_operation_log(
         request,
@@ -1717,7 +2002,8 @@ def ajax_bulk_assignment_data(request):
 @hierarchy_required
 def leads_duplicates(request):
     """Main duplicate leads list view"""
-    detector = DuplicateDetector(request.user.company_id)
+    # Get pagination parameters
+    page_number = request.GET.get('page', 1)
     page_size = request.GET.get('page_size', '20')
     
     # Validate page size
@@ -1730,40 +2016,26 @@ def leads_duplicates(request):
     status_filter = request.GET.get('status', 'pending')
     duplicate_type = request.GET.get('type', '')
     
-    # Get duplicate groups
-    groups = detector.find_duplicate_groups(status_filter)
-    
-    # Filter by duplicate type if specified
-    if duplicate_type:
-        filtered_groups = []
-        for group in groups:
-            group_has_type = any(
-                lead.duplicate_status == duplicate_type 
-                for lead in group['leads']
-            )
-            if group_has_type:
-                filtered_groups.append(group)
-        groups = filtered_groups
-    
-    # Sort groups by creation date (newest first)
-    groups.sort(key=lambda x: x['created_at'], reverse=True)
+    # Get paginated duplicate groups
+    groups = detector.find_duplicate_groups_paginated(
+        status=status_filter,
+        duplicate_type=duplicate_type,
+        page=page_number,
+        page_size=page_size
+    )
     
     # Get statistics
     stats = detector.get_duplicate_statistics()
     
-    # Pagination with configurable page size
-    paginator = Paginator(groups, page_size)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
     context = {
-        'page_obj': page_obj,
-        'groups': page_obj,
+        'page_obj': groups['page_obj'],
+        'groups': groups['page_obj'],
         'stats': stats,
         'status_filter': status_filter,
         'duplicate_type': duplicate_type,
         'page_title': 'Duplicate Leads',
         'current_page_size': page_size,
+        'total_groups': groups['total_count'],
         'resolution_status_choices': [
             ('pending', 'Pending'),
             ('resolved', 'Resolved'),
@@ -2026,7 +2298,8 @@ def bulk_duplicate_reassign(request):
 @hierarchy_required
 def team_duplicate_leads(request):
     """Team-specific duplicate leads view"""
-    detector = DuplicateDetector(request.user.company_id)
+    # Get pagination parameters
+    page_number = request.GET.get('page', 1)
     page_size = request.GET.get('page_size', '20')
     
     # Validate page size
@@ -2035,47 +2308,25 @@ def team_duplicate_leads(request):
         page_size = '20'
     page_size = int(page_size)
     
-    # Get duplicate groups based on user role
-    if request.user.role == 'owner':
-        groups = detector.find_duplicate_groups()
-    elif request.user.role == 'manager':
-        # Get groups for manager's team
-        team_users = request.user.get_accessible_users()
-        groups = []
-        all_groups = detector.find_duplicate_groups()
-        for group in all_groups:
-            # Check if any lead in group belongs to manager's team
-            if any(lead.assigned_user in team_users for lead in group['leads']):
-                groups.append(group)
-    elif request.user.role == 'team_lead':
-        # Get groups for team lead's agents
-        team_agents = request.user.get_accessible_users()
-        groups = []
-        all_groups = detector.find_duplicate_groups()
-        for group in all_groups:
-            # Check if any lead in group belongs to team lead's agents
-            if any(lead.assigned_user in team_agents for lead in group['leads']):
-                groups.append(group)
-    else:  # agent
-        # Get groups for agent's own leads
-        groups = []
-        all_groups = detector.find_duplicate_groups()
-        for group in all_groups:
-            # Check if any lead in group belongs to agent
-            if any(lead.assigned_user == request.user for lead in group['leads']):
-                groups.append(group)
+    # Get paginated duplicate groups based on user role
+    detector = DuplicateDetector(request.user.company_id)
+    groups = detector.find_duplicate_groups_paginated(
+        page=page_number,
+        page_size=page_size,
+        user_role=request.user.role,
+        user=request.user
+    )
     
-    # Sort groups by creation date (newest first)
-    groups.sort(key=lambda x: x['created_at'], reverse=True)
-    
-    # Get team statistics
+    # Get team statistics (limited to current page for performance)
     team_stats = {}
     if request.user.role in ['owner', 'manager']:
         team_users = request.user.get_accessible_users() if request.user.role == 'manager' else User.objects.filter(company_id=request.user.company_id)
         
+        # Get statistics for current page only
+        current_groups = groups['page_obj'].object_list
         for user in team_users:
             user_groups = []
-            for group in groups:
+            for group in current_groups:
                 if any(lead.assigned_user == user for lead in group['leads']):
                     user_groups.append(group)
             
@@ -2086,17 +2337,13 @@ def team_duplicate_leads(request):
                 'resolved_count': len([g for g in user_groups if g['status'] == 'resolved'])
             }
     
-    # Pagination with configurable page size
-    paginator = Paginator(groups, page_size)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
     context = {
-        'page_obj': page_obj,
-        'groups': page_obj,
+        'page_obj': groups['page_obj'],
+        'groups': groups['page_obj'],
         'team_stats': team_stats,
         'page_title': 'Team Duplicate Leads',
         'current_page_size': page_size,
+        'total_groups': groups['total_count'],
         'show_team_stats': request.user.role in ['owner', 'manager']
     }
     return render(request, 'dashboard/team_duplicates.html', context)
@@ -2106,7 +2353,8 @@ def team_duplicate_leads(request):
 @hierarchy_required
 def my_duplicate_leads(request):
     """Current user's duplicate leads"""
-    detector = DuplicateDetector(request.user.company_id)
+    # Get pagination parameters
+    page_number = request.GET.get('page', 1)
     page_size = request.GET.get('page_size', '20')
     
     # Validate page size
@@ -2115,16 +2363,14 @@ def my_duplicate_leads(request):
         page_size = '20'
     page_size = int(page_size)
     
-    # Get groups that contain user's leads
-    all_groups = detector.find_duplicate_groups()
-    my_groups = []
-    
-    for group in all_groups:
-        if any(lead.assigned_user == request.user for lead in group['leads']):
-            my_groups.append(group)
-    
-    # Sort groups by creation date (newest first)
-    my_groups.sort(key=lambda x: x['created_at'], reverse=True)
+    # Get paginated groups for current user
+    detector = DuplicateDetector(request.user.company_id)
+    groups = detector.find_duplicate_groups_paginated(
+        page=page_number,
+        page_size=page_size,
+        user_role='agent',
+        user=request.user
+    )
     
     # Get user's duplicate statistics
     user_leads = Lead.objects.filter(
@@ -2138,20 +2384,16 @@ def my_duplicate_leads(request):
         'potential_duplicates': user_leads.filter(duplicate_status='potential_duplicate').count(),
         'pending_duplicates': user_leads.filter(duplicate_resolution_status='pending').count(),
         'resolved_duplicates': user_leads.filter(duplicate_resolution_status='resolved').count(),
-        'groups_count': len(my_groups)
+        'groups_count': groups['total_count']  # Use total count from paginated result
     }
     
-    # Pagination with configurable page size
-    paginator = Paginator(my_groups, page_size)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
     context = {
-        'page_obj': page_obj,
-        'groups': page_obj,
+        'page_obj': groups['page_obj'],
+        'groups': groups['page_obj'],
         'my_stats': user_stats,
         'page_title': 'My Duplicate Leads',
-        'current_page_size': page_size
+        'current_page_size': page_size,
+        'total_groups': groups['total_count']
     }
     return render(request, 'dashboard/my_duplicates.html', context)
 

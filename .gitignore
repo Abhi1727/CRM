@@ -38,3 +38,15 @@ verify_*.py
 crm_project/check_*.py
 crm_project/test_email_login.py
 crm_project/test_pagination.py
+
+# Markdown files (exclude all except essential docs)
+*.md
+!README.md
+!CHANGELOG.md
+!CONTRIBUTING.md
+!LICENSE.md
+
+# Windurf specific
+.windsurf/
+.windsurf/plans/
+.windsurf/cache/

@@ -219,13 +219,13 @@ class Lead(models.Model):
         # Agent cannot assign leads
         return False
     
-    def assign_to_user(self, user, assigned_by):
+    def assign_to_user(self, user, assigned_by, bulk_assignment=False):
         """Assign lead to user with hierarchy validation"""
         if not self.can_be_assigned_by(assigned_by):
             raise PermissionError("User cannot assign this lead")
         
-        # Check if this is a transfer (reassignment to different user)
-        is_transfer = self.assigned_user and self.assigned_user != user
+        # Check if this is a transfer (reassignment to different user OR bulk assignment from unassigned)
+        is_transfer = (self.assigned_user and self.assigned_user != user) or (bulk_assignment and not self.assigned_user)
         
         # Track assignment history
         old_assignment = {
@@ -235,7 +235,12 @@ class Lead(models.Model):
         
         # If this is a transfer, populate transfer fields
         if is_transfer:
-            self.transfer_from = self.assigned_user.get_full_name() or self.assigned_user.username if self.assigned_user else None
+            if self.assigned_user:
+                # Regular transfer from one user to another
+                self.transfer_from = self.assigned_user.get_full_name() or self.assigned_user.username
+            else:
+                # Bulk assignment from unassigned state
+                self.transfer_from = "Unassigned"
             self.transfer_by = assigned_by.get_full_name() or assigned_by.username
             self.transfer_date = timezone.now()
         
