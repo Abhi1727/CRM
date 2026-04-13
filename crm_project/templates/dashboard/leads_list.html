@@ -199,10 +199,12 @@
                         <input type="checkbox" class="lead-checkbox" data-lead-id="{{ lead.id_lead }}" data-lead-name="{{ lead.name }}">
                     </td>
                     {% endif %}
-                    <td class="editable-field" data-field="name" data-lead-id="{{ lead.id_lead }}">
+                    <td class="field-container" data-field="name" data-lead-id="{{ lead.id_lead }}">
                         <div class="field-content">
                             <strong><a href="{% url 'dashboard:lead_detail' lead.id_lead %}" class="lead-name-link">{{ lead.name|default:"-" }}</a></strong>
+                            {% if user.role in 'owner,manager' %}
                             <i class="fas fa-edit edit-icon" title="Double-click to edit"></i>
+                            {% endif %}
                         </div>
                         {% if page_title == 'New Leads' %}
                             {% if not lead.assigned_user %}
@@ -213,16 +215,20 @@
                         {% endif %}
                     </td>
                     <td>{% if lead.assigned_user %}{{ lead.assigned_user.get_full_name|default:lead.assigned_user.username }}{% else %}-{% endif %}</td>
-                    <td class="editable-field" data-field="mobile" data-lead-id="{{ lead.id_lead }}">
+                    <td class="field-container" data-field="mobile" data-lead-id="{{ lead.id_lead }}">
                         <div class="field-content">
                             {{ lead.mobile|default:lead.alt_mobile|default:"-" }}
+                            {% if user.role in 'owner,manager' %}
                             <i class="fas fa-edit edit-icon" title="Double-click to edit"></i>
+                            {% endif %}
                         </div>
                     </td>
-                    <td class="editable-field" data-field="email" data-lead-id="{{ lead.id_lead }}">
+                    <td class="field-container" data-field="email" data-lead-id="{{ lead.id_lead }}">
                         <div class="field-content">
                             {{ lead.email|default:lead.alt_email|default:"-" }}
+                            {% if user.role in 'owner,manager' %}
                             <i class="fas fa-edit edit-icon" title="Double-click to edit"></i>
+                            {% endif %}
                         </div>
                     </td>
                     <td>
@@ -230,7 +236,8 @@
                             <button class="status-badge status-{{ lead.status }} dropdown-toggle" 
                                     data-lead-id="{{ lead.id_lead }}" 
                                     data-current-status="{{ lead.status }}"
-                                    onclick="toggleStatusDropdown(this)">
+                                    onclick="toggleStatusDropdown(this)"
+                                    title="DEBUG: status='{{ lead.status }}', display='{{ lead.get_status_display }}'">
                                 {{ lead.get_status_display }}
                                 <i class="fas fa-chevron-down"></i>
                             </button>
@@ -1978,16 +1985,30 @@ document.addEventListener("DOMContentLoaded", function() {
     // Select all functionality
     if (selectAllCheckbox) {
         selectAllCheckbox.addEventListener('change', function() {
-            leadCheckboxes.forEach(function(checkbox) {
-                checkbox.checked = this.checked;
-                const leadId = checkbox.dataset.leadId;
-                if (this.checked) {
-                    selectedLeads.add(leadId);
-                } else {
-                    selectedLeads.delete(leadId);
-                }
-            });
-            selectionScope = 'current_page';
+            // Check if there are active filters (excluding pagination)
+            const hasActiveFilters = checkIfFiltersActive();
+            
+            if (this.checked && hasActiveFilters) {
+                // If filters are active and checkbox is checked, select all filtered results
+                selectedLeads.clear();
+                leadCheckboxes.forEach(function(checkbox) {
+                    checkbox.checked = false;
+                });
+                selectionScope = 'all_filtered';
+                showNotification(`All filtered leads selected (${totalFilteredCount}).`, 'success');
+            } else {
+                // Normal current page selection
+                leadCheckboxes.forEach(function(checkbox) {
+                    checkbox.checked = this.checked;
+                    const leadId = checkbox.dataset.leadId;
+                    if (this.checked) {
+                        selectedLeads.add(leadId);
+                    } else {
+                        selectedLeads.delete(leadId);
+                    }
+                });
+                selectionScope = 'current_page';
+            }
             updateBulkActionButtons();
             updateSelectAllCheckbox();
         });
@@ -2160,12 +2181,38 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
     
+    function checkIfFiltersActive() {
+        // Check if any filters are active (excluding pagination)
+        const searchValue = searchInput ? searchInput.value.trim() : '';
+        const statusValue = statusSelect ? statusSelect.value : '';
+        const countryValue = document.getElementById('country-select') ? document.getElementById('country-select').value : '';
+        const courseValue = document.getElementById('course-select') ? document.getElementById('course-select').value : '';
+        const startDateValue = document.getElementById('start-date') ? document.getElementById('start-date').value : '';
+        const endDateValue = document.getElementById('end-date') ? document.getElementById('end-date').value : '';
+        const assignedUserValue = document.getElementById('assigned-user-select') ? document.getElementById('assigned-user-select').value : '';
+        
+        // Check if any preset is active
+        const activePreset = document.querySelector('.preset-btn.active');
+        const presetActive = activePreset && activePreset.dataset.preset !== '';
+        
+        return !!(searchValue || statusValue || countryValue || courseValue || 
+                  startDateValue || endDateValue || assignedUserValue || presetActive);
+    }
+    
     function updateSelectAllCheckbox() {
         if (!selectAllCheckbox) return;
-        const totalCheckboxes = leadCheckboxes.length;
-        const checkedCheckboxes = document.querySelectorAll('.lead-checkbox:checked').length;
-        selectAllCheckbox.checked = totalCheckboxes > 0 && totalCheckboxes === checkedCheckboxes;
-        selectAllCheckbox.indeterminate = checkedCheckboxes > 0 && checkedCheckboxes < totalCheckboxes;
+        
+        if (selectionScope === 'all_filtered') {
+            // When all filtered are selected, show checked state
+            selectAllCheckbox.checked = true;
+            selectAllCheckbox.indeterminate = false;
+        } else {
+            // Normal current page selection logic
+            const totalCheckboxes = leadCheckboxes.length;
+            const checkedCheckboxes = document.querySelectorAll('.lead-checkbox:checked').length;
+            selectAllCheckbox.checked = totalCheckboxes > 0 && totalCheckboxes === checkedCheckboxes;
+            selectAllCheckbox.indeterminate = checkedCheckboxes > 0 && checkedCheckboxes < totalCheckboxes;
+        }
     }
     
     // Modal functionality
@@ -3250,6 +3297,29 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
+// Close follow-up modal function
+function closeFollowupModal() {
+    const modal = document.getElementById('quick-followup-modal');
+    if (!modal) return;
+    
+    // Remove show class
+    modal.classList.remove('show');
+    
+    // Restore body scroll
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
+    
+    // Clear form data
+    const form = document.getElementById('quick-followup-form');
+    if (form) {
+        form.reset();
+    }
+    
+    // Clear stored references
+    delete modal.dataset.button;
+    delete modal.dataset.dropdown;
+}
+
 // Add undo button event listener
 document.addEventListener('DOMContentLoaded', function() {
     const undoBtn = document.getElementById('undo-assign-btn');
@@ -3262,6 +3332,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const undoModal = document.getElementById('undo-assign-modal');
         if (event.target === undoModal) {
             closeUndoModal();
+        }
+        
+        // Close follow-up modal when clicking outside
+        const followupModal = document.getElementById('quick-followup-modal');
+        if (event.target === followupModal) {
+            closeFollowupModal();
         }
     });
 });

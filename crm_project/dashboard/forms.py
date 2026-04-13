@@ -6,6 +6,23 @@ from .models import Lead
 
 
 class LeadForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        user_role = kwargs.pop('user_role', None)  # Extract user_role from kwargs
+        restricted_fields = kwargs.pop('restricted_fields', None)  # Extract restricted_fields
+        super().__init__(*args, **kwargs)
+        
+        # Remove restricted fields based on user role
+        if restricted_fields:
+            for field_name in restricted_fields:
+                if field_name in self.fields:
+                    del self.fields[field_name]
+        
+        # Ensure status field is properly initialized
+        if self.instance and self.instance.pk and hasattr(self.instance, 'status'):
+            self.fields['status'].initial = self.instance.status
+            # Debug: Log the status initialization
+            print(f"DEBUG: LeadForm initializing with status='{self.instance.status}' for lead {self.instance.pk}")
+    
     class Meta:
         model = Lead
         fields = [
@@ -136,7 +153,7 @@ class BulkLeadAssignmentForm(forms.Form):
     )
     lead_ids = forms.CharField(
         widget=forms.HiddenInput(attrs={"id": "lead_ids", "name": "lead_ids"}),
-        required=True
+        required=False  # Made optional to support all_filtered scope
     )
     assignment_notes = forms.CharField(
         required=False,
@@ -181,6 +198,83 @@ class LeadImportForm(forms.Form):
                 raise ValidationError("File size must be less than 10MB.")
         
         return file
+
+
+class RestrictedLeadForm(forms.ModelForm):
+    """
+    Form for Team Lead/Agent roles with restricted field access.
+    Only allows editing of status, status_description, followup_datetime, 
+    followup_remarks, and description fields.
+    """
+    def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)  # Extract user for validation
+        super().__init__(*args, **kwargs)
+        # Ensure status field is properly initialized
+        if self.instance and self.instance.pk and hasattr(self.instance, 'status'):
+            self.fields['status'].initial = self.instance.status
+    
+    class Meta:
+        model = Lead
+        fields = [
+            "status",
+            "status_description", 
+            "followup_datetime",
+            "followup_remarks",
+            "description",
+        ]
+        widgets = {
+            "followup_datetime": forms.DateTimeInput(attrs={
+                "type": "datetime-local",
+                "id": "followup_datetime",
+                "name": "followup_datetime"
+            }),
+            "description": forms.Textarea(attrs={
+                "rows": 3,
+                "id": "description",
+                "name": "description"
+            }),
+            "status_description": forms.Textarea(attrs={
+                "rows": 2,
+                "id": "status_description",
+                "name": "status_description"
+            }),
+            "followup_remarks": forms.Textarea(attrs={
+                "rows": 2,
+                "id": "followup_remarks",
+                "name": "followup_remarks"
+            }),
+        }
+    
+    def clean_followup_datetime(self):
+        followup_datetime = self.cleaned_data.get('followup_datetime')
+        if followup_datetime and followup_datetime < timezone.now():
+            raise ValidationError("Follow-up datetime cannot be in the past.")
+        return followup_datetime
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        
+        # Security validation: Ensure user has appropriate role
+        if self.user and self.user.role not in ['team_lead', 'agent']:
+            raise ValidationError("You are not authorized to use this form.")
+        
+        # Additional security: Check for any attempt to modify restricted fields via POST data
+        if self.data and self.instance and self.instance.pk:
+            restricted_fields = [
+                "name", "mobile", "email", "alt_mobile", "whatsapp_no", "alt_email",
+                "address", "city", "state", "postalcode", "country", "birthdate",
+                "lead_source", "lead_source_description", "refered_by", "campaign_id",
+                "course_name", "course_amount", "exp_revenue", "exp_close_date",
+                "next_step", "do_not_call"
+            ]
+            
+            for field in restricted_fields:
+                if field in self.data:
+                    # Log security violation attempt
+                    print(f"SECURITY: User {self.user.username} attempted to submit restricted field '{field}'")
+                    raise ValidationError(f"Unauthorized attempt to modify restricted field: {field}")
+        
+        return cleaned_data
 
 
 class LeadStatusUpdateForm(forms.ModelForm):

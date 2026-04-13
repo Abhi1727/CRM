@@ -2,7 +2,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, QueryDict
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
@@ -23,13 +23,47 @@ import uuid
 from .models import Lead, LeadActivity, LeadHistory, LeadImportSession, LeadOperationLog, BulkOperation, BulkOperationProgress
 from .forms import (
     LeadForm, LeadAssignmentForm, BulkLeadAssignmentForm, 
-    LeadImportForm, LeadStatusUpdateForm
+    LeadImportForm, LeadStatusUpdateForm, RestrictedLeadForm
 )
 from accounts.permissions import hierarchy_required, role_required, can_access_lead_required
 from accounts.models import User
 from services.duplicate_detector import DuplicateDetector
 from core.cache import CacheManager, QueryResultCache, cache_result, cached_view
 from core.queries import OptimizedLeadManager, OptimizedUserManager, QueryOptimizer
+
+# Role-based permission helpers
+def _can_edit_lead_details(user, lead):
+    """
+    Check if user can edit lead details based on role.
+    Only owners and managers can edit lead details.
+    Team leads and agents can only update status/follow-up.
+    """
+    if user.role in ['owner', 'manager']:
+        return True
+    return False
+
+def _can_edit_field_by_role(user, field_name):
+    """
+    Check if user can edit a specific field based on their role.
+    Owners/Managers: Can edit all fields
+    Team Leads/Agents: Can only edit status, followup_datetime, followup_remarks, description
+    """
+    if user.role in ['owner', 'manager']:
+        return True
+    
+    # Restricted fields for team leads and agents
+    restricted_fields = {
+        'name', 'mobile', 'email', 'alt_mobile', 'whatsapp_no', 'alt_email', 
+        'address', 'city', 'state', 'postalcode', 'country', 'birthdate', 
+        'lead_source', 'lead_source_description', 'refered_by', 'campaign_id', 
+        'course_name', 'course_amount', 'exp_revenue', 'exp_close_date', 
+        'next_step', 'do_not_call'
+    }
+    
+    # Team leads and agents can only edit these fields
+    allowed_fields = {'status', 'followup_datetime', 'followup_remarks', 'description'}
+    
+    return field_name in allowed_fields
 
 # Internal Reminder Views
 @login_required
@@ -782,8 +816,8 @@ def lead_detail(request, pk):
     # Sort timeline by timestamp (most recent first)
     timeline.sort(key=lambda x: x['timestamp'], reverse=True)
     
-    # Check if user can modify this lead
-    can_modify = lead.can_be_assigned_by(request.user) or lead.assigned_user == request.user
+    # Check if user can modify this lead based on role
+    can_modify = _can_edit_lead_details(request.user, lead)
     
     context = {
         'lead': lead,
@@ -801,28 +835,83 @@ def lead_detail(request, pk):
 @login_required
 @can_access_lead_required
 def lead_edit(request, pk):
-    """Edit an existing lead using the same form as creation."""
+    """Edit an existing lead using role-based form selection."""
+    from django.core.exceptions import PermissionDenied
+    
     lead = request.current_lead
+    user_role = request.user.role
+
+    # Debug: Log the current lead status
+    print(f"DEBUG: Editing lead {lead.id_lead}, current status='{lead.status}', display='{lead.get_status_display()}'")
+    print(f"DEBUG: User role: {user_role}")
 
     # Basic permission: allow if user can modify the lead or is its assignee
     can_modify = lead.can_be_assigned_by(request.user) or lead.assigned_user == request.user
     if not can_modify:
         raise PermissionDenied("You don't have permission to edit this lead.")
 
+    # Define restricted fields for Team Lead/Agent roles
+    restricted_fields = [
+        "name", "mobile", "email", "alt_mobile", "whatsapp_no", "alt_email",
+        "address", "city", "state", "postalcode", "country", "birthdate",
+        "lead_source", "lead_source_description", "refered_by", "campaign_id",
+        "course_name", "course_amount", "exp_revenue", "exp_close_date",
+        "next_step", "do_not_call"
+    ]
+
     if request.method == "POST":
-        form = LeadForm(request.POST, instance=lead)
+        # Choose form based on user role
+        if user_role in ['team_lead', 'agent']:
+            form = RestrictedLeadForm(request.POST, instance=lead, user=request.user)
+            print(f"DEBUG: Using RestrictedLeadForm for {user_role}")
+        else:
+            form = LeadForm(request.POST, instance=lead, restricted_fields=restricted_fields if user_role in ['team_lead', 'agent'] else None)
+            print(f"DEBUG: Using LeadForm for {user_role}")
+
         if form.is_valid():
             updated_lead = form.save(commit=False)
             updated_lead.modified_user = request.user
+            
+            # Server-side validation: Check if user tried to modify restricted fields
+            if user_role in ['team_lead', 'agent']:
+                # Compare with original lead data to detect restricted field changes
+                original_lead = Lead.objects.get(pk=lead.pk)
+                restricted_changes = []
+                
+                for field in restricted_fields:
+                    if hasattr(original_lead, field) and hasattr(updated_lead, field):
+                        original_value = getattr(original_lead, field)
+                        new_value = getattr(updated_lead, field)
+                        if original_value != new_value:
+                            restricted_changes.append(field)
+                
+                if restricted_changes:
+                    # Log security violation
+                    print(f"SECURITY: User {request.user.username} attempted to modify restricted fields: {restricted_changes}")
+                    messages.error(request, "You don't have permission to modify personal information fields.")
+                    return redirect("dashboard:lead_detail", pk=lead.id_lead)
+            
+            print(f"DEBUG: Form submitted, new status='{updated_lead.status}'")
             updated_lead.save()
             messages.success(request, "Lead updated successfully.")
             return redirect("dashboard:lead_detail", pk=lead.id_lead)
     else:
-        form = LeadForm(instance=lead)
+        # Choose form based on user role for GET requests
+        if user_role in ['team_lead', 'agent']:
+            form = RestrictedLeadForm(instance=lead, user=request.user)
+            print(f"DEBUG: Using RestrictedLeadForm for {user_role}")
+        else:
+            form = LeadForm(instance=lead, restricted_fields=restricted_fields if user_role in ['team_lead', 'agent'] else None)
+            print(f"DEBUG: Using LeadForm for {user_role}")
+        
+        # Debug: Check form initial values
+        print(f"DEBUG: Form initialized, status field initial='{form.fields.get('status', {}).get('initial', 'N/A')}'")
 
     context = {
         "form": form,
         "page_title": f"Edit Lead - {lead.name}",
+        "user_role": user_role,
+        "is_restricted_form": user_role in ['team_lead', 'agent'],
     }
     return render(request, "dashboard/lead_form.html", context)
 
@@ -949,20 +1038,13 @@ def bulk_lead_assign(request):
         form = BulkLeadAssignmentForm(request.user, request.POST)
         if form.is_valid():
             assigned_user = form.cleaned_data['assigned_user']
-            lead_ids = form.cleaned_data['lead_ids'].split(',')
             assignment_notes = form.cleaned_data.get('assignment_notes', '')
             
-            # Convert to integers and validate
-            try:
-                lead_ids = [int(id.strip()) for id in lead_ids if id.strip()]
-            except ValueError:
-                messages.error(request, "Invalid lead IDs provided.")
-                return redirect("dashboard:leads_all")
+            # Resolve the target leads using scope resolution
+            base_queryset = request.hierarchy_context['accessible_leads']
+            target_leads, action_scope = _resolve_bulk_scope_queryset(request, base_queryset)
             
-            # Get leads that user can access
-            accessible_leads = request.hierarchy_context['accessible_leads'].filter(id_lead__in=lead_ids)
-            
-            if not accessible_leads.exists():
+            if not target_leads.exists():
                 messages.error(request, "No accessible leads found for assignment.")
                 return redirect("dashboard:leads_all")
             
@@ -973,16 +1055,17 @@ def bulk_lead_assign(request):
                 operation_type='bulk_assign',
                 user=request.user,
                 company_id=request.user.company_id,
-                total_items=accessible_leads.count(),
+                total_items=target_leads.count(),
                 operation_config={
                     'assigned_user_id': assigned_user.id,
                     'assigned_user_name': assigned_user.username,
                     'assignment_notes': assignment_notes,
-                    'lead_ids': lead_ids
+                    'action_scope': action_scope
                 },
                 filter_snapshot={
-                    'lead_ids': lead_ids,
-                    'action_scope': 'current_page'
+                    'action_scope': action_scope,
+                    'filter_snapshot': request.POST.get('filter_snapshot', ''),
+                    'request_count_override': target_leads.count()
                 }
             )
             
@@ -991,7 +1074,7 @@ def bulk_lead_assign(request):
             
             # Use optimized bulk assignment with progress tracking
             successful_assignments, failed_assignments = _process_assignments_concurrently_with_progress(
-                accessible_leads.select_related('assigned_user'),
+                target_leads.select_related('assigned_user'),
                 assigned_user,
                 request.user,
                 assignment_notes,
