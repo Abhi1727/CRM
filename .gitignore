@@ -50,3 +50,4 @@ crm_project/test_pagination.py
 .windsurf/
 .windsurf/plans/
 .windsurf/cache/
+crm_project/venv/
