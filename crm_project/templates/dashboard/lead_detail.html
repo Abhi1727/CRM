@@ -120,155 +120,7 @@
 .status-rnr { background: #fff3e0; color: #f57c00; }
 .status-closed { background: #f5f5f5; color: #616161; }
 
-.timeline {
-    position: relative;
-    padding-left: 2rem;
-}
-
-.timeline::before {
-    content: '';
-    position: absolute;
-    left: 0.75rem;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    background: var(--border-color);
-}
-
-.timeline-item {
-    position: relative;
-    margin-bottom: 1.5rem;
-    padding: 1rem;
-    background: var(--bg-secondary);
-    border-radius: 8px;
-    transition: all 0.2s ease;
-}
-
-.timeline-item:hover {
-    transform: translateX(4px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-}
-
-.timeline-icon {
-    position: absolute;
-    left: -1.75rem;
-    top: 1rem;
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 0.875rem;
-    border: 3px solid var(--card-bg);
-}
-
-.timeline-icon.blue { background: #2196f3; }
-.timeline-icon.green { background: #4caf50; }
-.timeline-icon.purple { background: #9c27b0; }
-.timeline-icon.orange { background: #ff9800; }
-.timeline-icon.indigo { background: #3f51b5; }
-.timeline-icon.teal { background: #009688; }
-
-.timeline-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 0.5rem;
-}
-
-.timeline-type {
-    font-weight: 600;
-    color: var(--text-primary);
-    text-transform: capitalize;
-}
-
-.timeline-timestamp {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    white-space: nowrap;
-}
-
-.timeline-content {
-    color: var(--text-secondary);
-    line-height: 1.5;
-}
-
-.timeline-user {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-    font-size: 0.875rem;
-    color: var(--text-muted);
-}
-
-.user-avatar {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: var(--accent-color);
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.7rem;
-    font-weight: 600;
-}
-
-.filter-section {
-    margin-bottom: 1.5rem;
-    padding: 1rem;
-    background: var(--bg-secondary);
-    border-radius: 8px;
-}
-
-.filter-buttons {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-}
-
-.filter-btn {
-    padding: 0.375rem 0.75rem;
-    border: 1px solid var(--border-color);
-    background: var(--card-bg);
-    color: var(--text-secondary);
-    border-radius: 20px;
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.filter-btn.active {
-    background: var(--accent-color);
-    color: white;
-    border-color: var(--accent-color);
-}
-
-.filter-btn:hover:not(.active) {
-    background: var(--hover-bg);
-    border-color: var(--accent-color);
-}
-
-.communication-details {
-    margin-top: 0.5rem;
-    padding: 0.5rem;
-    background: var(--bg-primary);
-    border-radius: 6px;
-    font-size: 0.875rem;
-}
-
-.assignment-details {
-    display: grid;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-    padding: 0.5rem;
-    background: var(--bg-primary);
-    border-radius: 6px;
-    font-size: 0.875rem;
-}
+/* Timeline styles moved to dashboard.css for better organization */
 
 .lead-meta {
     display: flex;
@@ -485,27 +337,50 @@
         <div class="section-header">
             <h3 class="section-title">Complete History</h3>
             <div class="action-buttons">
-                <button class="btn btn-secondary" onclick="exportHistory()">
-                    <i class="fas fa-download"></i> Export
-                </button>
+                <div class="export-dropdown">
+                    <button class="btn btn-secondary export-toggle" aria-expanded="false" aria-haspopup="true">
+                        <i class="fas fa-download"></i> Export <i class="fas fa-chevron-down"></i>
+                    </button>
+                    <div class="export-menu" role="menu">
+                        <button class="export-option" onclick="exportHistory('clipboard')" role="menuitem">
+                            <i class="fas fa-clipboard"></i> Copy to Clipboard
+                        </button>
+                        <button class="export-option" onclick="exportHistory('csv')" role="menuitem">
+                            <i class="fas fa-file-csv"></i> Export as CSV
+                        </button>
+                        <button class="export-option" onclick="exportHistory('excel')" role="menuitem">
+                            <i class="fas fa-file-excel"></i> Export as Excel
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
         <!-- Filter Section -->
         <div class="filter-section">
-            <div class="filter-buttons">
-                <button class="filter-btn active" onclick="filterTimeline('all')">All</button>
-                <button class="filter-btn" onclick="filterTimeline('lead_history')">Changes</button>
-                <button class="filter-btn" onclick="filterTimeline('communication')">Communications</button>
-                <button class="filter-btn" onclick="filterTimeline('activity')">Activities</button>
-                <button class="filter-btn" onclick="filterTimeline('assignment')">Assignments</button>
-                <button class="filter-btn" onclick="filterTimeline('comment')">Comments</button>
-                <button class="filter-btn" onclick="filterTimeline('bo_update')">Back Office</button>
+            <div class="filter-controls">
+                <div class="filter-buttons">
+                    <button class="filter-btn active" data-filter="all" aria-pressed="true">All</button>
+                    <button class="filter-btn" data-filter="lead_history" aria-pressed="false">Changes</button>
+                    <button class="filter-btn" data-filter="communication" aria-pressed="false">Communications</button>
+                    <button class="filter-btn" data-filter="activity" aria-pressed="false">Activities</button>
+                    <button class="filter-btn" data-filter="assignment" aria-pressed="false">Assignments</button>
+                    <button class="filter-btn" data-filter="comment" aria-pressed="false">Comments</button>
+                    <button class="filter-btn" data-filter="bo_update" aria-pressed="false">Back Office</button>
+                </div>
+                <div class="filter-search">
+                    <input type="text" id="timeline-search" placeholder="Search timeline..." aria-label="Search timeline events">
+                    <div class="search-results" id="search-results"></div>
+                </div>
             </div>
         </div>
 
         <!-- Timeline -->
-        <div class="timeline" id="timeline">
+        <div class="timeline" id="timeline" role="log" aria-live="polite" aria-label="Lead activity timeline">
+            <div class="timeline-loading" id="timeline-loading" style="display: none;">
+                <div class="loading-spinner"></div>
+                <span>Loading timeline...</span>
+            </div>
             {% for item in timeline %}
             <div class="timeline-item" data-type="{{ item.type }}">
                 <div class="timeline-icon {{ item.color }}">
@@ -588,32 +463,443 @@
 </div>
 
 <script>
-function filterTimeline(type) {
-    const items = document.querySelectorAll('.timeline-item');
-    const buttons = document.querySelectorAll('.filter-btn');
+// Timeline functionality with proper scope and enhanced features
+(function() {
+    'use strict';
     
-    // Update button states
-    buttons.forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
-    
-    // Show/hide timeline items
-    items.forEach(item => {
-        if (type === 'all' || item.dataset.type === type) {
-            item.style.display = 'block';
-        } else {
-            item.style.display = 'none';
+    // Initialize timeline functionality
+    function initTimeline() {
+        const filterButtons = document.querySelectorAll('.filter-btn');
+        const searchInput = document.getElementById('timeline-search');
+        const timeline = document.getElementById('timeline');
+        const loadingIndicator = document.getElementById('timeline-loading');
+        const exportToggle = document.querySelector('.export-toggle');
+        const exportMenu = document.querySelector('.export-menu');
+        
+        // Filter button click handlers
+        filterButtons.forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                const filterType = this.dataset.filter;
+                filterTimeline(filterType, this);
+            });
+        });
+        
+        // Search functionality
+        if (searchInput) {
+            let searchTimeout;
+            searchInput.addEventListener('input', function() {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    searchTimeline(this.value);
+                }, 300);
+            });
+            
+            // Clear search on Escape key
+            searchInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    this.value = '';
+                    searchTimeline('');
+                }
+            });
         }
-    });
-}
-
-function exportHistory() {
-    // Simple export functionality - copy to clipboard
-    const timeline = document.getElementById('timeline');
-    const text = timeline.innerText;
+        
+        // Keyboard navigation for filter buttons
+        filterButtons.forEach((button, index) => {
+            button.addEventListener('keydown', function(e) {
+                if (e.key === 'ArrowRight' && filterButtons[index + 1]) {
+                    filterButtons[index + 1].focus();
+                } else if (e.key === 'ArrowLeft' && filterButtons[index - 1]) {
+                    filterButtons[index - 1].focus();
+                } else if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    this.click();
+                }
+            });
+        });
+        
+        // Export dropdown functionality
+        if (exportToggle && exportMenu) {
+            exportToggle.addEventListener('click', function(e) {
+                e.preventDefault();
+                const isExpanded = this.getAttribute('aria-expanded') === 'true';
+                toggleExportMenu(!isExpanded);
+            });
+            
+            // Close dropdown when clicking outside
+            document.addEventListener('click', function(e) {
+                if (!exportToggle.contains(e.target) && !exportMenu.contains(e.target)) {
+                    toggleExportMenu(false);
+                }
+            });
+            
+            // Keyboard navigation for export menu
+            exportToggle.addEventListener('keydown', function(e) {
+                if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggleExportMenu(true);
+                    const firstOption = exportMenu.querySelector('.export-option');
+                    if (firstOption) firstOption.focus();
+                }
+            });
+            
+            // Export menu keyboard navigation
+            const exportOptions = exportMenu.querySelectorAll('.export-option');
+            exportOptions.forEach((option, index) => {
+                option.addEventListener('keydown', function(e) {
+                    if (e.key === 'ArrowDown' && exportOptions[index + 1]) {
+                        exportOptions[index + 1].focus();
+                    } else if (e.key === 'ArrowUp' && exportOptions[index - 1]) {
+                        exportOptions[index - 1].focus();
+                    } else if (e.key === 'Escape') {
+                        toggleExportMenu(false);
+                        exportToggle.focus();
+                    }
+                });
+            });
+        }
+        
+        // Toggle export menu function
+        function toggleExportMenu(show) {
+            if (exportToggle && exportMenu) {
+                exportToggle.setAttribute('aria-expanded', show);
+                exportMenu.style.display = show ? 'block' : 'none';
+                if (show) {
+                    exportMenu.style.opacity = '0';
+                    exportMenu.style.transform = 'translateY(-10px)';
+                    setTimeout(() => {
+                        exportMenu.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+                        exportMenu.style.opacity = '1';
+                        exportMenu.style.transform = 'translateY(0)';
+                    }, 10);
+                }
+            }
+        }
+    }
     
-    navigator.clipboard.writeText(text).then(() => {
-        alert('History copied to clipboard!');
-    });
-}
+    // Enhanced filter timeline function
+    function filterTimeline(type, clickedButton) {
+        const items = document.querySelectorAll('.timeline-item');
+        const buttons = document.querySelectorAll('.filter-btn');
+        const loadingIndicator = document.getElementById('timeline-loading');
+        
+        // Show loading state
+        showLoading();
+        
+        // Simulate processing delay for visual feedback
+        setTimeout(() => {
+            // Update button states and ARIA attributes
+            buttons.forEach(btn => {
+                btn.classList.remove('active');
+                btn.setAttribute('aria-pressed', 'false');
+            });
+            
+            if (clickedButton) {
+                clickedButton.classList.add('active');
+                clickedButton.setAttribute('aria-pressed', 'true');
+            }
+            
+            // Filter timeline items with animation
+            let visibleCount = 0;
+            items.forEach((item, index) => {
+                const shouldShow = type === 'all' || item.dataset.type === type;
+                
+                if (shouldShow) {
+                    visibleCount++;
+                    item.style.display = 'block';
+                    item.style.opacity = '0';
+                    item.style.transform = 'translateY(10px)';
+                    
+                    // Stagger animation
+                    setTimeout(() => {
+                        item.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                        item.style.opacity = '1';
+                        item.style.transform = 'translateY(0)';
+                    }, index * 50);
+                } else {
+                    item.style.transition = 'opacity 0.2s ease';
+                    item.style.opacity = '0';
+                    setTimeout(() => {
+                        item.style.display = 'none';
+                    }, 200);
+                }
+            });
+            
+            // Update search results counter
+            updateSearchResults(visibleCount, type);
+            hideLoading();
+        }, 100);
+    }
+    
+    // Search timeline function
+    function searchTimeline(query) {
+        const items = document.querySelectorAll('.timeline-item');
+        const activeFilter = document.querySelector('.filter-btn.active').dataset.filter;
+        let visibleCount = 0;
+        
+        if (query.trim() === '') {
+            // If search is empty, apply current filter
+            filterTimeline(activeFilter);
+            return;
+        }
+        
+        showLoading();
+        
+        setTimeout(() => {
+            items.forEach(item => {
+                const text = item.textContent.toLowerCase();
+                const matchesSearch = text.includes(query.toLowerCase());
+                const matchesFilter = activeFilter === 'all' || item.dataset.type === activeFilter;
+                
+                if (matchesSearch && matchesFilter) {
+                    visibleCount++;
+                    item.style.display = 'block';
+                    highlightSearchTerm(item, query);
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+            
+            updateSearchResults(visibleCount, 'search', query);
+            hideLoading();
+        }, 100);
+    }
+    
+    // Highlight search term in timeline items
+    function highlightSearchTerm(item, query) {
+        const content = item.querySelector('.timeline-content');
+        if (!content || !query.trim()) return;
+        
+        const text = content.textContent;
+        const regex = new RegExp(`(${query})`, 'gi');
+        const highlightedText = text.replace(regex, '<mark class="search-highlight">$1</mark>');
+        content.innerHTML = highlightedText;
+    }
+    
+    // Update search results counter
+    function updateSearchResults(count, filterType, searchQuery = '') {
+        const resultsDiv = document.getElementById('search-results');
+        if (!resultsDiv) return;
+        
+        let message = '';
+        if (searchQuery) {
+            message = `${count} results for "${searchQuery}"`;
+        } else {
+            const filterNames = {
+                'all': 'All items',
+                'lead_history': 'Changes',
+                'communication': 'Communications',
+                'activity': 'Activities',
+                'assignment': 'Assignments',
+                'comment': 'Comments',
+                'bo_update': 'Back Office'
+            };
+            message = `${count} ${filterNames[filterType] || filterType}`;
+        }
+        
+        resultsDiv.textContent = message;
+        resultsDiv.style.display = count > 0 ? 'block' : 'none';
+    }
+    
+    // Show loading indicator
+    function showLoading() {
+        const loadingIndicator = document.getElementById('timeline-loading');
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'flex';
+        }
+    }
+    
+    // Hide loading indicator
+    function hideLoading() {
+        const loadingIndicator = document.getElementById('timeline-loading');
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'none';
+        }
+    }
+    
+    // Enhanced export functionality
+    function exportHistory(format = 'clipboard') {
+        const timeline = document.getElementById('timeline');
+        const items = document.querySelectorAll('.timeline-item:not([style*="display: none"])');
+        
+        if (items.length === 0) {
+            showNotification('No items to export', 'warning');
+            return;
+        }
+        
+        switch(format) {
+            case 'csv':
+                exportToCSV(items);
+                break;
+            case 'excel':
+                exportToExcel(items);
+                break;
+            case 'clipboard':
+            default:
+                exportToClipboard(items);
+                break;
+        }
+    }
+    
+    // Export to CSV
+    function exportToCSV(items) {
+        let csv = 'Type,Timestamp,Content,User\n';
+        
+        items.forEach(item => {
+            const type = item.dataset.type || '';
+            const timestamp = item.querySelector('.timeline-timestamp')?.textContent || '';
+            const content = item.querySelector('.timeline-content')?.textContent || '';
+            const user = item.querySelector('.timeline-user')?.textContent || '';
+            
+            // Escape commas and quotes in CSV
+            const escapeCSV = (text) => {
+                if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+                    return '"' + text.replace(/"/g, '""') + '"';
+                }
+                return text;
+            };
+            
+            csv += `${escapeCSV(type)},${escapeCSV(timestamp)},${escapeCSV(content)},${escapeCSV(user)}\n`;
+        });
+        
+        downloadFile(csv, 'timeline_export.csv', 'text/csv');
+        showNotification('Timeline exported to CSV', 'success');
+    }
+    
+    // Export to Excel (simple format)
+    function exportToExcel(items) {
+        let html = '<table>';
+        html += '<tr><th>Type</th><th>Timestamp</th><th>Content</th><th>User</th></tr>';
+        
+        items.forEach(item => {
+            const type = item.dataset.type || '';
+            const timestamp = item.querySelector('.timeline-timestamp')?.textContent || '';
+            const content = item.querySelector('.timeline-content')?.textContent || '';
+            const user = item.querySelector('.timeline-user')?.textContent || '';
+            
+            html += `<tr>`;
+            html += `<td>${escapeHtml(type)}</td>`;
+            html += `<td>${escapeHtml(timestamp)}</td>`;
+            html += `<td>${escapeHtml(content)}</td>`;
+            html += `<td>${escapeHtml(user)}</td>`;
+            html += `</tr>`;
+        });
+        
+        html += '</table>';
+        
+        downloadFile(html, 'timeline_export.xls', 'application/vnd.ms-excel');
+        showNotification('Timeline exported to Excel', 'success');
+    }
+    
+    // Export to clipboard with formatting
+    function exportToClipboard(items) {
+        let text = 'Lead Timeline Export\n';
+        text += 'Generated: ' + new Date().toLocaleString() + '\n';
+        text += '=' .repeat(50) + '\n\n';
+        
+        items.forEach((item, index) => {
+            const type = item.dataset.type || '';
+            const timestamp = item.querySelector('.timeline-timestamp')?.textContent || '';
+            const content = item.querySelector('.timeline-content')?.textContent || '';
+            const user = item.querySelector('.timeline-user')?.textContent || '';
+            
+            text += `${index + 1}. [${type.toUpperCase()}] ${timestamp}\n`;
+            text += `   Content: ${content}\n`;
+            if (user) text += `   User: ${user}\n`;
+            text += '\n';
+        });
+        
+        navigator.clipboard.writeText(text).then(() => {
+            showNotification('Timeline copied to clipboard!', 'success');
+        }).catch(() => {
+            showNotification('Failed to copy to clipboard', 'error');
+        });
+    }
+    
+    // Helper function to download files
+    function downloadFile(content, filename, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+    }
+    
+    // Helper function to escape HTML
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // Show notification
+    function showNotification(message, type = 'info') {
+        // Remove existing notifications
+        const existingNotification = document.querySelector('.timeline-notification');
+        if (existingNotification) {
+            existingNotification.remove();
+        }
+        
+        const notification = document.createElement('div');
+        notification.className = `timeline-notification timeline-notification-${type}`;
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            z-index: 10000;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.3s ease;
+        `;
+        
+        // Set background color based on type
+        const colors = {
+            success: '#27ae60',
+            error: '#e74c3c',
+            warning: '#f39c12',
+            info: '#3498db'
+        };
+        notification.style.backgroundColor = colors[type] || colors.info;
+        
+        document.body.appendChild(notification);
+        
+        // Animate in
+        setTimeout(() => {
+            notification.style.opacity = '1';
+            notification.style.transform = 'translateY(0)';
+        }, 10);
+        
+        // Remove after 3 seconds
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            notification.style.transform = 'translateY(-20px)';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }, 3000);
+    }
+    
+    // Make functions globally accessible
+    window.filterTimeline = filterTimeline;
+    window.exportHistory = exportHistory;
+    
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initTimeline);
+    } else {
+        initTimeline();
+    }
+})();
 </script>
 {% endblock %}

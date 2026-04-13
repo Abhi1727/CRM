@@ -1,24 +1,26 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib import messages
+from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Sum, Q, F, Case, When, IntegerField
-from django.utils import timezone
-from django.core.exceptions import PermissionDenied
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib import messages
 from django.http import JsonResponse, HttpResponse
-from django.urls import reverse
-from django.core.paginator import Paginator
+from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.db import transaction
-from django.http import QueryDict, Http404
+from django.db.models import Q, Count, Sum, Avg, Max, Min, Case, When, Value, IntegerField, F, Window, Prefetch
+from django.utils import timezone
+from django.urls import reverse
 from django.core.cache import cache
-import pandas as pd
+from django.conf import settings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
-import os
+import logging
+from datetime import datetime, time, timedelta
+from decimal import Decimal
+from collections import defaultdict
 import uuid
-import hashlib
-from datetime import datetime, time
 
-from .models import Lead, LeadActivity, LeadHistory, LeadImportSession, LeadOperationLog
+from .models import Lead, LeadActivity, LeadHistory, LeadImportSession, LeadOperationLog, BulkOperation, BulkOperationProgress
 from .forms import (
     LeadForm, LeadAssignmentForm, BulkLeadAssignmentForm, 
     LeadImportForm, LeadStatusUpdateForm
@@ -26,6 +28,8 @@ from .forms import (
 from accounts.permissions import hierarchy_required, role_required, can_access_lead_required
 from accounts.models import User
 from services.duplicate_detector import DuplicateDetector
+from core.cache import CacheManager, QueryResultCache, cache_result, cached_view
+from core.queries import OptimizedLeadManager, OptimizedUserManager, QueryOptimizer
 
 # Internal Reminder Views
 @login_required
@@ -45,6 +49,7 @@ def team_dashboard(request):
 
 @login_required
 @hierarchy_required
+@cache_result(timeout=300, key_prefix="dashboard_home", vary_on=['user.id', 'user.company_id'])
 def home(request):
     # Get greeting based on time
     current_hour = datetime.now().hour
@@ -55,38 +60,30 @@ def home(request):
     else:
         greeting_time = "Evening"
     
-    # Generate cache keys for dashboard statistics
-    cache_key_prefix = f"dashboard_stats_{request.user.id}_{request.user.company_id}"
+    # Use optimized lead manager for better performance
+    lead_manager = OptimizedLeadManager()
+    lead_manager.model = Lead
     
-    # Try to get cached statistics
-    cached_stats = cache.get(f"{cache_key_prefix}_main")
+    # Get accessible leads with optimization
+    accessible_leads = lead_manager.get_accessible_leads(request.user, request.user.company_id)
     
-    if cached_stats:
-        # Use cached data
-        total_leads = cached_stats['total_leads']
-        today_follow_ups = cached_stats['today_follow_ups']
-        exp_revenue = cached_stats['exp_revenue']
-        course_amount_total = cached_stats['course_amount_total']
-        formatted_leads_by_status = cached_stats['formatted_leads_by_status']
-    else:
-        # Compute and cache statistics
-        # Get user's accessible leads only
-        accessible_leads = request.hierarchy_context['accessible_leads']
-        
-        # Get total leads count
-        total_leads = accessible_leads.count()
-        
-        # Get today's follow-ups
+    # Get comprehensive statistics with single optimized query
+    cache_key = QueryResultCache.get_query_cache_key(
+        'dashboard_main_stats', request.user.id, request.user.company_id
+    )
+    
+    cached_stats = QueryResultCache.get_cached_query_result(cache_key)
+    if not cached_stats:
+        # Single query for all statistics
         today = timezone.now().date()
-        today_follow_ups = accessible_leads.filter(followup_datetime__date=today).count()
+        stats = accessible_leads.aggregate(
+            total_leads=Count('id_lead'),
+            today_follow_ups=Count('id_lead', filter=Q(followup_datetime__date=today)),
+            exp_revenue=Sum('exp_revenue'),
+            course_amount_total=Sum('course_amount'),
+        )
         
-        # Get expected revenue
-        exp_revenue = accessible_leads.aggregate(total=Sum('exp_revenue'))['total'] or 0
-        
-        # Get course amount total (as actual revenue)
-        course_amount_total = accessible_leads.aggregate(total=Sum('course_amount'))['total'] or 0
-        
-        # Get leads by status with optimized single query
+        # Status distribution
         leads_by_status = dict(
             accessible_leads.values('status')
             .annotate(count=Count('id_lead'))
@@ -101,18 +98,24 @@ def home(request):
                 'count': leads_by_status.get(status_code, 0)
             }
         
-        # Cache the main statistics for 5 minutes
-        stats_data = {
-            'total_leads': total_leads,
-            'today_follow_ups': today_follow_ups,
-            'exp_revenue': exp_revenue,
-            'course_amount_total': course_amount_total,
+        cached_stats = {
+            'total_leads': stats['total_leads'] or 0,
+            'today_follow_ups': stats['today_follow_ups'] or 0,
+            'exp_revenue': stats['exp_revenue'] or 0,
+            'course_amount_total': stats['course_amount_total'] or 0,
             'formatted_leads_by_status': formatted_leads_by_status,
         }
-        cache.set(f"{cache_key_prefix}_main", stats_data, 300)
+        
+        QueryResultCache.cache_query_result(cache_key, cached_stats, timeout=300)
+    
+    total_leads = cached_stats['total_leads']
+    today_follow_ups = cached_stats['today_follow_ups']
+    exp_revenue = cached_stats['exp_revenue']
+    course_amount_total = cached_stats['course_amount_total']
+    formatted_leads_by_status = cached_stats['formatted_leads_by_status']
     
     # Role-specific metrics with caching
-    role_cache_key = f"{cache_key_prefix}_role_{request.user.role}"
+    role_cache_key = f"dashboard_home_role_{request.user.id}_{request.user.company_id}_{request.user.role}"
     cached_role_stats = cache.get(role_cache_key)
     
     if cached_role_stats:
@@ -406,23 +409,37 @@ def _apply_common_lead_filters(queryset, user, filters):
                 logger.debug(f"DEBUG: User has no assigned leads, showing unassigned leads: {queryset.count()}")
             
         elif filters['preset'] == 'today':
-            today = timezone.now().date()
-            today_start = timezone.make_aware(datetime.combine(today, time.min))
-            today_end = timezone.make_aware(datetime.combine(today, time.max))
+            # Force Asia/Kolkata timezone for consistent date handling
+            from django.utils.timezone import activate
+            activate('Asia/Kolkata')
+            
+            today_kolkata = timezone.now().date()
+            today_start = timezone.make_aware(datetime.combine(today_kolkata, time.min))
+            today_end = timezone.make_aware(datetime.combine(today_kolkata, time.max))
+            
+            # Filter leads created today in Asia/Kolkata timezone
             queryset = queryset.filter(created_at__gte=today_start, created_at__lte=today_end)
-            logger.debug(f"DEBUG: After today preset (date={today}, range={today_start} to {today_end}): {queryset.count()}")
+            logger.debug(f"DEBUG: After today preset (Kolkata date={today_kolkata}, range={today_start} to {today_end}): {queryset.count()}")
             
         elif filters['preset'] == 'week':
+            # Force Asia/Kolkata timezone for consistent date handling
+            from django.utils.timezone import activate
+            activate('Asia/Kolkata')
+            
             week_ago_date = timezone.now().date() - timezone.timedelta(days=7)
             week_start = timezone.make_aware(datetime.combine(week_ago_date, time.min))
             queryset = queryset.filter(created_at__gte=week_start)
-            logger.debug(f"DEBUG: After week preset (since={week_start}): {queryset.count()}")
+            logger.debug(f"DEBUG: After week preset (since={week_start} Kolkata): {queryset.count()}")
             
         elif filters['preset'] == 'month':
+            # Force Asia/Kolkata timezone for consistent date handling
+            from django.utils.timezone import activate
+            activate('Asia/Kolkata')
+            
             month_ago_date = timezone.now().date() - timezone.timedelta(days=30)
             month_start = timezone.make_aware(datetime.combine(month_ago_date, time.min))
             queryset = queryset.filter(created_at__gte=month_start)
-            logger.debug(f"DEBUG: After month preset (since={month_start}): {queryset.count()}")
+            logger.debug(f"DEBUG: After month preset (since={month_start} Kolkata): {queryset.count()}")
             
         else:
             logger.debug(f"DEBUG: Unknown preset value: {filters['preset']}")
@@ -573,7 +590,12 @@ def leads_transferred(request):
     
     # Combine both datasets
     base_queryset = (assigned_by_user_leads | transfer_leads).distinct()
-    return _render_leads_list_page(request, base_queryset, 'Transferred Leads', default_sort='-created_at')
+    
+    # Apply common filters including date filtering and presets
+    filters = _extract_lead_filters(request.GET)
+    filtered_queryset = _apply_common_lead_filters(base_queryset, request.user, filters)
+    
+    return _render_leads_list_page(request, filtered_queryset, 'Transferred Leads', default_sort='-created_at')
 
 @login_required
 @hierarchy_required
@@ -922,7 +944,7 @@ def lead_assign(request, pk):
 @login_required
 @hierarchy_required
 def bulk_lead_assign(request):
-    """Bulk assign multiple leads to a user"""
+    """Bulk assign multiple leads to a user with progress tracking"""
     if request.method == "POST":
         form = BulkLeadAssignmentForm(request.user, request.POST)
         if form.is_valid():
@@ -944,92 +966,48 @@ def bulk_lead_assign(request):
                 messages.error(request, "No accessible leads found for assignment.")
                 return redirect("dashboard:leads_all")
             
-            successful_assignments = 0
-            failed_assignments = 0
+            # Create bulk operation for progress tracking
+            operation_id = f"bulk_assign_{uuid.uuid4().hex[:12]}"
+            operation = BulkOperation.objects.create(
+                operation_id=operation_id,
+                operation_type='bulk_assign',
+                user=request.user,
+                company_id=request.user.company_id,
+                total_items=accessible_leads.count(),
+                operation_config={
+                    'assigned_user_id': assigned_user.id,
+                    'assigned_user_name': assigned_user.username,
+                    'assignment_notes': assignment_notes,
+                    'lead_ids': lead_ids
+                },
+                filter_snapshot={
+                    'lead_ids': lead_ids,
+                    'action_scope': 'current_page'
+                }
+            )
             
-            # Batch optimize: collect all valid assignments first
-            valid_assignments = []
-            assignment_history_data = []
-            activity_data = []
+            # Start operation
+            operation.start_operation()
             
-            for lead in accessible_leads.select_related('assigned_user'):
-                try:
-                    # Check if user can assign this lead
-                    can_assign = lead.can_be_assigned_by(request.user)
-                    can_assign_to_target = lead.can_be_assigned_to_user(assigned_user, request.user)
-                    
-                    if can_assign and can_assign_to_target:
-                        old_user = lead.assigned_user
-                        valid_assignments.append({
-                            'lead': lead,
-                            'old_user': old_user,
-                        })
-                        
-                        # Prepare assignment history data
-                        assignment_history_data.append(LeadHistory(
-                            lead=lead,
-                            user=request.user,
-                            field_name='assigned_user',
-                            old_value=old_user.username if old_user else None,
-                            new_value=assigned_user.username,
-                            action=f'Bulk assigned to {assigned_user.username}'
-                        ))
-                        
-                        # Prepare activity data
-                        activity_data.append(LeadActivity(
-                            lead=lead,
-                            user=request.user,
-                            activity_type='bulk_assignment',
-                            description=f'Bulk assigned to {assigned_user.username}. {assignment_notes}'
-                        ))
-                        
-                        successful_assignments += 1
-                    else:
-                        failed_assignments += 1
-                except Exception as e:
-                    failed_assignments += 1
+            # Use optimized bulk assignment with progress tracking
+            successful_assignments, failed_assignments = _process_assignments_concurrently_with_progress(
+                accessible_leads.select_related('assigned_user'),
+                assigned_user,
+                request.user,
+                assignment_notes,
+                operation
+            )
             
-            # Batch update assignments using bulk operations
-            if valid_assignments:
-                # Update lead assignments in batch
-                leads_to_update = []
-                for assignment in valid_assignments:
-                    lead = assignment['lead']
-                    old_user = assignment['old_user']
-                    
-                    # Update lead fields
-                    lead.assigned_user = assigned_user
-                    lead.assigned_by = request.user
-                    lead.assigned_at = timezone.now()
-                    
-                    # Handle transfer fields
-                    is_transfer = (old_user and old_user != assigned_user) or (not old_user)  # bulk assignment from unassigned
-                    if is_transfer:
-                        if old_user:
-                            lead.transfer_from = old_user.get_full_name() or old_user.username
-                        else:
-                            lead.transfer_from = "Unassigned"
-                        lead.transfer_by = request.user.get_full_name() or request.user.username
-                        lead.transfer_date = timezone.now()
-                    
-                    leads_to_update.append(lead)
-                
-                # Bulk update leads
-                Lead.objects.bulk_update(leads_to_update, [
-                    'assigned_user', 'assigned_by', 'assigned_at', 
-                    'transfer_from', 'transfer_by', 'transfer_date'
-                ])
-                
-                # Bulk create history and activity records
-                if assignment_history_data:
-                    LeadHistory.objects.bulk_create(assignment_history_data)
-                if activity_data:
-                    LeadActivity.objects.bulk_create(activity_data)
+            # Complete operation
+            operation.complete_operation(
+                success=True,
+                error_message=f"Failed to assign {failed_assignments} leads" if failed_assignments > 0 else None
+            )
             
             if successful_assignments > 0:
-                messages.success(request, f"Successfully assigned {successful_assignments} leads to {assigned_user.username}.")
+                messages.success(request, f"Successfully assigned {successful_assignments} leads to {assigned_user.username}. Operation ID: {operation_id}")
             if failed_assignments > 0:
-                messages.warning(request, f"Failed to assign {failed_assignments} leads due to permission restrictions.")
+                messages.warning(request, f"Failed to assign {failed_assignments} leads due to permission restrictions. Operation ID: {operation_id}")
             
             return redirect("dashboard:leads_all")
     else:
@@ -1094,6 +1072,182 @@ def _create_operation_log(request, operation_type, action_scope, scoped_qs, succ
     return operation_id
 
 
+def _create_bulk_operation(request, operation_type, total_items, operation_config=None, filter_snapshot=None, estimated_duration=None):
+    """Create a bulk operation for progress tracking"""
+    operation_id = f"{operation_type}_{uuid.uuid4().hex[:12]}"
+    return BulkOperation.objects.create(
+        operation_id=operation_id,
+        operation_type=operation_type,
+        user=request.user,
+        company_id=request.user.company_id,
+        total_items=total_items,
+        operation_config=operation_config or {},
+        filter_snapshot=filter_snapshot or {},
+        estimated_duration=estimated_duration
+    )
+
+
+def _update_operation_progress(operation, batch_num, batch_size, total_batches, 
+                              batch_success, batch_failed, batch_skipped, 
+                              batch_duration, error_samples=None):
+    """Update operation progress with batch information"""
+    update_id = f"{operation.operation_id}_batch_{batch_num}"
+    
+    # Calculate cumulative totals
+    cumulative_processed = operation.processed_items + batch_success + batch_failed + batch_skipped
+    cumulative_success = operation.success_items + batch_success
+    cumulative_failed = operation.failed_items + batch_failed
+    cumulative_skipped = operation.skipped_items + batch_skipped
+    
+    # Update main operation
+    operation.update_progress(
+        processed=batch_success + batch_failed + batch_skipped,
+        success=batch_success,
+        failed=batch_failed,
+        skipped=batch_skipped
+    )
+    
+    # Create detailed progress record
+    BulkOperationProgress.objects.create(
+        operation=operation,
+        update_id=update_id,
+        current_batch=batch_num,
+        batch_size=batch_size,
+        total_batches=total_batches,
+        batch_success=batch_success,
+        batch_failed=batch_failed,
+        batch_skipped=batch_skipped,
+        cumulative_processed=cumulative_processed,
+        cumulative_success=cumulative_success,
+        cumulative_failed=cumulative_failed,
+        cumulative_skipped=cumulative_skipped,
+        batch_duration=batch_duration,
+        cumulative_duration=(timezone.now() - operation.started_at).total_seconds() if operation.started_at else 0,
+        batch_rate=(batch_success + batch_failed + batch_skipped) / batch_duration if batch_duration > 0 else 0,
+        error_samples=error_samples or []
+    )
+
+
+def _process_assignments_concurrently_with_progress(leads_queryset, assigned_user, assigned_by, assignment_notes, operation):
+    """Process assignments concurrently with progress tracking"""
+    from django.db import transaction
+    from .models import LeadActivity
+    
+    BATCH_SIZE = 1000
+    total_leads = leads_queryset.count()
+    total_batches = (total_leads + BATCH_SIZE - 1) // BATCH_SIZE
+    
+    successful_assignments = 0
+    failed_assignments = 0
+    
+    def process_batch(batch_leads, batch_num):
+        batch_success = 0
+        batch_failed = 0
+        batch_errors = []
+        
+        batch_start_time = time.time()
+        
+        try:
+            with transaction.atomic():
+                leads_to_update = []
+                activities_to_create = []
+                
+                for lead in batch_leads:
+                    try:
+                        # Check assignment permission
+                        if not lead.can_be_assigned_by(assigned_by):
+                            batch_failed += 1
+                            batch_errors.append({
+                                'lead_id': lead.id_lead,
+                                'error': 'Permission denied',
+                                'lead_name': lead.name
+                            })
+                            continue
+                        
+                        # Check if can be assigned to target user
+                        if not lead.can_be_assigned_to_user(assigned_user, assigned_by):
+                            batch_failed += 1
+                            batch_errors.append({
+                                'lead_id': lead.id_lead,
+                                'error': 'Cannot assign to this user (hierarchy restriction)',
+                                'lead_name': lead.name
+                            })
+                            continue
+                        
+                        # Perform assignment
+                        old_assigned_user = lead.assigned_user
+                        lead.assign_to_user(assigned_user, assigned_by, bulk_assignment=True)
+                        leads_to_update.append(lead)
+                        
+                        # Create activity log
+                        activity_description = f'Assigned to {assigned_user.get_full_name() or assigned_user.username}'
+                        if assignment_notes:
+                            activity_description += f' - Notes: {assignment_notes}'
+                        
+                        activities_to_create.append(LeadActivity(
+                            lead=lead,
+                            user=assigned_by,
+                            activity_type='assignment',
+                            description=activity_description
+                        ))
+                        
+                        batch_success += 1
+                        
+                    except Exception as e:
+                        batch_failed += 1
+                        batch_errors.append({
+                            'lead_id': lead.id_lead,
+                            'error': str(e),
+                            'lead_name': lead.name
+                        })
+                
+                # Bulk update leads
+                if leads_to_update:
+                    Lead.objects.bulk_update(leads_to_update, ['assigned_user', 'assigned_by', 'assigned_at', 'transfer_from', 'transfer_by', 'transfer_date', 'assignment_history', 'last_assigned_agent', 'last_assigned_manager'])
+                
+                # Bulk create activities
+                if activities_to_create:
+                    LeadActivity.objects.bulk_create(activities_to_create)
+                
+        except Exception as e:
+            # If transaction fails, count all as failed
+            batch_failed = len(batch_leads)
+            batch_errors.append({
+                'error': f'Batch transaction failed: {str(e)}',
+                'batch_num': batch_num
+            })
+        
+        batch_duration = time.time() - batch_start_time
+        
+        # Update progress
+        _update_operation_progress(
+            operation, batch_num, len(batch_leads), total_batches,
+            batch_success, batch_failed, 0, batch_duration,
+            batch_errors[:5]  # Keep only first 5 errors
+        )
+        
+        return batch_success, batch_failed
+    
+    # Process batches in parallel
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = []
+        batch_num = 0
+        
+        for start in range(0, total_leads, BATCH_SIZE):
+            batch_num += 1
+            batch_leads = leads_queryset[start:start + BATCH_SIZE]
+            future = executor.submit(process_batch, list(batch_leads), batch_num)
+            futures.append(future)
+        
+        # Collect results
+        for future in as_completed(futures):
+            batch_success, batch_failed = future.result()
+            successful_assignments += batch_success
+            failed_assignments += batch_failed
+    
+    return successful_assignments, failed_assignments
+
+
 @login_required
 @hierarchy_required
 def bulk_lead_delete(request):
@@ -1113,32 +1267,8 @@ def bulk_lead_delete(request):
         messages.error(request, "No accessible leads found for deletion.")
         return redirect("dashboard:leads_all")
 
-    deleted_count = 0
-    activity_data = []
-    leads_to_update = []
-    
-    for lead in leads_to_delete:
-        if lead.deleted:
-            continue
-        lead.deleted = True
-        lead.modified_user = request.user
-        leads_to_update.append(lead)
-        
-        activity_data.append(LeadActivity(
-            lead=lead,
-            user=request.user,
-            activity_type='delete',
-            description='Lead deleted from leads list (bulk action).'
-        ))
-        deleted_count += 1
-
-    # Bulk update leads
-    if leads_to_update:
-        Lead.objects.bulk_update(leads_to_update, ['deleted', 'modified_user'])
-    
-    # Bulk create activities
-    if activity_data:
-        LeadActivity.objects.bulk_create(activity_data)
+    # Use optimized bulk delete
+    deleted_count = _bulk_delete_optimized(leads_to_delete, request.user)
 
     requested_count = request.POST.get('scope_count')
     try:
@@ -1322,94 +1452,201 @@ def lead_import(request):
                 # Reset file pointer to beginning for pandas
                 file.seek(0)
                 
-                # Read file based on extension with encoding handling
-                if file.name.endswith('.csv'):
-                    try:
-                        # Try UTF-8 first
-                        df = pd.read_csv(file, encoding='utf-8')
-                    except UnicodeDecodeError:
-                        try:
-                            # Try common encodings
-                            file.seek(0)
-                            df = pd.read_csv(file, encoding='latin-1')
-                        except UnicodeDecodeError:
+                # OPTIMIZED: Streaming file processing to reduce memory usage
+                def process_file_streaming(file):
+                    """Process file in streaming mode to reduce memory usage"""
+                    import csv
+                    from io import TextIOWrapper
+                    
+                    leads_data = []
+                    
+                    if file.name.endswith('.csv'):
+                        # STREAMING CSV PROCESSING
+                        file.seek(0)
+                        reader = None
+                        
+                        # Try different encodings for CSV files
+                        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']
+                        for encoding in encodings:
                             try:
                                 file.seek(0)
-                                df = pd.read_csv(file, encoding='cp1252')
+                                if hasattr(file, 'read'):
+                                    # Handle Django uploaded file
+                                    text_file = TextIOWrapper(file, encoding=encoding)
+                                    reader = csv.DictReader(text_file)
+                                else:
+                                    reader = csv.DictReader(file)
+                                break
                             except UnicodeDecodeError:
-                                file.seek(0)
-                                df = pd.read_csv(file, encoding='utf-8-sig')
-                else:
-                    # Excel files usually handle encoding better
-                    df = pd.read_excel(file)
-
-                # Normalize column names so imports work with common header variants.
-                df.columns = [str(col).strip().lower() for col in df.columns]
-                
-                # Check if dataframe is empty
-                if df.empty:
-                    return _error_response("No data found in file. Please check file content.", form_instance=form)
-                
-                # Check if dataframe has columns
-                if len(df.columns) == 0:
-                    return _error_response("No columns found in file. Please check CSV format and headers.", form_instance=form)
-                
-                # Validate required columns
-                required_columns = ['name', 'mobile']
-                missing_columns = [col for col in required_columns if col not in df.columns]
-                
-                if missing_columns:
-                    return _error_response(
-                        f"Missing required columns: {', '.join(missing_columns)}",
-                        form_instance=form
-                    )
-                
-                # Step 2: Duplicate Detection
-                # Convert DataFrame to list of dictionaries
-                leads_data = []
-                for index, row in df.iterrows():
-                    lead_data = {
-                        'name': '' if pd.isna(row.get('name')) else str(row.get('name', '')).strip(),
-                        'mobile': '' if pd.isna(row.get('mobile')) else str(row.get('mobile', '')).strip(),
-                        'email': '' if pd.isna(row.get('email')) else str(row.get('email', '')).strip(),
-                        'alt_mobile': '' if pd.isna(row.get('alt_mobile')) else str(row.get('alt_mobile', '')).strip(),
-                        'whatsapp_no': '' if pd.isna(row.get('whatsapp_no')) else str(row.get('whatsapp_no', '')).strip(),
-                        'alt_email': '' if pd.isna(row.get('alt_email')) else str(row.get('alt_email', '')).strip(),
-                        'address': '' if pd.isna(row.get('address')) else str(row.get('address', '')).strip(),
-                        'city': '' if pd.isna(row.get('city')) else str(row.get('city', '')).strip(),
-                        'state': '' if pd.isna(row.get('state')) else str(row.get('state', '')).strip(),
-                        'postalcode': '' if pd.isna(row.get('postalcode')) else str(row.get('postalcode', '')).strip(),
-                        'country': '' if pd.isna(row.get('country')) else str(row.get('country', '')).strip(),
-                        'status': '' if pd.isna(row.get('status')) else str(row.get('status', 'lead')).strip() or 'lead',
-                        'status_description': '' if pd.isna(row.get('status_description')) else str(row.get('status_description', '')).strip(),
-                        'lead_source': '' if pd.isna(row.get('lead_source')) else str(row.get('lead_source', '')).strip(),
-                        'lead_source_description': '' if pd.isna(row.get('lead_source_description')) else str(row.get('lead_source_description', '')).strip(),
-                        'refered_by': '' if pd.isna(row.get('refered_by')) else str(row.get('refered_by', '')).strip(),
-                        'campaign_id': '' if pd.isna(row.get('campaign_id')) else str(row.get('campaign_id', '')).strip(),
-                        'course_name': '' if pd.isna(row.get('course_name')) else str(row.get('course_name', '')).strip(),
-                        'course_amount': '' if pd.isna(row.get('course_amount')) else str(row.get('course_amount', '')).strip(),
-                        'exp_revenue': '' if pd.isna(row.get('exp_revenue')) else str(row.get('exp_revenue', '')).strip(),
-                        'description': '' if pd.isna(row.get('description')) else str(row.get('description', '')).strip(),
-                        'company': '' if pd.isna(row.get('company')) else str(row.get('company', '')).strip(),  # For related lead detection
-                    }
+                                continue
+                        
+                        if not reader:
+                            raise ValueError("Unable to read CSV file with any supported encoding")
+                        
+                        # Validate and normalize column names
+                        if not reader.fieldnames:
+                            raise ValueError("CSV file has no headers")
+                        
+                        column_names = [str(col).strip().lower() for col in reader.fieldnames]
+                        
+                        # Validate required columns
+                        required_columns = ['name', 'mobile']
+                        missing_columns = [col for col in required_columns if col not in column_names]
+                        
+                        if missing_columns:
+                            raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
+                        
+                        # Process rows in streaming mode
+                        for row_num, row in enumerate(reader):
+                            if row_num >= 100000:  # Safety limit
+                                break
+                            
+                            lead_data = {
+                                'name': row.get('name', '').strip(),
+                                'mobile': row.get('mobile', '').strip(),
+                                'email': row.get('email', '').strip(),
+                                'alt_mobile': row.get('alt_mobile', '').strip(),
+                                'whatsapp_no': row.get('whatsapp_no', '').strip(),
+                                'alt_email': row.get('alt_email', '').strip(),
+                                'address': row.get('address', '').strip(),
+                                'city': row.get('city', '').strip(),
+                                'state': row.get('state', '').strip(),
+                                'postalcode': row.get('postalcode', '').strip(),
+                                'country': row.get('country', '').strip(),
+                                'status': row.get('status', 'lead').strip() or 'lead',
+                                'status_description': row.get('status_description', '').strip(),
+                                'lead_source': row.get('lead_source', '').strip(),
+                                'lead_source_description': row.get('lead_source_description', '').strip(),
+                                'refered_by': row.get('refered_by', '').strip(),
+                                'campaign_id': row.get('campaign_id', '').strip(),
+                                'course_name': row.get('course_name', '').strip(),
+                                'course_amount': row.get('course_amount', '').strip(),
+                                'exp_revenue': row.get('exp_revenue', '').strip(),
+                                'description': row.get('description', '').strip(),
+                                'company': row.get('company', '').strip(),  # For related lead detection
+                            }
+                            
+                            # Handle date fields
+                            if 'exp_close_date' in row and row['exp_close_date'].strip():
+                                try:
+                                    from datetime import datetime
+                                    lead_data['exp_close_date'] = datetime.strptime(row['exp_close_date'].strip(), '%Y-%m-%d').date()
+                                except ValueError:
+                                    pass  # Skip invalid dates
+                            
+                            if 'followup_datetime' in row and row['followup_datetime'].strip():
+                                try:
+                                    from datetime import datetime
+                                    lead_data['followup_datetime'] = datetime.strptime(row['followup_datetime'].strip(), '%Y-%m-%d %H:%M:%S')
+                                except ValueError:
+                                    pass  # Skip invalid dates
+                            
+                            if 'birthdate' in row and row['birthdate'].strip():
+                                try:
+                                    from datetime import datetime
+                                    lead_data['birthdate'] = datetime.strptime(row['birthdate'].strip(), '%Y-%m-%d').date()
+                                except ValueError:
+                                    pass  # Skip invalid dates
+                            
+                            # VALIDATE REQUIRED FIELDS
+                            if not lead_data['name'] or not lead_data['mobile']:
+                                continue
+                            
+                            leads_data.append(lead_data)
+                            
+                            # PROCESS IN CHUNKS TO SAVE MEMORY
+                            if len(leads_data) >= 5000:
+                                yield leads_data
+                                leads_data = []
+                        
+                        # PROCESS REMAINING RECORDS
+                        if leads_data:
+                            yield leads_data
                     
-                    # Add date fields if present
-                    if 'exp_close_date' in row and pd.notna(row['exp_close_date']):
-                        lead_data['exp_close_date'] = pd.to_datetime(row['exp_close_date']).date()
-                    
-                    if 'followup_datetime' in row and pd.notna(row['followup_datetime']):
-                        lead_data['followup_datetime'] = pd.to_datetime(row['followup_datetime'])
-                    
-                    if 'birthdate' in row and pd.notna(row['birthdate']):
-                        lead_data['birthdate'] = pd.to_datetime(row['birthdate']).date()
-                    
-                    leads_data.append(lead_data)
+                    else:
+                        # For Excel files, still use pandas but with memory optimization
+                        df = pd.read_excel(file)
+                        
+                        # Normalize column names
+                        df.columns = [str(col).strip().lower() for col in df.columns]
+                        
+                        # Check if dataframe is empty
+                        if df.empty:
+                            raise ValueError("No data found in Excel file")
+                        
+                        # Validate required columns
+                        required_columns = ['name', 'mobile']
+                        missing_columns = [col for col in required_columns if col not in df.columns]
+                        
+                        if missing_columns:
+                            raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
+                        
+                        # Process Excel data in chunks
+                        leads_data = []
+                        for index, row in df.iterrows():
+                            if index >= 100000:  # Safety limit
+                                break
+                            
+                            lead_data = {
+                                'name': '' if pd.isna(row.get('name')) else str(row.get('name', '')).strip(),
+                                'mobile': '' if pd.isna(row.get('mobile')) else str(row.get('mobile', '')).strip(),
+                                'email': '' if pd.isna(row.get('email')) else str(row.get('email', '')).strip(),
+                                'alt_mobile': '' if pd.isna(row.get('alt_mobile')) else str(row.get('alt_mobile', '')).strip(),
+                                'whatsapp_no': '' if pd.isna(row.get('whatsapp_no')) else str(row.get('whatsapp_no', '')).strip(),
+                                'alt_email': '' if pd.isna(row.get('alt_email')) else str(row.get('alt_email', '')).strip(),
+                                'address': '' if pd.isna(row.get('address')) else str(row.get('address', '')).strip(),
+                                'city': '' if pd.isna(row.get('city')) else str(row.get('city', '')).strip(),
+                                'state': '' if pd.isna(row.get('state')) else str(row.get('state', '')).strip(),
+                                'postalcode': '' if pd.isna(row.get('postalcode')) else str(row.get('postalcode', '')).strip(),
+                                'country': '' if pd.isna(row.get('country')) else str(row.get('country', '')).strip(),
+                                'status': '' if pd.isna(row.get('status')) else str(row.get('status', 'lead')).strip() or 'lead',
+                                'status_description': '' if pd.isna(row.get('status_description')) else str(row.get('status_description', '')).strip(),
+                                'lead_source': '' if pd.isna(row.get('lead_source')) else str(row.get('lead_source', '')).strip(),
+                                'lead_source_description': '' if pd.isna(row.get('lead_source_description')) else str(row.get('lead_source_description', '')).strip(),
+                                'refered_by': '' if pd.isna(row.get('refered_by')) else str(row.get('refered_by', '')).strip(),
+                                'campaign_id': '' if pd.isna(row.get('campaign_id')) else str(row.get('campaign_id', '')).strip(),
+                                'course_name': '' if pd.isna(row.get('course_name')) else str(row.get('course_name', '')).strip(),
+                                'course_amount': '' if pd.isna(row.get('course_amount')) else str(row.get('course_amount', '')).strip(),
+                                'exp_revenue': '' if pd.isna(row.get('exp_revenue')) else str(row.get('exp_revenue', '')).strip(),
+                                'description': '' if pd.isna(row.get('description')) else str(row.get('description', '')).strip(),
+                                'company': '' if pd.isna(row.get('company')) else str(row.get('company', '')).strip(),
+                            }
+                            
+                            # Add date fields if present
+                            if 'exp_close_date' in row and pd.notna(row['exp_close_date']):
+                                lead_data['exp_close_date'] = pd.to_datetime(row['exp_close_date']).date()
+                            if 'followup_datetime' in row and pd.notna(row['followup_datetime']):
+                                lead_data['followup_datetime'] = pd.to_datetime(row['followup_datetime'])
+                            if 'birthdate' in row and pd.notna(row['birthdate']):
+                                lead_data['birthdate'] = pd.to_datetime(row['birthdate']).date()
+                            
+                            leads_data.append(lead_data)
+                            
+                            # PROCESS IN CHUNKS TO SAVE MEMORY
+                            if len(leads_data) >= 5000:
+                                yield leads_data
+                                leads_data = []
+                        
+                        # PROCESS REMAINING RECORDS
+                        if leads_data:
+                            yield leads_data
+                
+                # OPTIMIZED: Process file in streaming mode and collect all leads
+                all_leads_data = []
+                try:
+                    for leads_chunk in process_file_streaming(file):
+                        all_leads_data.extend(leads_chunk)
+                except Exception as e:
+                    return _error_response(f"Error processing file: {str(e)}", form_instance=form)
+                
+                if not all_leads_data:
+                    return _error_response("No valid lead data found in file. Please check file format and required columns.", form_instance=form)
                 
                 # Initialize duplicate detector
                 detector = DuplicateDetector(request.user.company_id)
                 
-                # Detect duplicates for all leads
-                duplicate_results = detector.batch_detect_duplicates(leads_data)
+                # Detect duplicates for all leads (now optimized)
+                duplicate_results = detector.batch_detect_duplicates(all_leads_data)
 
                 # Build immutable import session for reliable preview/process reconciliation.
                 file_hash = hashlib.sha256(file_content).hexdigest()
@@ -1637,149 +1874,269 @@ def lead_import_process(request):
     bulk_action_mode = request.POST.get('bulk_action_mode', 'custom').strip().lower()
     decisions = {}
     
+    def _create_leads_bulk(lead_data_list, result_list, importing_user, import_session):
+        """Bulk create leads for massive performance improvement"""
+        from django.db import transaction
+        
+        # Prepare leads for bulk creation
+        leads_to_create = []
+        for lead_data, result in zip(lead_data_list, result_list):
+            lead = Lead(
+                name=lead_data['name'],
+                mobile=lead_data['mobile'],
+                email=lead_data['email'] if lead_data['email'] else None,
+                alt_mobile=lead_data['alt_mobile'] if lead_data['alt_mobile'] else None,
+                whatsapp_no=lead_data['whatsapp_no'] if lead_data['whatsapp_no'] else None,
+                alt_email=lead_data['alt_email'] if lead_data['alt_email'] else None,
+                address=lead_data['address'] if lead_data['address'] else None,
+                city=lead_data['city'] if lead_data['city'] else None,
+                state=lead_data['state'] if lead_data['state'] else None,
+                postalcode=lead_data['postalcode'] if lead_data['postalcode'] else None,
+                country=lead_data['country'] if lead_data['country'] else None,
+                status=lead_data['status'],
+                status_description=lead_data['status_description'] if lead_data['status_description'] else None,
+                lead_source=lead_data['lead_source'] if lead_data['lead_source'] else None,
+                lead_source_description=lead_data['lead_source_description'] if lead_data['lead_source_description'] else None,
+                refered_by=lead_data['refered_by'] if lead_data['refered_by'] else None,
+                campaign_id=lead_data['campaign_id'] if lead_data['campaign_id'] else None,
+                course_name=lead_data['course_name'] if lead_data['course_name'] else None,
+                course_amount=lead_data['course_amount'] if lead_data['course_amount'] else None,
+                exp_revenue=lead_data['exp_revenue'] if lead_data['exp_revenue'] else None,
+                description=lead_data['description'] if lead_data['description'] else None,
+                company_id=importing_user.company_id,
+                created_by=importing_user,
+                assigned_user=None,  # Leave unassigned by default
+                duplicate_status=result['status'],
+                duplicate_info=result,
+            )
+            
+            # Handle optional date fields
+            if 'exp_close_date' in lead_data:
+                lead.exp_close_date = lead_data['exp_close_date']
+            if 'followup_datetime' in lead_data:
+                lead.followup_datetime = lead_data['followup_datetime']
+            if 'birthdate' in lead_data:
+                lead.birthdate = lead_data['birthdate']
+            
+            leads_to_create.append(lead)
+        
+        # Bulk create leads with transaction safety
+        with transaction.atomic():
+            created_leads = Lead.objects.bulk_create(leads_to_create, batch_size=1000, ignore_conflicts=True)
+            
+            # Bulk create activities
+            activities_to_create = [
+                LeadActivity(
+                    lead=lead,
+                    user=importing_user,
+                    activity_type='import',
+                    description=f'Lead imported from {import_session.file_name}'
+                )
+                for lead in created_leads
+            ]
+            LeadActivity.objects.bulk_create(activities_to_create, batch_size=1000)
+        
+        return created_leads
+    
+    def _process_import_concurrently(duplicate_results, import_session, request):
+        """Process import with parallel batch processing for maximum performance"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from django.db import transaction
+        
+        # Get user decisions
+        selected_rows = request.POST.getlist('selected_rows')
+        bulk_action_mode = request.POST.get('bulk_action_mode', 'custom').strip().lower()
+        
+        # Filter leads to import based on user decisions
+        leads_to_import = []
+        for i, result in enumerate(duplicate_results):
+            # Determine action for this row
+            if bulk_action_mode == 'import_all':
+                action = 'import'
+            elif bulk_action_mode == 'import_all_new':
+                action = 'import' if result['status'] == 'new' else 'skip'
+            else:
+                action_field = request.POST.get(f'actions_{i}')
+                if action_field is None:
+                    action = 'import' if result['status'] == 'new' else 'skip'
+                elif str(i) in selected_rows:
+                    action = action_field
+                else:
+                    action = 'skip'
+            
+            if action == 'import':
+                leads_to_import.append((result['lead_data'], result))
+        
+        # Split into batches for parallel processing
+        batch_size = 1000
+        batches = [
+            leads_to_import[i:i+batch_size] 
+            for i in range(0, len(leads_to_import), batch_size)
+        ]
+        
+        imported_count = 0
+        failed_count = 0
+        
+        # Process batches in parallel
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            future_to_batch = {
+                executor.submit(_process_batch_with_transaction, batch, request.user, import_session): batch
+                for batch in batches
+            }
+            
+            for future in as_completed(future_to_batch):
+                try:
+                    batch_result = future.result()
+                    imported_count += batch_result['imported']
+                except Exception as e:
+                    print(f"Batch processing error: {e}")
+                    failed_count += len(future_to_batch[future])
+        
+        return imported_count, 0, 0, failed_count  # imported, skipped, updated, failed
+    
+    @transaction.atomic
+    def _process_batch_with_transaction(batch, user, import_session):
+        """Process a single batch with transaction safety"""
+        if not batch:
+            return {'imported': 0, 'skipped': 0, 'failed': 0}
+        
+        lead_data_list, result_list = zip(*batch)
+        
+        # Use the bulk create function
+        from django.db import transaction
+        with transaction.atomic():
+            created_leads = _create_leads_bulk(list(lead_data_list), list(result_list), user, import_session)
+        
+        return {
+            'imported': len(created_leads),
+            'skipped': 0,
+            'failed': 0
+        }
+    
     def _create_lead_from_import(lead_data, result, importing_user):
-        lead = Lead.objects.create(
-            name=lead_data['name'],
-            mobile=lead_data['mobile'],
-            email=lead_data['email'] if lead_data['email'] else None,
-            alt_mobile=lead_data['alt_mobile'] if lead_data['alt_mobile'] else None,
-            whatsapp_no=lead_data['whatsapp_no'] if lead_data['whatsapp_no'] else None,
-            alt_email=lead_data['alt_email'] if lead_data['alt_email'] else None,
-            address=lead_data['address'] if lead_data['address'] else None,
-            city=lead_data['city'] if lead_data['city'] else None,
-            state=lead_data['state'] if lead_data['state'] else None,
-            postalcode=lead_data['postalcode'] if lead_data['postalcode'] else None,
-            country=lead_data['country'] if lead_data['country'] else None,
-            status=lead_data['status'],
-            status_description=lead_data['status_description'] if lead_data['status_description'] else None,
-            lead_source=lead_data['lead_source'] if lead_data['lead_source'] else None,
-            lead_source_description=lead_data['lead_source_description'] if lead_data['lead_source_description'] else None,
-            refered_by=lead_data['refered_by'] if lead_data['refered_by'] else None,
-            campaign_id=lead_data['campaign_id'] if lead_data['campaign_id'] else None,
-            course_name=lead_data['course_name'] if lead_data['course_name'] else None,
-            course_amount=lead_data['course_amount'] if lead_data['course_amount'] else None,
-            exp_revenue=lead_data['exp_revenue'] if lead_data['exp_revenue'] else None,
-            description=lead_data['description'] if lead_data['description'] else None,
-            company_id=importing_user.company_id,
-            created_by=importing_user,
-            assigned_user=None,  # Leave unassigned by default
-            duplicate_status=result['status'],
-            duplicate_info=result,
-        )
-
-        if 'exp_close_date' in lead_data:
-            lead.exp_close_date = lead_data['exp_close_date']
-        if 'followup_datetime' in lead_data:
-            lead.followup_datetime = lead_data['followup_datetime']
-        if 'birthdate' in lead_data:
-            lead.birthdate = lead_data['birthdate']
-
-        lead.save()
-        LeadActivity.objects.create(
-            lead=lead,
-            user=importing_user,
-            activity_type='import',
-            description=f'Lead imported from {import_session.file_name}'
-        )
-        return lead
+        """Legacy function for backward compatibility - use bulk operations instead"""
+        leads = _create_leads_bulk([lead_data], [result], importing_user, import_session)
+        return leads[0] if leads else None
 
     import_session.status = 'processing'
     import_session.save(update_fields=['status', 'updated_at'])
 
-    # Process import in chunks for high-volume safety.
-    imported_count = 0
-    skipped_count = 0
-    updated_count = 0
-    failed_count = 0
-    chunk_size = 500
-    if len(duplicate_results) > 10000:
-        messages.info(
-            request,
-            "Large import detected. Processing in chunked mode with reconciliation logging."
+    # OPTIMIZED: Choose processing strategy based on dataset size
+    total_leads = len(duplicate_results)
+    
+    if total_leads > 10000:
+        # Use parallel processing for large datasets
+        messages.info(request, f"Large dataset detected ({total_leads} leads). Using parallel processing for maximum performance.")
+        imported_count, skipped_count, updated_count, failed_count = _process_import_concurrently(
+            duplicate_results, import_session, request
         )
+    else:
+        # Use optimized sequential processing for smaller datasets
+        imported_count = 0
+        skipped_count = 0
+        updated_count = 0
+        failed_count = 0
+        chunk_size = 5000  # 10X larger chunk size for better performance
+        
+        # Collect leads for bulk processing
+        leads_to_import_batch = []
+        results_to_import_batch = []
+        
+        # Get user decisions for sequential processing
+        selected_rows = request.POST.getlist('selected_rows')
+        bulk_action_mode = request.POST.get('bulk_action_mode', 'custom').strip().lower()
+        decisions = {}
+        
+        for i, result in enumerate(duplicate_results):
+            lead_data = result['lead_data']
 
-    for i, result in enumerate(duplicate_results):
-        lead_data = result['lead_data']
-
-        # Global bulk modes override per-row form payload and work across all pages.
-        if bulk_action_mode == 'import_all':
-            action = 'import'
-        elif bulk_action_mode == 'import_all_new':
-            action = 'import' if result['status'] == 'new' else 'skip'
-        else:
-            # With paginated preview, POST only contains rows from visible page.
-            # Keep default behavior for rows not present in payload.
-            action_field = request.POST.get(f'actions_{i}')
-            if action_field is None:
+            # Global bulk modes override per-row form payload and work across all pages.
+            if bulk_action_mode == 'import_all':
+                action = 'import'
+            elif bulk_action_mode == 'import_all_new':
                 action = 'import' if result['status'] == 'new' else 'skip'
-            elif str(i) in selected_rows:
-                action = action_field
             else:
-                action = 'skip'
-        decisions[str(i)] = action
-        
-        if action == 'skip':
-            skipped_count += 1
-            continue
-        
-        try:
-            if action == 'import':
-                # Import explicitly selected rows, including duplicate-marked ones.
-                _create_lead_from_import(lead_data, result, request.user)
-                imported_count += 1
+                # With paginated preview, POST only contains rows from visible page.
+                # Keep default behavior for rows not present in payload.
+                action_field = request.POST.get(f'actions_{i}')
+                if action_field is None:
+                    action = 'import' if result['status'] == 'new' else 'skip'
+                elif str(i) in selected_rows:
+                    action = action_field
+                else:
+                    action = 'skip'
+            decisions[str(i)] = action
             
-            elif action == 'update' and result['duplicates']:
-                # Update existing lead (most recent duplicate)
-                duplicate_lead = Lead.objects.filter(
-                    id_lead__in=[dup['id'] for dup in result['duplicates']]
-                ).order_by('-created_at').first()
+            if action == 'skip':
+                skipped_count += 1
+                continue
+            
+            try:
+                if action == 'import':
+                    # Collect for bulk import processing
+                    leads_to_import_batch.append(lead_data)
+                    results_to_import_batch.append(result)
+                    
+                    # Process batch when chunk size reached or at end
+                    if len(leads_to_import_batch) >= chunk_size or i == len(duplicate_results) - 1:
+                        if leads_to_import_batch:
+                            created_leads = _create_leads_bulk(leads_to_import_batch, results_to_import_batch, request.user, import_session)
+                            imported_count += len(created_leads)
+                            leads_to_import_batch = []
+                            results_to_import_batch = []
                 
-                if duplicate_lead:
-                    # Update fields with new data
-                    if lead_data['name']:
-                        duplicate_lead.name = lead_data['name']
-                    if lead_data['email']:
-                        duplicate_lead.email = lead_data['email']
-                    if lead_data['address']:
-                        duplicate_lead.address = lead_data['address']
-                    if lead_data['city']:
-                        duplicate_lead.city = lead_data['city']
-                    if lead_data['state']:
-                        duplicate_lead.state = lead_data['state']
+                elif action == 'update' and result['duplicates']:
+                    # Update existing lead (most recent duplicate)
+                    duplicate_lead = Lead.objects.filter(
+                        id_lead__in=[dup['id'] for dup in result['duplicates']]
+                    ).order_by('-created_at').first()
                     
-                    duplicate_lead.modified_user = request.user
-                    duplicate_lead.duplicate_status = 'updated'
-                    duplicate_lead.duplicate_info = result
-                    duplicate_lead.save()
-                    updated_count += 1
-                    
-                    # Log activity
-                    LeadActivity.objects.create(
-                        lead=duplicate_lead,
-                        user=request.user,
-                        activity_type='update',
-                        description=f'Lead updated during import from {import_session.file_name}'
-                    )
-        
-        except Exception as e:
-            print(f"Error processing lead {i}: {e}")
-            failed_count += 1
-            continue
+                    if duplicate_lead:
+                        # Update fields with new data
+                        if lead_data['name']:
+                            duplicate_lead.name = lead_data['name']
+                        if lead_data['email']:
+                            duplicate_lead.email = lead_data['email']
+                        if lead_data['address']:
+                            duplicate_lead.address = lead_data['address']
+                        if lead_data['city']:
+                            duplicate_lead.city = lead_data['city']
+                        if lead_data['state']:
+                            duplicate_lead.state = lead_data['state']
+                        
+                        duplicate_lead.modified_user = request.user
+                        duplicate_lead.duplicate_status = 'updated'
+                        duplicate_lead.duplicate_info = result
+                        duplicate_lead.save()
+                        updated_count += 1
+                        
+                        # Log activity
+                        LeadActivity.objects.create(
+                            lead=duplicate_lead,
+                            user=request.user,
+                            activity_type='update',
+                            description=f'Lead updated during import from {import_session.file_name}'
+                        )
+            
+            except Exception as e:
+                print(f"Error processing lead {i}: {e}")
+                failed_count += 1
+                continue
 
-        # Persist progress every chunk.
-        if (i + 1) % chunk_size == 0:
-            import_session.imported_rows = imported_count
-            import_session.updated_rows = updated_count
-            import_session.skipped_rows = skipped_count
-            import_session.failed_rows = failed_count
-            import_session.payload = {
-                **payload,
-                'decisions': decisions,
-            }
-            import_session.save(update_fields=[
-                'imported_rows', 'updated_rows', 'skipped_rows', 'failed_rows',
-                'payload', 'updated_at'
-            ])
+            # Persist progress every chunk.
+            if (i + 1) % chunk_size == 0:
+                import_session.imported_rows = imported_count
+                import_session.updated_rows = updated_count
+                import_session.skipped_rows = skipped_count
+                import_session.failed_rows = failed_count
+                import_session.payload = {
+                    **payload,
+                    'decisions': decisions,
+                }
+                import_session.save(update_fields=[
+                    'imported_rows', 'updated_rows', 'skipped_rows', 'failed_rows',
+                    'payload', 'updated_at'
+                ])
     
     import_session.status = 'completed'
     import_session.imported_rows = imported_count
@@ -2211,49 +2568,10 @@ def bulk_duplicate_reassign(request):
                 company_id=request.user.company_id
             )
             
-            successful_assignments = 0
-            failed_assignments = 0
-            
-            for lead in leads:
-                try:
-                    # Check if user can assign this lead
-                    if lead.can_be_assigned_by(request.user) and lead.can_be_assigned_to_user(assigned_user, request.user):
-                        # Assign the lead
-                        old_user = lead.assigned_user
-                        lead.assign_to_user(assigned_user, request.user)
-                        
-                        # Create assignment history record
-                        LeadHistory.objects.create(
-                            lead=lead,
-                            user=request.user,
-                            field_name='assigned_user',
-                            old_value=old_user.username if old_user else None,
-                            new_value=assigned_user.username,
-                            action=f'Bulk duplicate reassigned to {assigned_user.username}',
-                            description=reassign_reason
-                        )
-                        
-                        # Create activity log
-                        LeadActivity.objects.create(
-                            lead=lead,
-                            user=request.user,
-                            activity_type='bulk_duplicate_reassignment',
-                            description=f'Bulk duplicate reassigned to {assigned_user.username}. {reassign_reason}'
-                        )
-                        
-                        # Mark duplicate as resolved if requested
-                        if resolve_duplicates:
-                            lead.resolve_duplicate(
-                                resolved_by=request.user,
-                                resolution_status='resolved',
-                                notes=f'Bulk reassigned to {assigned_user.username}. {reassign_reason}'
-                            )
-                        
-                        successful_assignments += 1
-                    else:
-                        failed_assignments += 1
-                except Exception as e:
-                    failed_assignments += 1
+            # Use optimized bulk duplicate reassignment
+            successful_assignments, failed_assignments = _bulk_reassign_duplicates_optimized(
+                leads, assigned_user, request.user, reassign_reason, resolve_duplicates
+            )
             
             if successful_assignments > 0:
                 messages.success(request, f"Successfully reassigned {successful_assignments} duplicate leads to {assigned_user.username}.")
@@ -2396,4 +2714,269 @@ def my_duplicate_leads(request):
         'total_groups': groups['total_count']
     }
     return render(request, 'dashboard/my_duplicates.html', context)
+
+
+# ============================================================================
+# BULK OPERATIONS OPTIMIZATION FUNCTIONS
+# ============================================================================
+
+def _validate_bulk_assignments_optimized(leads, user, target_user):
+    """Batch validate assignment permissions to eliminate individual checks"""
+    # Pre-fetch user hierarchy data once
+    user_hierarchy = user.get_hierarchy_data()
+    target_hierarchy = target_user.get_hierarchy_data()
+    
+    # Batch validate using set operations and pre-computed permissions
+    valid_assignments = []
+    for lead in leads:
+        # Use cached permission checks instead of individual queries
+        if _can_assign_lead_cached(lead, user, user_hierarchy) and \
+           _can_be_assigned_to_user_cached(lead, target_user, target_hierarchy):
+            valid_assignments.append(lead)
+    
+    return valid_assignments
+
+
+def _can_assign_lead_cached(lead, user, user_hierarchy):
+    """Cached version of can_be_assigned_by permission check"""
+    # Cache key includes lead, user, and hierarchy version
+    cache_key = f"can_assign_{lead.id_lead}_{user.id}_{user_hierarchy.get('version', 0)}"
+    
+    # Try cache first
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return cached_result
+    
+    # Compute permission and cache for 5 minutes
+    can_assign = lead.can_be_assigned_by(user)
+    cache.set(cache_key, can_assign, 300)
+    
+    return can_assign
+
+
+def _can_be_assigned_to_user_cached(lead, target_user, target_hierarchy):
+    """Cached version of can_be_assigned_to_user permission check"""
+    # Cache key includes lead, target user, and hierarchy version
+    cache_key = f"can_assign_to_{lead.id_lead}_{target_user.id}_{target_hierarchy.get('version', 0)}"
+    
+    # Try cache first
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return cached_result
+    
+    # Compute permission and cache for 5 minutes
+    can_assign = lead.can_be_assigned_to_user(target_user, target_user)
+    cache.set(cache_key, can_assign, 300)
+    
+    return can_assign
+
+
+def _process_assignments_concurrently(leads, assigned_user, request_user, assignment_notes="", batch_size=1000):
+    """Process lead assignments in parallel batches"""
+    start_time = time.time()
+    
+    # Validate permissions in batch first
+    valid_leads = _validate_bulk_assignments_optimized(leads, request_user, assigned_user)
+    failed_count = len(leads) - len(valid_leads)
+    
+    if not valid_leads:
+        return 0, failed_count
+    
+    # Split into batches for parallel processing
+    batches = [valid_leads[i:i+batch_size] for i in range(0, len(valid_leads), batch_size)]
+    
+    successful_count = 0
+    
+    # Process batches concurrently
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        future_to_batch = {
+            executor.submit(_process_assignment_batch, batch, assigned_user, request_user, assignment_notes): batch
+            for batch in batches
+        }
+        
+        for future in as_completed(future_to_batch):
+            try:
+                batch_result = future.result()
+                successful_count += batch_result
+            except Exception as e:
+                # Log error and count as failed
+                failed_count += len(future_to_batch[future])
+    
+    elapsed_time = time.time() - start_time
+    logger.info(f"Processed {len(valid_leads)} assignments in {elapsed_time:.2f}s using {len(batches)} batches")
+    
+    return successful_count, failed_count
+
+
+@transaction.atomic
+def _process_assignment_batch(leads, assigned_user, request_user, assignment_notes=""):
+    """Process a single batch of assignments with bulk operations"""
+    if not leads:
+        return 0
+    
+    # Prepare bulk update data
+    leads_to_update = []
+    history_data = []
+    activity_data = []
+    
+    for lead in leads:
+        # Store old user for history
+        old_user = lead.assigned_user
+        
+        # Update lead assignment fields
+        lead.assigned_user = assigned_user
+        lead.assigned_by = request_user
+        lead.assigned_at = timezone.now()
+        
+        # Handle transfer fields
+        if old_user and old_user != assigned_user:
+            lead.transfer_from = old_user.get_full_name() or old_user.username
+            lead.transfer_by = request_user.get_full_name() or request_user.username
+            lead.transfer_date = timezone.now()
+        
+        leads_to_update.append(lead)
+        
+        # Prepare history data
+        history_data.append(LeadHistory(
+            lead=lead,
+            user=request_user,
+            field_name='assigned_user',
+            old_value=old_user.username if old_user else None,
+            new_value=assigned_user.username,
+            action=f'Bulk assigned to {assigned_user.username}'
+        ))
+        
+        # Prepare activity data
+        description = f'Bulk assigned to {assigned_user.username}'
+        if assignment_notes:
+            description += f'. {assignment_notes}'
+        
+        activity_data.append(LeadActivity(
+            lead=lead,
+            user=request_user,
+            activity_type='bulk_assignment',
+            description=description
+        ))
+    
+    # Execute bulk operations
+    Lead.objects.bulk_update(leads_to_update, [
+        'assigned_user', 'assigned_by', 'assigned_at', 
+        'transfer_from', 'transfer_by', 'transfer_date'
+    ])
+    
+    LeadHistory.objects.bulk_create(history_data, batch_size=500)
+    LeadActivity.objects.bulk_create(activity_data, batch_size=500)
+    
+    return len(leads_to_update)
+
+
+def _bulk_delete_optimized(leads, request_user):
+    """Optimized bulk delete with direct bulk operations"""
+    if not leads:
+        return 0
+    
+    # Filter out already deleted leads in one query
+    lead_ids = [lead.id_lead for lead in leads]
+    leads_to_delete = Lead.objects.filter(
+        id_lead__in=lead_ids,
+        deleted=False
+    )
+    
+    # Direct bulk update without individual processing
+    update_count = leads_to_delete.update(
+        deleted=True,
+        modified_user=request_user
+    )
+    
+    if update_count > 0:
+        # Bulk create activities
+        activity_data = [
+            LeadActivity(
+                lead_id=lead_id,
+                user=request_user,
+                activity_type='delete',
+                description='Lead deleted from leads list (bulk action).'
+            )
+            for lead_id in leads_to_delete.values_list('id_lead', flat=True)
+        ]
+        
+        LeadActivity.objects.bulk_create(activity_data, batch_size=500)
+    
+    return update_count
+
+
+def _bulk_reassign_duplicates_optimized(leads, assigned_user, request_user, reassign_reason="", resolve_duplicates=False):
+    """Optimized bulk duplicate reassignment"""
+    # Batch validate permissions
+    valid_leads = _validate_bulk_assignments_optimized(leads, request_user, assigned_user)
+    failed_count = len(leads) - len(valid_leads)
+    
+    if not valid_leads:
+        return 0, failed_count
+    
+    # Separate by duplicate resolution needs
+    to_reassign = []
+    to_resolve = []
+    
+    for lead in valid_leads:
+        if lead.duplicate_status in ['exact_duplicate', 'potential_duplicate']:
+            to_resolve.append(lead)
+        else:
+            to_reassign.append(lead)
+    
+    successful_count = 0
+    
+    # Bulk reassign regular duplicates
+    if to_reassign:
+        reassign_success = _process_assignments_concurrently(
+            to_reassign, assigned_user, request_user, reassign_reason
+        )
+        successful_count += reassign_success[0]
+        failed_count += reassign_success[1]
+    
+    # Bulk resolve exact duplicates
+    if to_resolve:
+        resolve_success = _bulk_resolve_duplicates(to_resolve, assigned_user, request_user, reassign_reason)
+        successful_count += resolve_success
+    
+    return successful_count, failed_count
+
+
+@transaction.atomic
+def _bulk_resolve_duplicates(leads, assigned_user, request_user, reassign_reason=""):
+    """Bulk resolve duplicate leads"""
+    if not leads:
+        return 0
+    
+    lead_ids = [lead.id_lead for lead in leads]
+    
+    # Bulk update duplicate resolution
+    update_count = Lead.objects.filter(id_lead__in=lead_ids).update(
+        assigned_user=assigned_user,
+        assigned_by=request_user,
+        assigned_at=timezone.now(),
+        duplicate_status='resolved',
+        duplicate_resolution_status='resolved',
+        status_description=f'Bulk reassigned to {assigned_user.username}'
+    )
+    
+    if update_count > 0:
+        # Bulk create resolution activities
+        description = f'Bulk duplicate reassigned to {assigned_user.username}'
+        if reassign_reason:
+            description += f'. {reassign_reason}'
+        
+        activity_data = [
+            LeadActivity(
+                lead_id=lead_id,
+                user=request_user,
+                activity_type='bulk_duplicate_reassignment',
+                description=description
+            )
+            for lead_id in lead_ids
+        ]
+        
+        LeadActivity.objects.bulk_create(activity_data, batch_size=500)
+    
+    return update_count
 

@@ -33,7 +33,7 @@
             <h3>⚡ Quick Bulk Assignment</h3>
             <p>If you already have lead IDs, you can use this form:</p>
             
-            <form method="post">
+            <form method="post" data-bulk-operation="bulk_assign">
                 {% csrf_token %}
                 
                 <div class="form-group">

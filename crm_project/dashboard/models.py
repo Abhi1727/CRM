@@ -136,6 +136,74 @@ class Lead(models.Model):
     def __str__(self):
         return f"{self.name} - {self.mobile}"
     
+    def save(self, *args, **kwargs):
+        """Override save to implement smart cache invalidation"""
+        # Get original values for change detection
+        if self.pk:
+            original = Lead.objects.filter(pk=self.pk).first()
+            original_values = {
+                'assigned_user_id': original.assigned_user_id if original else None,
+                'status': original.status if original else None,
+                'company_id': original.company_id if original else None,
+            }
+        else:
+            original_values = {
+                'assigned_user_id': None,
+                'status': None,
+                'company_id': None,
+            }
+        
+        # Call the original save method
+        super().save(*args, **kwargs)
+        
+        # Smart cache invalidation based on what changed
+        self._invalidate_relevant_caches(original_values)
+    
+    def _invalidate_relevant_caches(self, original_values):
+        """Invalidate relevant caches based on field changes"""
+        from core.cache import CacheManager, QueryResultCache
+        
+        # Always invalidate dashboard stats for this company
+        CacheManager.invalidate_company_cache(self.company_id)
+        
+        # If assigned user changed, invalidate their caches
+        if original_values['assigned_user_id'] != self.assigned_user_id:
+            if original_values['assigned_user_id']:
+                CacheManager.invalidate_user_cache(original_values['assigned_user_id'], self.company_id)
+            if self.assigned_user_id:
+                CacheManager.invalidate_user_cache(self.assigned_user_id, self.company_id)
+        
+        # If status changed, invalidate query result caches
+        if original_values['status'] != self.status:
+            QueryResultCache.invalidate_query_cache(
+                query_type='lead_statistics',
+                company_id=self.company_id
+            )
+            
+        # If company changed (rare), invalidate old company too
+        if original_values['company_id'] != self.company_id and original_values['company_id']:
+            CacheManager.invalidate_company_cache(original_values['company_id'])
+    
+    def delete(self, *args, **kwargs):
+        """Override delete to implement cache invalidation"""
+        company_id = self.company_id
+        assigned_user_id = self.assigned_user_id
+        
+        # Call original delete
+        super().delete(*args, **kwargs)
+        
+        # Invalidate relevant caches
+        from core.cache import CacheManager, QueryResultCache
+        CacheManager.invalidate_company_cache(company_id)
+        
+        if assigned_user_id:
+            CacheManager.invalidate_user_cache(assigned_user_id, company_id)
+        
+        QueryResultCache.invalidate_query_cache(
+            query_type='lead_statistics',
+            company_id=company_id
+        )
+    
     class Meta:
         db_table = 'leads'
         ordering = ['-created_at']
@@ -154,6 +222,11 @@ class Lead(models.Model):
             models.Index(fields=['last_assigned_agent', 'duplicate_status']),
             models.Index(fields=['last_assigned_manager', 'duplicate_status']),
             models.Index(fields=['company_id', 'duplicate_status']),
+            # Performance optimization indexes from plan
+            models.Index(fields=['company_id', 'deleted', 'status']),
+            models.Index(fields=['assigned_user', 'created_at']),
+            models.Index(fields=['created_at', 'status']),
+            models.Index(fields=['transfer_date', 'transfer_by']),
         ]
     
     def can_be_accessed_by(self, user):
@@ -716,3 +789,217 @@ class TeamNotificationPreference(models.Model):
     
     def __str__(self):
         return f"{self.user.username} - {self.get_notification_type_display()}"
+
+
+class BulkOperation(models.Model):
+    """Track bulk operations with progress and status"""
+    
+    OPERATION_TYPES = [
+        ('bulk_assign', 'Bulk Assign'),
+        ('bulk_delete', 'Bulk Delete'),
+        ('bulk_reassign_duplicates', 'Bulk Reassign Duplicates'),
+        ('user_deletion_reassign', 'User Deletion Reassign'),
+        ('bulk_import', 'Bulk Import'),
+        ('bulk_export', 'Bulk Export'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    # Core identification
+    operation_id = models.CharField(max_length=64, unique=True, db_index=True)
+    operation_type = models.CharField(max_length=50, choices=OPERATION_TYPES)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='bulk_operations')
+    company_id = models.IntegerField(default=1, db_index=True)
+    
+    # Status and timing
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    estimated_duration = models.PositiveIntegerField(null=True, blank=True, help_text="Estimated duration in seconds")
+    
+    # Progress tracking
+    total_items = models.PositiveIntegerField(default=0)
+    processed_items = models.PositiveIntegerField(default=0)
+    success_items = models.PositiveIntegerField(default=0)
+    failed_items = models.PositiveIntegerField(default=0)
+    skipped_items = models.PositiveIntegerField(default=0)
+    
+    # Progress percentage (calculated field)
+    progress_percentage = models.FloatField(default=0.0, help_text="Progress percentage (0-100)")
+    
+    # Configuration and metadata
+    operation_config = models.JSONField(default=dict, blank=True, help_text="Operation configuration")
+    filter_snapshot = models.JSONField(default=dict, blank=True, help_text="Filter parameters snapshot")
+    metadata = models.JSONField(default=dict, blank=True, help_text="Additional metadata")
+    
+    # Error handling
+    error_message = models.TextField(null=True, blank=True)
+    error_details = models.JSONField(default=dict, blank=True, help_text="Detailed error information")
+    
+    # Performance metrics
+    items_per_second = models.FloatField(default=0.0, help_text="Processing rate")
+    peak_memory_usage = models.BigIntegerField(null=True, blank=True, help_text="Peak memory usage in bytes")
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'bulk_operations'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['company_id', 'operation_type', 'status']),
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['operation_id']),
+        ]
+    
+    def __str__(self):
+        return f"{self.get_operation_type_display()} ({self.operation_id})"
+    
+    def start_operation(self):
+        """Mark operation as started"""
+        self.status = 'running'
+        self.started_at = timezone.now()
+        self.save(update_fields=['status', 'started_at'])
+    
+    def complete_operation(self, success=True, error_message=None):
+        """Mark operation as completed"""
+        self.status = 'completed' if success else 'failed'
+        self.completed_at = timezone.now()
+        if error_message:
+            self.error_message = error_message
+        
+        # Calculate final progress
+        if self.total_items > 0:
+            self.progress_percentage = 100.0
+        
+        # Calculate processing rate
+        if self.started_at and self.completed_at:
+            duration = (self.completed_at - self.started_at).total_seconds()
+            if duration > 0:
+                self.items_per_second = self.processed_items / duration
+        
+        self.save(update_fields=['status', 'completed_at', 'error_message', 'progress_percentage', 'items_per_second'])
+    
+    def update_progress(self, processed=0, success=0, failed=0, skipped=0):
+        """Update operation progress"""
+        self.processed_items += processed
+        self.success_items += success
+        self.failed_items += failed
+        self.skipped_items += skipped
+        
+        # Calculate progress percentage
+        if self.total_items > 0:
+            self.progress_percentage = min(100.0, (self.processed_items / self.total_items) * 100.0)
+        
+        # Calculate processing rate
+        if self.started_at:
+            elapsed = (timezone.now() - self.started_at).total_seconds()
+            if elapsed > 0:
+                self.items_per_second = self.processed_items / elapsed
+        
+        self.save(update_fields=[
+            'processed_items', 'success_items', 'failed_items', 
+            'skipped_items', 'progress_percentage', 'items_per_second'
+        ])
+    
+    def cancel_operation(self, reason=None):
+        """Cancel the operation"""
+        self.status = 'cancelled'
+        self.completed_at = timezone.now()
+        if reason:
+            self.error_message = reason
+        self.save(update_fields=['status', 'completed_at', 'error_message'])
+    
+    def get_eta_seconds(self):
+        """Get estimated time remaining in seconds"""
+        if self.status != 'running' or self.processed_items == 0:
+            return None
+        
+        elapsed = (timezone.now() - self.started_at).total_seconds()
+        if elapsed == 0:
+            return None
+        
+        rate = self.processed_items / elapsed
+        if rate == 0:
+            return None
+        
+        remaining_items = self.total_items - self.processed_items
+        return remaining_items / rate
+    
+    def get_eta_display(self):
+        """Get human-readable ETA"""
+        eta_seconds = self.get_eta_seconds()
+        if eta_seconds is None:
+            return "Calculating..."
+        
+        if eta_seconds < 60:
+            return f"{int(eta_seconds)}s"
+        elif eta_seconds < 3600:
+            return f"{int(eta_seconds / 60)}m {int(eta_seconds % 60)}s"
+        else:
+            hours = int(eta_seconds / 3600)
+            minutes = int((eta_seconds % 3600) / 60)
+            return f"{hours}h {minutes}m"
+
+
+class BulkOperationProgress(models.Model):
+    """Detailed progress tracking for bulk operations"""
+    
+    # Core identification
+    operation = models.ForeignKey(BulkOperation, on_delete=models.CASCADE, related_name='progress_updates')
+    update_id = models.CharField(max_length=64, db_index=True)  # Unique identifier for this update
+    
+    # Progress information
+    current_batch = models.PositiveIntegerField(default=0, help_text="Current batch number")
+    batch_size = models.PositiveIntegerField(default=0, help_text="Size of current batch")
+    total_batches = models.PositiveIntegerField(default=0, help_text="Total number of batches")
+    
+    # Batch results
+    batch_success = models.PositiveIntegerField(default=0)
+    batch_failed = models.PositiveIntegerField(default=0)
+    batch_skipped = models.PositiveIntegerField(default=0)
+    
+    # Cumulative results
+    cumulative_processed = models.PositiveIntegerField(default=0)
+    cumulative_success = models.PositiveIntegerField(default=0)
+    cumulative_failed = models.PositiveIntegerField(default=0)
+    cumulative_skipped = models.PositiveIntegerField(default=0)
+    
+    # Performance metrics
+    batch_duration = models.FloatField(default=0.0, help_text="Duration of this batch in seconds")
+    cumulative_duration = models.FloatField(default=0.0, help_text="Total elapsed time in seconds")
+    batch_rate = models.FloatField(default=0.0, help_text="Items per second for this batch")
+    
+    # Additional information
+    batch_details = models.JSONField(default=dict, blank=True, help_text="Detailed batch information")
+    error_samples = models.JSONField(default=list, blank=True, help_text="Sample errors from this batch")
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'bulk_operation_progress'
+        ordering = ['created_at']
+        unique_together = ['operation', 'update_id']
+        indexes = [
+            models.Index(fields=['operation', 'created_at']),
+            models.Index(fields=['operation', 'current_batch']),
+        ]
+    
+    def __str__(self):
+        return f"Progress Update {self.update_id} for {self.operation.operation_id}"
+    
+    @property
+    def progress_percentage(self):
+        """Calculate progress percentage"""
+        if self.operation.total_items == 0:
+            return 0.0
+        return min(100.0, (self.cumulative_processed / self.operation.total_items) * 100.0)

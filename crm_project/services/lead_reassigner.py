@@ -1,8 +1,12 @@
 from django.db import transaction
 from django.utils import timezone
 from django.contrib.auth import get_user_model
-from dashboard.models import Lead, LeadActivity
+from dashboard.models import Lead, LeadActivity, BulkOperation, BulkOperationProgress
+from accounts.models import User
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+import time
+import uuid
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -223,33 +227,12 @@ class LeadReassigner:
                     'preservation_details': []
                 }
                 
-                # Process active leads - reassign to hierarchy
-                for lead in active_leads:
-                    replacement_user = self.find_replacement_user(deleted_user)
-                    if replacement_user:
-                        self.perform_reassignment(lead, replacement_user, deleted_by)
-                        results['active_leads_reassigned'] += 1
-                        results['reassignment_details'].append({
-                            'lead_id': lead.id_lead,
-                            'lead_name': lead.name,
-                            'from_user': deleted_user.username,
-                            'to_user': replacement_user.username,
-                            'revenue': lead.exp_revenue or 0
-                        })
-                    else:
-                        logger.warning(f"No replacement user found for lead {lead.id_lead}")
+                # Use optimized bulk reassignment for active leads
+                if active_leads:
+                    reassign_results = self.reassign_user_leads_optimized(deleted_user, deleted_by, active_leads, converted_leads)
+                    results.update(reassign_results)
                 
-                # Process converted leads - preserve sales credit
-                for lead in converted_leads:
-                    preserved_revenue = self.preserve_sales_credit(lead, deleted_user)
-                    results['converted_leads_preserved'] += 1
-                    results['total_revenue_preserved'] += preserved_revenue
-                    results['preservation_details'].append({
-                        'lead_id': lead.id_lead,
-                        'lead_name': lead.name,
-                        'preserved_credit_user': deleted_user.username,
-                        'preserved_revenue': preserved_revenue
-                    })
+                # Converted leads are now handled in the optimized function above
                 
                 # Update preserved metrics for the deleted user
                 self.update_preserved_metrics(deleted_user, converted_leads)
@@ -552,3 +535,313 @@ class LeadReassigner:
             return 'medium'
         else:
             return 'low'
+    
+    def reassign_user_leads_optimized(self, deleted_user, deleted_by, active_leads=None, converted_leads=None):
+        """Optimized bulk lead reassignment for user deletion"""
+        start_time = time.time()
+        
+        with transaction.atomic():
+            # Get all leads in single query if not provided
+            if active_leads is None or converted_leads is None:
+                user_leads = Lead.objects.filter(assigned_user=deleted_user).select_related('assigned_user')
+                
+                if active_leads is None:
+                    active_leads = list(user_leads.exclude(status='sale_done'))
+                if converted_leads is None:
+                    converted_leads = list(user_leads.filter(status='sale_done'))
+            
+            # Find replacement user once (not per lead)
+            replacement_user = self.find_replacement_user(deleted_user)
+            
+            results = {
+                'active_leads_reassigned': 0,
+                'converted_leads_preserved': 0,
+                'total_revenue_preserved': 0,
+                'reassignment_details': [],
+                'preservation_details': []
+            }
+            
+            if replacement_user and active_leads:
+                # Bulk reassign active leads
+                active_lead_ids = [lead.id_lead for lead in active_leads]
+                update_count = Lead.objects.filter(id_lead__in=active_lead_ids).update(
+                    assigned_user=replacement_user,
+                    assigned_by=deleted_by,
+                    assigned_at=timezone.now(),
+                    transfer_from=deleted_user.get_full_name() or deleted_user.username,
+                    transfer_by=deleted_by.get_full_name() or deleted_by.username,
+                    transfer_date=timezone.now()
+                )
+                
+                results['active_leads_reassigned'] = update_count
+                
+                # Bulk create assignment activities
+                activity_data = [
+                    LeadActivity(
+                        lead_id=lead_id,
+                        user=deleted_by,
+                        activity_type='deletion_reassignment',
+                        description=f'Lead reassigned from {deleted_user.username} to {replacement_user.username} due to user deletion'
+                    )
+                    for lead_id in active_lead_ids
+                ]
+                LeadActivity.objects.bulk_create(activity_data, batch_size=500)
+                
+                # Add reassignment details for reporting
+                for lead in active_leads:
+                    results['reassignment_details'].append({
+                        'lead_id': lead.id_lead,
+                        'lead_name': lead.name,
+                        'from_user': deleted_user.username,
+                        'to_user': replacement_user.username,
+                        'revenue': lead.exp_revenue or 0
+                    })
+            
+            # Bulk preserve converted leads (existing logic optimized)
+            if converted_leads:
+                preserved_revenue = self._bulk_preserve_sales_credit(converted_leads, deleted_user)
+                results['converted_leads_preserved'] = len(converted_leads)
+                results['total_revenue_preserved'] = preserved_revenue
+            
+            elapsed_time = time.time() - start_time
+            logger.info(f"Optimized reassignment completed in {elapsed_time:.2f}s - "
+                       f"Active: {results['active_leads_reassigned']}, "
+                       f"Converted: {results['converted_leads_preserved']}")
+            
+            return results
+    
+    def reassign_user_leads_optimized_with_progress(self, deleted_user, deleted_by, operation=None, active_leads=None, converted_leads=None):
+        """Optimized bulk lead reassignment for user deletion with progress tracking"""
+        start_time = time.time()
+        
+        # Create operation if not provided
+        if operation is None:
+            operation_id = f"user_deletion_reassign_{uuid.uuid4().hex[:12]}"
+            total_leads = Lead.objects.filter(assigned_user=deleted_user).count()
+            operation = BulkOperation.objects.create(
+                operation_id=operation_id,
+                operation_type='user_deletion_reassign',
+                user=deleted_by,
+                company_id=deleted_user.company_id,
+                total_items=total_leads,
+                operation_config={
+                    'deleted_user_id': deleted_user.id,
+                    'deleted_user_name': deleted_user.username,
+                    'deleted_by_id': deleted_by.id,
+                    'deleted_by_name': deleted_by.username
+                }
+            )
+            operation.start_operation()
+        
+        try:
+            with transaction.atomic():
+                # Get all leads in single query if not provided
+                if active_leads is None or converted_leads is None:
+                    user_leads = Lead.objects.filter(assigned_user=deleted_user).select_related('assigned_user')
+                    
+                    if active_leads is None:
+                        active_leads = list(user_leads.exclude(status='sale_done'))
+                    if converted_leads is None:
+                        converted_leads = list(user_leads.filter(status='sale_done'))
+                
+                # Find replacement user once (not per lead)
+                replacement_user = self.find_replacement_user(deleted_user)
+                
+                results = {
+                    'active_leads_reassigned': 0,
+                    'converted_leads_preserved': 0,
+                    'total_revenue_preserved': 0,
+                    'reassignment_details': [],
+                    'preservation_details': []
+                }
+                
+                # Process active leads with progress tracking
+                if replacement_user and active_leads:
+                    batch_size = 1000
+                    total_batches = (len(active_leads) + batch_size - 1) // batch_size
+                    
+                    for batch_num in range(0, len(active_leads), batch_size):
+                        batch_start_time = time.time()
+                        batch_leads = active_leads[batch_num:batch_num + batch_size]
+                        current_batch = (batch_num // batch_size) + 1
+                        
+                        batch_success = 0
+                        batch_failed = 0
+                        batch_errors = []
+                        
+                        try:
+                            # Bulk reassign active leads in this batch
+                            active_lead_ids = [lead.id_lead for lead in batch_leads]
+                            update_count = Lead.objects.filter(id_lead__in=active_lead_ids).update(
+                                assigned_user=replacement_user,
+                                assigned_by=deleted_by,
+                                assigned_at=timezone.now(),
+                                transfer_from=deleted_user.get_full_name() or deleted_user.username,
+                                transfer_by=deleted_by.get_full_name() or deleted_by.username,
+                                transfer_date=timezone.now()
+                            )
+                            
+                            batch_success = update_count
+                            
+                            # Bulk create assignment activities
+                            activity_data = [
+                                LeadActivity(
+                                    lead_id=lead_id,
+                                    user=deleted_by,
+                                    activity_type='deletion_reassignment',
+                                    description=f'Lead reassigned from {deleted_user.username} to {replacement_user.username} due to user deletion'
+                                )
+                                for lead_id in active_lead_ids
+                            ]
+                            LeadActivity.objects.bulk_create(activity_data, batch_size=500)
+                            
+                            # Add reassignment details for reporting
+                            for lead in batch_leads:
+                                results['reassignment_details'].append({
+                                    'lead_id': lead.id_lead,
+                                    'lead_name': lead.name,
+                                    'from_user': deleted_user.username,
+                                    'to_user': replacement_user.username,
+                                    'revenue': lead.exp_revenue or 0
+                                })
+                            
+                            results['active_leads_reassigned'] += batch_success
+                            
+                        except Exception as e:
+                            batch_failed = len(batch_leads)
+                            batch_errors.append({
+                                'error': str(e),
+                                'batch_num': current_batch,
+                                'lead_count': len(batch_leads)
+                            })
+                        
+                        batch_duration = time.time() - batch_start_time
+                        
+                        # Update progress
+                        self._update_operation_progress(
+                            operation, current_batch, len(batch_leads), total_batches,
+                            batch_success, batch_failed, 0, batch_duration,
+                            batch_errors[:5]  # Keep only first 5 errors
+                        )
+                
+                # Process converted leads with progress tracking
+                if converted_leads:
+                    batch_size = 1000
+                    total_converted_batches = (len(converted_leads) + batch_size - 1) // batch_size
+                    
+                    for batch_num in range(0, len(converted_leads), batch_size):
+                        batch_start_time = time.time()
+                        batch_leads = converted_leads[batch_num:batch_num + batch_size]
+                        current_batch = (batch_num // batch_size) + 1
+                        
+                        batch_success = 0
+                        batch_failed = 0
+                        batch_errors = []
+                        
+                        try:
+                            preserved_revenue = self._bulk_preserve_sales_credit(batch_leads, deleted_user)
+                            batch_success = len(batch_leads)
+                            results['converted_leads_preserved'] += batch_success
+                            results['total_revenue_preserved'] += preserved_revenue
+                            
+                        except Exception as e:
+                            batch_failed = len(batch_leads)
+                            batch_errors.append({
+                                'error': str(e),
+                                'batch_num': current_batch,
+                                'lead_count': len(batch_leads)
+                            })
+                        
+                        batch_duration = time.time() - batch_start_time
+                        
+                        # Update progress for converted leads
+                        self._update_operation_progress(
+                            operation, current_batch, len(batch_leads), total_converted_batches,
+                            batch_success, batch_failed, 0, batch_duration,
+                            batch_errors[:5]
+                        )
+                
+                elapsed_time = time.time() - start_time
+                logger.info(f"Optimized reassignment with progress completed in {elapsed_time:.2f}s - "
+                           f"Active: {results['active_leads_reassigned']}, "
+                           f"Converted: {results['converted_leads_preserved']}")
+                
+                # Complete operation successfully
+                operation.complete_operation(success=True)
+                
+                return results
+                
+        except Exception as e:
+            # Complete operation with error
+            operation.complete_operation(success=False, error_message=str(e))
+            logger.error(f"Error in optimized reassignment with progress: {str(e)}")
+            raise
+    
+    def _update_operation_progress(self, operation, batch_num, batch_size, total_batches, 
+                                  batch_success, batch_failed, batch_skipped, batch_duration, error_samples=None):
+        """Update operation progress with batch information"""
+        update_id = f"{operation.operation_id}_batch_{batch_num}"
+        
+        # Calculate cumulative totals
+        cumulative_processed = operation.processed_items + batch_success + batch_failed + batch_skipped
+        cumulative_success = operation.success_items + batch_success
+        cumulative_failed = operation.failed_items + batch_failed
+        cumulative_skipped = operation.skipped_items + batch_skipped
+        
+        # Update main operation
+        operation.update_progress(
+            processed=batch_success + batch_failed + batch_skipped,
+            success=batch_success,
+            failed=batch_failed,
+            skipped=batch_skipped
+        )
+        
+        # Create detailed progress record
+        BulkOperationProgress.objects.create(
+            operation=operation,
+            update_id=update_id,
+            current_batch=batch_num,
+            batch_size=batch_size,
+            total_batches=total_batches,
+            batch_success=batch_success,
+            batch_failed=batch_failed,
+            batch_skipped=batch_skipped,
+            cumulative_processed=cumulative_processed,
+            cumulative_success=cumulative_success,
+            cumulative_failed=cumulative_failed,
+            cumulative_skipped=cumulative_skipped,
+            batch_duration=batch_duration,
+            cumulative_duration=(timezone.now() - operation.started_at).total_seconds() if operation.started_at else 0,
+            batch_rate=(batch_success + batch_failed + batch_skipped) / batch_duration if batch_duration > 0 else 0,
+            error_samples=error_samples or []
+        )
+    
+    def _bulk_preserve_sales_credit(self, converted_leads, deleted_user):
+        """Bulk preserve sales credit for converted leads"""
+        if not converted_leads:
+            return 0
+        
+        # Bulk update converted leads
+        lead_ids = [lead.id_lead for lead in converted_leads]
+        Lead.objects.filter(id_lead__in=lead_ids).update(
+            primary_sales_credit=deleted_user,
+            original_assigned_user=deleted_user,
+            sales_credit_preserved=True,
+            status_description=f"Sale completed - Credit preserved for {deleted_user.username}"
+        )
+        
+        # Bulk create preservation activities
+        activity_data = [
+            LeadActivity(
+                lead_id=lead_id,
+                activity_type='sales_credit_preserved',
+                description=f'Sales credit preserved for {deleted_user.username} - Revenue: {lead.exp_revenue or 0}',
+                user_id=None  # System action
+            )
+            for lead_id, lead in zip(lead_ids, converted_leads)
+        ]
+        LeadActivity.objects.bulk_create(activity_data, batch_size=500)
+        
+        # Calculate total preserved revenue
+        total_revenue = sum(float(lead.exp_revenue or 0) for lead in converted_leads)
+        return total_revenue

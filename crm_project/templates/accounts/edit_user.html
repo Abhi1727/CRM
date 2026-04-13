@@ -12,7 +12,15 @@
     </div>
 
     <div class="form-container">
-        <form method="post" class="user-form">
+        {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+                {% for error in form.non_field_errors %}
+                    <p>{{ error }}</p>
+                {% endfor %}
+            </div>
+        {% endif %}
+        
+        <form method="post" class="user-form" novalidate>
             {% csrf_token %}
             
             <div class="user-preview">
@@ -36,20 +44,50 @@
                     
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="first_name">First Name</label>
-                            <input type="text" name="first_name" id="first_name" value="{{ target_user.first_name }}" required autocomplete="given-name">
+                            {{ form.first_name.label_tag }}
+                            {{ form.first_name }}
+                            {% if form.first_name.errors %}
+                                <div class="error-message">
+                                    {% for error in form.first_name.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            {% if form.first_name.help_text %}
+                                <small class="help-text">{{ form.first_name.help_text }}</small>
+                            {% endif %}
                         </div>
                         
                         <div class="form-group">
-                            <label for="last_name">Last Name</label>
-                            <input type="text" name="last_name" id="last_name" value="{{ target_user.last_name }}" required autocomplete="family-name">
+                            {{ form.last_name.label_tag }}
+                            {{ form.last_name }}
+                            {% if form.last_name.errors %}
+                                <div class="error-message">
+                                    {% for error in form.last_name.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            {% if form.last_name.help_text %}
+                                <small class="help-text">{{ form.last_name.help_text }}</small>
+                            {% endif %}
                         </div>
                     </div>
 
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="email">Email Address</label>
-                            <input type="email" name="email" id="email" value="{{ target_user.email }}" required autocomplete="email">
+                            {{ form.email.label_tag }}
+                            {{ form.email }}
+                            {% if form.email.errors %}
+                                <div class="error-message">
+                                    {% for error in form.email.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            {% if form.email.help_text %}
+                                <small class="help-text">{{ form.email.help_text }}</small>
+                            {% endif %}
                         </div>
                         
                         <div class="form-group">
@@ -74,13 +112,27 @@
                     
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="phone">Phone Number</label>
-                            <input type="tel" name="phone" id="phone" value="{{ target_user.phone }}" autocomplete="tel">
+                            {{ form.phone.label_tag }}
+                            {{ form.phone }}
+                            {% if form.phone.errors %}
+                                <div class="error-message">
+                                    {% for error in form.phone.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
                         </div>
                         
                         <div class="form-group">
-                            <label for="mobile">Mobile Number</label>
-                            <input type="tel" name="mobile" id="mobile" value="{{ target_user.mobile }}" autocomplete="mobile">
+                            {{ form.mobile.label_tag }}
+                            {{ form.mobile }}
+                            {% if form.mobile.errors %}
+                                <div class="error-message">
+                                    {% for error in form.mobile.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
@@ -89,33 +141,121 @@
                 <div class="form-section">
                     <h3><i class="fas fa-cog"></i> Account Settings</h3>
                     
+                    <!-- Role Field (conditional) -->
+                    {% if form.role %}
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="account_status">Account Status</label>
-                            <select name="account_status" id="account_status">
-                                {% for status_value, status_label in status_choices %}
-                                <option value="{{ status_value }}" {% if target_user.account_status == status_value %}selected{% endif %}>
-                                    {{ status_label }}
-                                </option>
-                                {% endfor %}
-                            </select>
+                            {{ form.role.label_tag }}
+                            {{ form.role }}
+                            {% if form.role.errors %}
+                                <div class="error-message">
+                                    {% for error in form.role.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            {% if form.role.help_text %}
+                                <small class="help-text">{{ form.role.help_text }}</small>
+                            {% endif %}
                         </div>
                         
                         <div class="form-group">
                             <label>Current Role</label>
                             <div class="role-display">
                                 <span class="role-badge role-{{ target_user.role }}">{{ target_user.get_role_display }}</span>
-                                <small class="help-text">Role cannot be changed here</small>
+                                <small class="help-text">Current role assignment</small>
                             </div>
                         </div>
                     </div>
-
+                    {% else %}
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Current Role</label>
+                            <div class="role-display">
+                                <span class="role-badge role-{{ target_user.role }}">{{ target_user.get_role_display }}</span>
+                                <small class="help-text">Role cannot be changed with your permissions</small>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Hierarchy Fields (conditional) -->
+                    {% if form.manager %}
+                    <div class="form-row">
+                        <div class="form-group">
+                            {{ form.manager.label_tag }}
+                            {{ form.manager }}
+                            {% if form.manager.errors %}
+                                <div class="error-message">
+                                    {% for error in form.manager.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            {% if form.manager.help_text %}
+                                <small class="help-text">{{ form.manager.help_text }}</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    {% if form.team_lead %}
+                    <div class="form-row">
+                        <div class="form-group">
+                            {{ form.team_lead.label_tag }}
+                            {{ form.team_lead }}
+                            {% if form.team_lead.errors %}
+                                <div class="error-message">
+                                    {% for error in form.team_lead.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            {% if form.team_lead.help_text %}
+                                <small class="help-text">{{ form.team_lead.help_text }}</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Account Status Field (conditional) -->
+                    {% if form.account_status %}
+                    <div class="form-row">
+                        <div class="form-group">
+                            {{ form.account_status.label_tag }}
+                            {{ form.account_status }}
+                            {% if form.account_status.errors %}
+                                <div class="error-message">
+                                    {% for error in form.account_status.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            {% if form.account_status.help_text %}
+                                <small class="help-text">{{ form.account_status.help_text }}</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Account Status</label>
+                            <div class="status-display">
+                                <span class="status-badge status-{{ target_user.account_status }}">{{ target_user.get_account_status_display }}</span>
+                                <small class="help-text">Status cannot be changed with your permissions</small>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Current Hierarchy Display -->
                     {% if target_user.manager %}
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Manager</label>
+                            <label>Current Manager</label>
                             <div class="hierarchy-info">
                                 {{ target_user.manager.first_name|default:target_user.manager.username }}
+                                <small class="help-text">Current manager assignment</small>
                             </div>
                         </div>
                     </div>
@@ -124,9 +264,10 @@
                     {% if target_user.team_lead %}
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Team Lead</label>
+                            <label>Current Team Lead</label>
                             <div class="hierarchy-info">
                                 {{ target_user.team_lead.first_name|default:target_user.team_lead.username }}
+                                <small class="help-text">Current team lead assignment</small>
                             </div>
                         </div>
                     </div>
@@ -509,6 +650,59 @@
 .role-team_lead { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; }
 .role-agent { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: #333; }
 
+/* Status Badges */
+.status-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.status-active { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: #333; }
+.status-inactive { background: linear-gradient(135deg, #6c757d 0%, #495057 100%); color: white; }
+.status-suspended { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; }
+
+/* Form Error Styles */
+.error-message {
+    color: #e74c3c;
+    font-size: 12px;
+    margin-top: 5px;
+    font-weight: 600;
+}
+
+.error-message span {
+    display: block;
+    margin-bottom: 2px;
+}
+
+/* Alert Styles */
+.alert {
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    border: 1px solid;
+}
+
+.alert-danger {
+    background: rgba(231, 76, 60, 0.1);
+    border-color: rgba(231, 76, 60, 0.3);
+    color: #e74c3c;
+}
+
+.alert-danger p {
+    margin: 0;
+    font-weight: 600;
+}
+
+/* Status Display */
+.status-display {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
 @media (max-width: 768px) {
     .form-row {
         grid-template-columns: 1fr;
@@ -538,6 +732,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const feedbackText = feedback.querySelector('.feedback-text');
     const originalUsername = '{{ target_user.username }}';
     let debounceTimer;
+    
+    // Role and hierarchy field management
+    const roleSelect = document.querySelector('select[name="role"]');
+    const managerSelect = document.querySelector('select[name="manager"]');
+    const teamLeadSelect = document.querySelector('select[name="team_lead"]');
     
     // Username validation function
     function validateUsername(username) {
@@ -606,6 +805,89 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
+    // Update hierarchy field visibility based on role selection
+    function updateHierarchyFields() {
+        if (!roleSelect) return;
+        
+        const selectedRole = roleSelect.value;
+        const managerField = managerSelect ? managerSelect.closest('.form-row') : null;
+        const teamLeadField = teamLeadSelect ? teamLeadSelect.closest('.form-row') : null;
+        
+        // Show/hide fields based on role
+        if (managerField) {
+            if (selectedRole === 'team_lead' || selectedRole === 'agent') {
+                managerField.style.display = 'flex';
+                if (selectedRole === 'team_lead') {
+                    managerSelect.required = true;
+                    const label = managerField.querySelector('label');
+                    if (label) label.textContent += ' *';
+                } else {
+                    managerSelect.required = false;
+                }
+            } else {
+                managerField.style.display = 'none';
+                managerSelect.required = false;
+                managerSelect.value = '';
+            }
+        }
+        
+        if (teamLeadField) {
+            if (selectedRole === 'agent') {
+                teamLeadField.style.display = 'flex';
+                teamLeadSelect.required = false;
+            } else {
+                teamLeadField.style.display = 'none';
+                teamLeadSelect.required = false;
+                teamLeadSelect.value = '';
+            }
+        }
+        
+        // Validate hierarchy consistency
+        validateHierarchyConsistency();
+    }
+    
+    // Validate hierarchy consistency
+    function validateHierarchyConsistency() {
+        if (!roleSelect || !managerSelect || !teamLeadSelect) return;
+        
+        const selectedRole = roleSelect.value;
+        const selectedManager = managerSelect.value;
+        const selectedTeamLead = teamLeadSelect.value;
+        
+        // Clear previous validation messages
+        clearValidationMessages();
+        
+        // Team lead must report to same manager as agent
+        if (selectedRole === 'agent' && selectedTeamLead && selectedManager) {
+            const teamLeadOption = teamLeadSelect.querySelector(`option[value="${selectedTeamLead}"]`);
+            if (teamLeadOption) {
+                const teamLeadManagerId = teamLeadOption.dataset.managerId;
+                if (teamLeadManagerId && teamLeadManagerId !== selectedManager) {
+                    showFieldError(teamLeadSelect, 'Team lead must report to the same manager as this user.');
+                }
+            }
+        }
+    }
+    
+    // Show field error
+    function showFieldError(field, message) {
+        const formGroup = field.closest('.form-group');
+        if (formGroup) {
+            let errorDiv = formGroup.querySelector('.field-error');
+            if (!errorDiv) {
+                errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message field-error';
+                formGroup.appendChild(errorDiv);
+            }
+            errorDiv.innerHTML = `<span>${message}</span>`;
+        }
+    }
+    
+    // Clear validation messages
+    function clearValidationMessages() {
+        document.querySelectorAll('.field-error').forEach(el => el.remove());
+    }
+    
     // Input event handler with debounce
     usernameInput.addEventListener('input', function() {
         const username = this.value.trim();
@@ -625,6 +907,21 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 500);
     });
     
+    // Role change handler
+    if (roleSelect) {
+        roleSelect.addEventListener('change', updateHierarchyFields);
+    }
+    
+    // Manager change handler
+    if (managerSelect) {
+        managerSelect.addEventListener('change', validateHierarchyConsistency);
+    }
+    
+    // Team lead change handler
+    if (teamLeadSelect) {
+        teamLeadSelect.addEventListener('change', validateHierarchyConsistency);
+    }
+    
     // Form submission check
     const form = document.querySelector('.user-form');
     form.addEventListener('submit', function(e) {
@@ -640,9 +937,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 e.preventDefault();
                 alert('Please choose a valid and available username.');
                 usernameInput.focus();
+                return;
             }
         }
+        
+        // Validate hierarchy consistency before submission
+        validateHierarchyConsistency();
+        
+        // Check for field errors
+        const fieldErrors = document.querySelectorAll('.field-error');
+        if (fieldErrors.length > 0) {
+            e.preventDefault();
+            alert('Please correct the validation errors before submitting.');
+            return;
+        }
     });
+    
+    // Initialize hierarchy fields on page load
+    updateHierarchyFields();
     
     // Initial check if username is different from original
     if (usernameInput.value.trim() !== originalUsername) {

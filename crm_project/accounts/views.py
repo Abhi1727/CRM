@@ -9,10 +9,10 @@ from django.http import QueryDict
 from django.core.paginator import Paginator
 from datetime import datetime
 import uuid
-from .models import User
+from .models import User, BulkAssignmentUndo
 from dashboard.models import Lead, LeadOperationLog
 from .permissions import role_required, can_manage_user_required, hierarchy_required
-from .forms import UserCreationForm, UserAssignmentForm
+from .forms import UserCreationForm, UserAssignmentForm, UserEditForm
 
 
 def _apply_lead_snapshot_filters(queryset, user, filter_snapshot):
@@ -182,32 +182,47 @@ def create_user(request):
 @login_required
 @can_manage_user_required
 def edit_user(request, user_id):
-    """Edit user details"""
+    """Edit user details with role-based permissions"""
     target_user = get_object_or_404(User, id=user_id, company_id=request.user.company_id)
     
+    # Additional permission check: users can edit their own profile
+    if target_user != request.user:
+        if not request.user.can_manage_user(target_user):
+            messages.error(request, 'You do not have permission to edit this user.')
+            return redirect('accounts:user_list')
+    
     if request.method == 'POST':
-        # Handle user update logic
-        target_user.first_name = request.POST.get('first_name', '')
-        target_user.last_name = request.POST.get('last_name', '')
-        target_user.email = request.POST.get('email', '')
-        target_user.phone = request.POST.get('phone', '')
-        target_user.mobile = request.POST.get('mobile', '')
-        target_user.account_status = request.POST.get('account_status', 'active')
+        form = UserEditForm(
+            request.POST, 
+            editor=request.user, 
+            target_user=target_user,
+            instance=target_user
+        )
         
-        # Automatically set is_active based on account_status
-        if target_user.account_status == 'active':
-            target_user.is_active = True
-        elif target_user.account_status in ['inactive', 'suspended']:
-            target_user.is_active = False
-        
-        target_user.save()
-        messages.success(request, f'User {target_user.username} updated successfully.')
-        return redirect('accounts:user_list')
+        if form.is_valid():
+            try:
+                updated_user = form.save()
+                messages.success(request, f'User {updated_user.username} updated successfully.')
+                return redirect('accounts:user_list')
+            except Exception as e:
+                messages.error(request, f'Error updating user: {str(e)}')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = UserEditForm(
+            editor=request.user, 
+            target_user=target_user,
+            instance=target_user
+        )
     
     context = {
+        'form': form,
         'target_user': target_user,
         'status_choices': User.ACCOUNT_STATUS_CHOICES,
         'page_title': f'Edit {target_user.username}',
+        'can_edit_role': form._can_edit_role() if hasattr(form, '_can_edit_role') else False,
+        'can_edit_hierarchy': form._can_edit_hierarchy() if hasattr(form, '_can_edit_hierarchy') else False,
+        'can_edit_status': form._can_edit_status() if hasattr(form, '_can_edit_status') else False,
     }
     return render(request, 'accounts/edit_user.html', context)
 
@@ -423,6 +438,7 @@ def bulk_assign_leads(request):
 
             successful_assignments = 0
             failed_assignments = 0
+            assigned_lead_ids = []
             
             for lead in target_leads_qs:
                 try:
@@ -430,6 +446,7 @@ def bulk_assign_leads(request):
                         success = lead.assign_to_user(assigned_user, request.user)
                         if success:
                             successful_assignments += 1
+                            assigned_lead_ids.append(lead.id_lead)
                             
                             # Add remarks to assignment history if provided
                             if remarks:
@@ -474,6 +491,15 @@ def bulk_assign_leads(request):
                 failed_count=failed_assignments,
                 metadata={'assigned_user_id': assigned_user.id},
             )
+            
+            # Create BulkAssignmentUndo record if any assignments were successful
+            if successful_assignments > 0 and assigned_lead_ids:
+                BulkAssignmentUndo.objects.create(
+                    assigned_by=request.user,
+                    assigned_to=assigned_user,
+                    lead_ids=','.join(map(str, assigned_lead_ids)),
+                    assignment_count=successful_assignments
+                )
                 
         except User.DoesNotExist:
             messages.error(request, 'Selected user not found.')
@@ -902,3 +928,135 @@ def check_username_availability(request):
     else:
         return JsonResponse({'available': True, 'message': 'Username is available'})
 
+@login_required
+@role_required('owner', 'manager')
+def get_team_leads_by_manager(request):
+    """
+    AJAX endpoint to get team leads for a specific manager.
+    Returns JSON response with team leads data.
+    """
+    manager_id = request.GET.get('manager_id')
+    
+    if not manager_id:
+        return JsonResponse({'error': 'Manager ID is required'}, status=400)
+    
+    try:
+        manager = User.objects.get(id=manager_id, role='manager', company_id=request.user.company_id)
+        
+        # Get team leads under this manager
+        team_leads = User.objects.filter(
+            role='team_lead', 
+            manager=manager, 
+            company_id=request.user.company_id
+        ).values('id', 'first_name', 'last_name', 'username')
+        
+        # Format team leads for select options
+        team_leads_data = []
+        for tl in team_leads:
+            team_leads_data.append({
+                'id': tl['id'],
+                'name': f"{tl['first_name']} {tl['last_name']}".strip() or tl['username'],
+                'username': tl['username']
+            })
+        
+        return JsonResponse({
+            'success': True,
+            'team_leads': team_leads_data,
+            'manager_name': f"{manager.first_name} {manager.last_name}".strip() or manager.username
+        })
+        
+    except User.DoesNotExist:
+        return JsonResponse({'error': 'Manager not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
+@hierarchy_required
+def undo_assignments(request):
+    """Undo a bulk assignment operation"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
+    assignment_id = request.POST.get('assignment_id')
+    if not assignment_id:
+        return JsonResponse({'success': False, 'message': 'Assignment ID is required'}, status=400)
+    
+    try:
+        assignment = BulkAssignmentUndo.objects.get(
+            id=assignment_id,
+            assigned_by=request.user  # Users can only undo their own assignments
+        )
+        
+        # Perform the undo operation
+        undone_count = assignment.undo_assignment()
+        
+        if undone_count > 0:
+            # Delete the undo record after successful undo
+            assignment.delete()
+            
+            # Log the undo operation
+            LeadOperationLog.objects.create(
+                operation_id=f"undo_assign_{uuid.uuid4().hex[:14]}",
+                operation_type='undo_assign',
+                user=request.user,
+                company_id=request.user.company_id,
+                action_scope='undo',
+                requested_count=assignment.assignment_count,
+                processed_count=undone_count,
+                success_count=undone_count,
+                failed_count=0,
+                metadata={
+                    'original_assignment_id': assignment_id,
+                    'original_assigned_to': assignment.assigned_to.id,
+                    'undone_count': undone_count
+                },
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'Successfully undone assignment of {undone_count} leads.',
+                'undone_count': undone_count
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'message': 'No leads were found to undo. The assignment may have been already modified.'
+            })
+            
+    except BulkAssignmentUndo.DoesNotExist:
+        return JsonResponse({'success': False, 'message': 'Assignment not found or you do not have permission to undo it.'}, status=404)
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': f'An error occurred: {str(e)}'}, status=500)
+
+
+@login_required
+@hierarchy_required
+def get_undo_history(request):
+    """Get undo history for the current user"""
+    try:
+        # Get recent bulk assignments by the current user
+        assignments = BulkAssignmentUndo.objects.filter(
+            assigned_by=request.user
+        ).select_related('assigned_to').order_by('-created_at')[:20]  # Last 20 assignments
+        
+        assignment_data = []
+        for assignment in assignments:
+            assignment_data.append({
+                'id': assignment.id,
+                'assigned_to_name': assignment.assigned_to.get_full_name() or assignment.assigned_to.username,
+                'assigned_to_role': assignment.assigned_to.get_role_display(),
+                'assignment_count': assignment.assignment_count,
+                'created_at': assignment.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'created_at_formatted': assignment.created_at.strftime('%b %d, %Y at %I:%M %p'),
+                'can_undo': True  # Users can undo their own assignments
+            })
+        
+        return JsonResponse({
+            'success': True,
+            'assignments': assignment_data,
+            'total_count': BulkAssignmentUndo.objects.filter(assigned_by=request.user).count()
+        })
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': f'An error occurred: {str(e)}'}, status=500)

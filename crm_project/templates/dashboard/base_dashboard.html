@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Dashboard - CRM System{% endblock %}</title>
     {% load static %}
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
+    <!-- Dashboard CSS -->
     <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=2.0">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -20,10 +23,10 @@
                 </button>
             </div>
             
-            <div class="user-info">
+            <!-- <div class="user-info">
                 <div class="user-avatar">
                     {% if user.profile_picture %}
-                        <img src="{{ user.profile_picture.url }}" alt="{{ user.username }}">
+                        <img src="{{ user.profile_picture.url }}" alt="{{ user.username }}" loading="lazy" decoding="async">
                     {% else %}
                         <i class="fas fa-user-circle"></i>
                     {% endif %}
@@ -37,7 +40,7 @@
                     <small class="user-hierarchy">Team Lead: {{ user.team_lead.first_name|default:user.team_lead.username }}</small>
                     {% endif %}
                 </div>
-            </div>
+            </div> -->
             
             <nav class="sidebar-nav">
                 {% if user.role == 'agent' %}
@@ -242,7 +245,21 @@
         </div>
     </div>
     
-    <script src="{% static 'js/dashboard.js' %}"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+    <script src="{% static 'js/dashboard.js' %}?v=2.0"></script>
+    
+    <!-- Performance Monitoring -->
+    <script src="{% static 'js/performance.js' %}?v=1.0"></script>
+    
+    <!-- Search Optimization -->
+    <script src="{% static 'js/search-optimization.js' %}?v=1.0"></script>
+    
+    <!-- Bulk Operations Progress Tracking -->
+    <script src="{% static 'js/bulk_operations_progress.js' %}?v=1.0"></script>
+    
+    <!-- Inline Editing for Agent Efficiency -->
+    <script src="{% static 'js/inline-editing.js' %}?v=1.0"></script>
     
     <!-- INLINE THEME TOGGLE - ENSURES IT WORKS -->
     <script>

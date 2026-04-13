@@ -44,10 +44,14 @@ CSRF_TRUSTED_ORIGINS = [
 if DEBUG:
     # Common development ports for browser preview and hot reload
     additional_ports = [
+        'http://127.0.0.1:50831',
+        'http://localhost:50831',
         'http://127.0.0.1:59676',
         'http://localhost:59676',
         'http://127.0.0.1:61705',
         'http://localhost:61705',
+        'http://127.0.0.1:57870',
+        'http://localhost:57870',
     ]
     
     # Add any additional ports from environment variable
@@ -122,33 +126,27 @@ WSGI_APPLICATION = 'crm.wsgi.application'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 DB_ENGINE = os.getenv('DB_ENGINE', 'sqlite3').strip().lower()
 db_host_raw = os.getenv('DB_HOST', 'localhost').strip()
-db_port = os.getenv('DB_PORT', '3306').strip()
-
-# Support DB_HOST values like "127.0.0.1:3306"
-if ':' in db_host_raw and db_host_raw.count(':') == 1:
-    host_part, port_part = db_host_raw.split(':', 1)
-    if port_part.isdigit():
-        db_host_raw = host_part
-        db_port = port_part
 
 if DB_ENGINE == 'mysql':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
-            'NAME': os.getenv('DB_NAME', ''),
-            'USER': os.getenv('DB_USER', ''),
+            'NAME': os.getenv('DB_NAME', 'crm_db'),
+            'USER': os.getenv('DB_USER', 'root'),
             'PASSWORD': os.getenv('DB_PASSWORD', ''),
-            'HOST': db_host_raw,
-            'PORT': db_port,
-            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '300')),  # Increased to 5 minutes for better connection reuse
+            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'PORT': os.getenv('DB_PORT', '3306'),
             'OPTIONS': {
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES', innodb_lock_wait_timeout=50",
                 'charset': 'utf8mb4',
-                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+                # Connection pooling settings
                 'connect_timeout': 60,
                 'read_timeout': 30,
                 'write_timeout': 30,
             },
-            'ATOMIC_REQUESTS': True,
+            # Connection pool settings
+            'CONN_MAX_AGE': 60,  # Persistent connections for 60 seconds
+            'ATOMIC_REQUESTS': True,  # Wrap each request in a transaction
         }
     }
 else:
@@ -216,36 +214,192 @@ AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',  # Fallback to default
 ]
 
-# Caching configuration for performance optimization
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'crm-cache',
-        'TIMEOUT': 300,  # 5 minutes default TTL
-        'OPTIONS': {
-            'MAX_ENTRIES': 1000,
-            'CULL_FREQUENCY': 3,
-        }
-    },
-    'dashboard_stats': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'dashboard-stats-cache',
-        'TIMEOUT': 300,  # 5 minutes TTL for dashboard statistics
-        'OPTIONS': {
-            'MAX_ENTRIES': 500,
-            'CULL_FREQUENCY': 3,
-        }
-    },
-    'user_hierarchy': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'user-hierarchy-cache',
-        'TIMEOUT': 600,  # 10 minutes TTL for hierarchy data
-        'OPTIONS': {
-            'MAX_ENTRIES': 200,
-            'CULL_FREQUENCY': 2,
-        }
+# Multi-level caching configuration for performance optimization
+# Use Redis in production, fallback to LocMem for development
+REDIS_URL = os.getenv('REDIS_URL', None)
+
+if REDIS_URL and not DEBUG:
+    # Production Redis configuration
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'TIMEOUT': 300,  # 5 minutes default TTL
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+                'IGNORE_EXCEPTIONS': True,  # Fail gracefully if Redis is down
+                'SOCKET_CONNECT_TIMEOUT': 5,
+                'SOCKET_TIMEOUT': 5,
+                'RETRY_ON_TIMEOUT': True,
+            },
+            'KEY_PREFIX': 'crm_default',
+        },
+        'dashboard_stats': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'TIMEOUT': 600,  # 10 minutes TTL for dashboard statistics
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+                'IGNORE_EXCEPTIONS': True,
+            },
+            'KEY_PREFIX': 'crm_dashboard',
+        },
+        'user_hierarchy': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'TIMEOUT': 900,  # 15 minutes TTL for hierarchy data
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+                'IGNORE_EXCEPTIONS': True,
+            },
+            'KEY_PREFIX': 'crm_hierarchy',
+        },
+        'query_results': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'TIMEOUT': 900,  # 15 minutes TTL for query results
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+                'IGNORE_EXCEPTIONS': True,
+            },
+            'KEY_PREFIX': 'crm_queries',
+        },
+        'template_fragments': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'TIMEOUT': 1800,  # 30 minutes TTL for template fragments
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+                'IGNORE_EXCEPTIONS': True,
+            },
+            'KEY_PREFIX': 'crm_templates',
+        },
     }
+else:
+    # Development LocMem configuration
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'crm-cache',
+            'TIMEOUT': 300,  # 5 minutes default TTL
+            'OPTIONS': {
+                'MAX_ENTRIES': 1000,
+                'CULL_FREQUENCY': 3,
+            }
+        },
+        'dashboard_stats': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'dashboard-stats-cache',
+            'TIMEOUT': 600,  # 10 minutes TTL for dashboard statistics
+            'OPTIONS': {
+                'MAX_ENTRIES': 500,
+                'CULL_FREQUENCY': 3,
+            }
+        },
+        'user_hierarchy': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'user-hierarchy-cache',
+            'TIMEOUT': 900,  # 15 minutes TTL for hierarchy data
+            'OPTIONS': {
+                'MAX_ENTRIES': 200,
+                'CULL_FREQUENCY': 2,
+            }
+        },
+        'query_results': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'query-results-cache',
+            'TIMEOUT': 900,  # 15 minutes TTL for query results
+            'OPTIONS': {
+                'MAX_ENTRIES': 800,
+                'CULL_FREQUENCY': 3,
+            }
+        },
+        'template_fragments': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'template-fragments-cache',
+            'TIMEOUT': 1800,  # 30 minutes TTL for template fragments
+            'OPTIONS': {
+                'MAX_ENTRIES': 300,
+                'CULL_FREQUENCY': 2,
+            }
+        },
+    }
+
+# Cache alias configuration
+CACHE_MIDDLEWARE_ALIAS = 'default'
+CACHE_MIDDLEWARE_SECONDS = 300  # 5 minutes
+CACHE_MIDDLEWARE_KEY_PREFIX = 'crm_page'
+
+# Session configuration for better performance
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'
+
+# Browser caching configuration for static files
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Static file caching headers for better browser caching
+if not DEBUG:
+    # Production static file settings
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+    
+    # Add custom middleware for static file caching
+    STATICFILES_DIRS = [BASE_DIR / 'static']
+    
+    # Secure static file serving
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    
+    # Enable HSTS for better security and performance
+    if not DEBUG:
+        SECURE_HSTS_SECONDS = 31536000  # 1 year
+        SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+        SECURE_HSTS_PRELOAD = True
+
+# Celery configuration for async processing
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'django-cache')
+CELERY_CACHE_BACKEND = 'django-cache'
+
+# Celery settings
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_ENABLE_UTC = True
+
+# Task routing and queues
+CELERY_TASK_ROUTES = {
+    'dashboard.tasks.bulk_lead_assignment': {'queue': 'bulk_operations'},
+    'dashboard.tasks.bulk_lead_deletion': {'queue': 'bulk_operations'},
+    'dashboard.tasks.send_bulk_notifications': {'queue': 'notifications'},
 }
+
+# Task time limits
+CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5 minutes
+CELERY_TASK_TIME_LIMIT = 600       # 10 minutes
+
+# Worker configuration
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000
+
+# Add performance-related middleware
+MIDDLEWARE = [
+    'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'django.middleware.cache.UpdateCacheMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.cache.FetchFromCacheMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
 
 # Login URLs
 LOGIN_URL = 'accounts:login'

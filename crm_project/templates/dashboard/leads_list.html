@@ -16,6 +16,9 @@
             <button id="bulk-assign-btn" class="btn btn-warning" style="display: none;">
                 <i class="fas fa-users"></i> Bulk Assign (<span id="selected-count">0</span>)
             </button>
+            <button id="undo-assign-btn" class="btn btn-info" title="Undo recent bulk assignments">
+                <i class="fas fa-undo"></i> Undo Assignments
+            </button>
             <button id="bulk-delete-btn" class="btn btn-danger" style="display: none;">
                 <i class="fas fa-trash"></i> Delete Selected (<span id="delete-selected-count">0</span>)
             </button>
@@ -196,8 +199,11 @@
                         <input type="checkbox" class="lead-checkbox" data-lead-id="{{ lead.id_lead }}" data-lead-name="{{ lead.name }}">
                     </td>
                     {% endif %}
-                    <td>
-                        <strong><a href="{% url 'dashboard:lead_detail' lead.id_lead %}" class="lead-name-link">{{ lead.name|default:"-" }}</a></strong>
+                    <td class="editable-field" data-field="name" data-lead-id="{{ lead.id_lead }}">
+                        <div class="field-content">
+                            <strong><a href="{% url 'dashboard:lead_detail' lead.id_lead %}" class="lead-name-link">{{ lead.name|default:"-" }}</a></strong>
+                            <i class="fas fa-edit edit-icon" title="Double-click to edit"></i>
+                        </div>
                         {% if page_title == 'New Leads' %}
                             {% if not lead.assigned_user %}
                                 <span class="lead-type-badge unassigned-badge">Unassigned</span>
@@ -207,8 +213,18 @@
                         {% endif %}
                     </td>
                     <td>{% if lead.assigned_user %}{{ lead.assigned_user.get_full_name|default:lead.assigned_user.username }}{% else %}-{% endif %}</td>
-                    <td>{{ lead.mobile|default:lead.alt_mobile|default:"-" }}</td>
-                    <td>{{ lead.email|default:lead.alt_email|default:"-" }}</td>
+                    <td class="editable-field" data-field="mobile" data-lead-id="{{ lead.id_lead }}">
+                        <div class="field-content">
+                            {{ lead.mobile|default:lead.alt_mobile|default:"-" }}
+                            <i class="fas fa-edit edit-icon" title="Double-click to edit"></i>
+                        </div>
+                    </td>
+                    <td class="editable-field" data-field="email" data-lead-id="{{ lead.id_lead }}">
+                        <div class="field-content">
+                            {{ lead.email|default:lead.alt_email|default:"-" }}
+                            <i class="fas fa-edit edit-icon" title="Double-click to edit"></i>
+                        </div>
+                    </td>
                     <td>
                         <div class="status-dropdown-container">
                             <button class="status-badge status-{{ lead.status }} dropdown-toggle" 
@@ -236,7 +252,12 @@
                         {% endif %}
                     </td>
                     {% endif %}
-                    <td>{% if lead.followup_datetime %}{{ lead.followup_datetime|date:"M d, Y" }}{% else %}-{% endif %}</td>
+                    <td class="editable-field" data-field="followup_datetime" data-lead-id="{{ lead.id_lead }}">
+                        <div class="field-content">
+                            {% if lead.followup_datetime %}{{ lead.followup_datetime|date:"M d, Y" }}{% else %}-{% endif %}
+                            <i class="fas fa-edit edit-icon" title="Double-click to edit"></i>
+                        </div>
+                    </td>
                     <td>
                         <a href="{% url 'dashboard:lead_detail' lead.id_lead %}" class="btn-action"><i class="fas fa-eye"></i></a>
                         {% if user.role == 'agent' %}
@@ -840,40 +861,195 @@
     width: 100%;
     height: 100%;
     background-color: rgba(0,0,0,0.5);
+    /* Flexbox centering for better modal positioning */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Ensure modal is visible when shown */
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.modal.show {
+    opacity: 1;
+    visibility: visible;
 }
 
 .modal-content {
     background-color: var(--card-bg);
-    margin: 5% auto;
-    padding: 30px;
+    /* Remove margin, use flexbox centering instead */
+    padding: 0;
     border: 1px solid var(--border-color);
     border-radius: 12px;
     width: 90%;
     max-width: 500px;
+    max-height: 90vh;
     color: var(--text-primary);
+    /* Add shadow for better visibility */
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    /* Transform for smooth animation */
+    transform: scale(0.9) translateY(20px);
+    transition: transform 0.3s ease;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal.show .modal-content {
+    transform: scale(1) translateY(0);
 }
 
 .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    padding: 20px 30px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+    background-color: var(--card-bg);
 }
 
 .modal-header h3 {
     margin: 0;
     color: var(--text-primary);
+    font-size: 1.25rem;
+    font-weight: 600;
 }
 
 .close {
     color: var(--text-secondary);
-    font-size: 28px;
+    font-size: 24px;
     font-weight: bold;
     cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
 }
 
 .close:hover {
     color: var(--text-primary);
+    background-color: var(--hover-bg);
+}
+
+.modal-body {
+    padding: 30px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+.modal-footer {
+    padding: 20px 30px;
+    border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
+    background-color: var(--card-bg);
+}
+
+/* Responsive modal styles */
+@media (max-width: 768px) {
+    .modal-content {
+        width: 95%;
+        max-width: none;
+        max-height: 95vh;
+        margin: 0;
+    }
+    
+    .modal-header {
+        padding: 15px 20px;
+    }
+    
+    .modal-header h3 {
+        font-size: 1.1rem;
+    }
+    
+    .close {
+        font-size: 20px;
+        width: 28px;
+        height: 28px;
+    }
+    
+    .modal-body {
+        padding: 20px;
+    }
+    
+    .modal-footer {
+        padding: 15px 20px;
+    }
+    
+    .form-group {
+        margin-bottom: 15px;
+    }
+    
+    .form-control {
+        padding: 12px 15px;
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+}
+
+@media (max-width: 480px) {
+    .modal-content {
+        width: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+    
+    .modal-header {
+        padding: 12px 15px;
+    }
+    
+    .modal-header h3 {
+        font-size: 1rem;
+    }
+    
+    .close {
+        font-size: 18px;
+        width: 24px;
+        height: 24px;
+    }
+    
+    .modal-body {
+        padding: 15px;
+    }
+    
+    .modal-footer {
+        padding: 12px 15px;
+    }
+    
+    .form-group {
+        margin-bottom: 12px;
+    }
+    
+    .form-group label {
+        font-size: 14px;
+        margin-bottom: 6px;
+    }
+    
+    .form-control {
+        padding: 10px 12px;
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+    
+    .btn {
+        padding: 10px 16px;
+        font-size: 14px;
+    }
+    
+    /* Quick time buttons responsive */
+    .quick-time-buttons, .quick-time-of-day {
+        gap: 4px;
+    }
+    
+    .btn-time-quick, .btn-time-day {
+        padding: 6px 10px;
+        font-size: 12px;
+        min-width: 40px;
+    }
 }
 
 .form-group {
@@ -1202,44 +1378,48 @@
             <h3>Bulk Assign Leads</h3>
             <span class="close">&times;</span>
         </div>
-        <form id="bulk-assign-form" method="post" action="{% url 'accounts:bulk_assign' %}">
-            {% csrf_token %}
-            <div class="selected-leads-info">
-                <h4>Selected Leads (<span id="modal-selected-count">0</span>)</h4>
-                <div id="selected-leads-list" class="selected-leads-list"></div>
-            </div>
-            <div class="form-group">
-                <label for="role_filter">Select Role:</label>
-                <select name="role_filter" id="role_filter" class="form-control">
-                    <option value="">-- Select Role --</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="user-search">Search User:</label>
-                <div class="search-input-wrapper">
-                    <i class="fas fa-search"></i>
-                    <input type="text" id="user-search" placeholder="Search users..." autocomplete="off">
-                    <button type="button" id="clear-user-search" class="clear-search-btn" title="Clear search">
-                        <i class="fas fa-times"></i>
-                    </button>
+        <div class="modal-body">
+            <form id="bulk-assign-form" method="post" action="{% url 'accounts:bulk_assign' %}">
+                {% csrf_token %}
+                <div class="selected-leads-info">
+                    <h4>Selected Leads (<span id="modal-selected-count">0</span>)</h4>
+                    <div id="selected-leads-list" class="selected-leads-list"></div>
                 </div>
-            </div>
-            <div class="form-group">
-                <label for="assigned_user">Assign To:</label>
-                <select name="assigned_user" id="assigned_user" class="form-control" required disabled>
-                    <option value="">Select Role or Search User...</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="assignment_notes">Assignment Notes (Optional):</label>
-                <textarea name="assignment_notes" id="assignment_notes" class="form-control" rows="3" placeholder="Add any notes about this assignment..."></textarea>
-            </div>
-            <div id="lead_ids" style="display: none;"></div>
+                <div class="form-group">
+                    <label for="role_filter">Select Role:</label>
+                    <select name="role_filter" id="role_filter" class="form-control">
+                        <option value="">-- Select Role --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="user-search">Search User:</label>
+                    <div class="search-input-wrapper">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="user-search" placeholder="Search users..." autocomplete="off">
+                        <button type="button" id="clear-user-search" class="clear-search-btn" title="Clear search">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="assigned_user">Assign To:</label>
+                    <select name="assigned_user" id="assigned_user" class="form-control" required disabled>
+                        <option value="">Select Role or Search User...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="assignment_notes">Assignment Notes (Optional):</label>
+                    <textarea name="assignment_notes" id="assignment_notes" class="form-control" rows="3" placeholder="Add any notes about this assignment..."></textarea>
+                </div>
+                <div id="lead_ids" style="display: none;"></div>
+            </form>
+        </div>
+        <div class="modal-footer">
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
                 <button type="button" class="btn btn-outline" onclick="closeBulkAssignModal()">Cancel</button>
-                <button type="submit" class="btn btn-success">Assign Leads</button>
+                <button type="submit" form="bulk-assign-form" class="btn btn-success">Assign Leads</button>
             </div>
-        </form>
+        </div>
     </div>
 </div>
 
@@ -1250,45 +1430,70 @@
             <h3>Schedule Follow-up</h3>
             <span class="close" onclick="closeFollowupModal()">&times;</span>
         </div>
-        <form id="quick-followup-form">
-            {% csrf_token %}
-            <input type="hidden" id="followup-lead-id" name="lead_id">
-            <input type="hidden" id="followup-status" name="status">
-            
-            <div class="form-group">
-                <label for="followup-datetime">Follow-up Date & Time</label>
-                <input type="datetime-local" id="followup-datetime" name="followup_datetime" class="form-control" required>
+        <div class="modal-body">
+            <form id="quick-followup-form">
+                {% csrf_token %}
+                <input type="hidden" id="followup-lead-id" name="lead_id">
+                <input type="hidden" id="followup-status" name="status">
                 
-                <!-- Quick time selection buttons -->
-                <div class="quick-time-buttons" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">
-                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(1, 'today')">Today</button>
-                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(1, 'tomorrow')">Tomorrow</button>
-                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(3, 'days')">3 Days</button>
-                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(7, 'days')">1 Week</button>
-                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(14, 'days')">2 Weeks</button>
-                    <button type="button" class="btn-time-quick" onclick="setFollowupTime(1, 'month')">1 Month</button>
+                <div class="form-group">
+                    <label for="followup-datetime">Follow-up Date & Time</label>
+                    <input type="datetime-local" id="followup-datetime" name="followup_datetime" class="form-control" required>
+                    
+                    <!-- Quick time selection buttons -->
+                    <div class="quick-time-buttons" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">
+                        <button type="button" class="btn-time-quick" onclick="setFollowupTime(1, 'today')">Today</button>
+                        <button type="button" class="btn-time-quick" onclick="setFollowupTime(1, 'tomorrow')">Tomorrow</button>
+                        <button type="button" class="btn-time-quick" onclick="setFollowupTime(3, 'days')">3 Days</button>
+                        <button type="button" class="btn-time-quick" onclick="setFollowupTime(7, 'days')">1 Week</button>
+                        <button type="button" class="btn-time-quick" onclick="setFollowupTime(14, 'days')">2 Weeks</button>
+                        <button type="button" class="btn-time-quick" onclick="setFollowupTime(1, 'month')">1 Month</button>
+                    </div>
+                    
+                    <!-- Quick time of day buttons -->
+                    <div class="quick-time-of-day" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px;">
+                        <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('09:00')">9 AM</button>
+                        <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('12:00')">12 PM</button>
+                        <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('15:00')">3 PM</button>
+                        <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('18:00')">6 PM</button>
+                    </div>
                 </div>
                 
-                <!-- Quick time of day buttons -->
-                <div class="quick-time-of-day" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px;">
-                    <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('09:00')">9 AM</button>
-                    <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('12:00')">12 PM</button>
-                    <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('15:00')">3 PM</button>
-                    <button type="button" class="btn-time-day" onclick="setFollowupTimeOfDay('18:00')">6 PM</button>
+                <div class="form-group">
+                    <label for="followup-remarks">Follow-up Remarks</label>
+                    <textarea id="followup-remarks" name="followup_remarks" class="form-control" rows="3" 
+                              placeholder="Add notes for this follow-up..."></textarea>
                 </div>
-            </div>
-            
-            <div class="form-group">
-                <label for="followup-remarks">Follow-up Remarks</label>
-                <textarea id="followup-remarks" name="followup_remarks" class="form-control" rows="3" 
-                          placeholder="Add notes for this follow-up..."></textarea>
-            </div>
-            
+            </form>
+        </div>
+        <div class="modal-footer">
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
                 <button type="button" class="btn btn-outline" onclick="closeFollowupModal()">Cancel</button>
-                <button type="submit" class="btn btn-primary">Schedule Follow-up</button>
+                <button type="submit" form="quick-followup-form" class="btn btn-primary">Schedule Follow-up</button>
             </div>
-        </form>
+        </div>
+    </div>
+</div>
+
+<!-- Undo Assignments Modal -->
+<div id="undo-assign-modal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3>Undo Bulk Assignments</h3>
+            <span class="close" onclick="closeUndoModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div id="undo-history-container">
+                <div class="loading-spinner">Loading assignment history...</div>
+            </div>
+            <div id="no-assignments-message" style="display: none; text-align: center; padding: 20px; color: var(--text-secondary);">
+                <i class="fas fa-info-circle" style="font-size: 24px; margin-bottom: 10px;"></i>
+                <p>No recent bulk assignments found to undo.</p>
+            </div>
+        </div>
+        <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+            <button type="button" class="btn btn-outline" onclick="closeUndoModal()">Cancel</button>
+        </div>
     </div>
 </div>
 
@@ -1484,27 +1689,35 @@ function clearAllFilters() {
 }
 
 function applyPreset(preset) {
+    // Get current date in Asia/Kolkata timezone
     const today = new Date();
+    const kolkataToday = new Date(today.toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
     const params = {search: getCurrentSearch()};
     
     switch(preset) {
         case 'today':
-            params.start_date = today.toISOString().split('T')[0];
-            params.end_date = today.toISOString().split('T')[0];
+            // Format as YYYY-MM-DD for Asia/Kolkata timezone
+            const kolkataDateStr = kolkataToday.toISOString().split('T')[0];
+            params.start_date = kolkataDateStr;
+            params.end_date = kolkataDateStr;
             break;
         case 'week':
-            const weekStart = new Date(today);
-            weekStart.setDate(today.getDate() - today.getDay());
-            const weekEnd = new Date(weekStart);
-            weekEnd.setDate(weekStart.getDate() + 6);
-            params.start_date = weekStart.toISOString().split('T')[0];
-            params.end_date = weekEnd.toISOString().split('T')[0];
+            // Get start of week (last 7 days from today in Kolkata)
+            const weekStart = new Date(kolkataToday);
+            weekStart.setDate(kolkataToday.getDate() - 7);
+            const weekStartStr = weekStart.toISOString().split('T')[0];
+            const weekEndStr = kolkataToday.toISOString().split('T')[0];
+            params.start_date = weekStartStr;
+            params.end_date = weekEndStr;
             break;
         case 'month':
-            const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-            const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-            params.start_date = monthStart.toISOString().split('T')[0];
-            params.end_date = monthEnd.toISOString().split('T')[0];
+            // Get start of month (last 30 days from today in Kolkata)
+            const monthStart = new Date(kolkataToday);
+            monthStart.setDate(kolkataToday.getDate() - 30);
+            const monthStartStr = monthStart.toISOString().split('T')[0];
+            const monthEndStr = kolkataToday.toISOString().split('T')[0];
+            params.start_date = monthStartStr;
+            params.end_date = monthEndStr;
             break;
         case 'team':
             // This will be handled by backend based on user role
@@ -1610,7 +1823,31 @@ function debounceSearch() {
 function closeBulkAssignModal() {
     const modal = document.getElementById('bulk-assign-modal');
     if (modal) {
-        modal.style.display = 'none';
+        modal.classList.remove('show');
+        // Allow body scroll again
+        document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
+    }
+}
+
+function openBulkAssignModal() {
+    const modal = document.getElementById('bulk-assign-modal');
+    if (modal) {
+        // Prevent body scroll
+        const scrollWidth = window.innerWidth - document.documentElement.clientWidth;
+        document.body.style.overflow = 'hidden';
+        document.body.style.paddingRight = scrollWidth + 'px';
+        
+        // Show modal with animation
+        modal.classList.add('show');
+        
+        // Focus first input
+        setTimeout(() => {
+            const firstInput = modal.querySelector('input, select, textarea');
+            if (firstInput) {
+                firstInput.focus();
+            }
+        }, 300);
     }
 }
 
@@ -1820,7 +2057,9 @@ document.addEventListener("DOMContentLoaded", function() {
     // Bulk assign button click
     if (bulkAssignBtn) {
         bulkAssignBtn.addEventListener('click', function() {
-            openBulkAssignModal();
+            if (prepareBulkAssignModal()) {
+                openBulkAssignModal();
+            }
         });
     }
     
@@ -1943,10 +2182,10 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
     
-    function openBulkAssignModal() {
+    function prepareBulkAssignModal() {
         if (selectionScope === 'current_page' && selectedLeads.size === 0) {
             alert('Please select at least one lead to assign.');
-            return;
+            return false;
         }
 
         const scopeTarget = selectionScope === 'all_filtered' ? totalFilteredCount : selectedLeads.size;
@@ -1997,8 +2236,7 @@ document.addEventListener("DOMContentLoaded", function() {
         
         // Load roles for selection
         loadAvailableRoles();
-        
-        modal.style.display = 'block';
+        return true;
     }
     
     function loadAvailableRoles() {
@@ -2615,7 +2853,7 @@ function highlightDateTimeInput() {
     setTimeout(() => {
         datetimeInput.style.backgroundColor = '';
         datetimeInput.style.borderColor = '';
-    }, 500);
+    }, 1000);
 }
 
 function showFollowupModal(leadId, status, button, dropdown) {
@@ -2624,30 +2862,32 @@ function showFollowupModal(leadId, status, button, dropdown) {
     const statusInput = document.getElementById('followup-status');
     const datetimeInput = document.getElementById('followup-datetime');
     
-    // Set hidden fields
+    // Set values
     leadIdInput.value = leadId;
     statusInput.value = status;
     
-    // Set default datetime to tomorrow same time
+    // Set default datetime to tomorrow 10 AM
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(10, 0, 0, 0);
     datetimeInput.value = tomorrow.toISOString().slice(0, 16);
     
     // Store references for form submission
     modal.dataset.button = button.outerHTML;
     modal.dataset.dropdown = dropdown.outerHTML;
     
-    // Show modal
-    modal.style.display = 'block';
-    datetimeInput.focus();
-}
-
-function closeFollowupModal() {
-    const modal = document.getElementById('quick-followup-modal');
-    modal.style.display = 'none';
+    // Prevent body scroll
+    const scrollWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = 'hidden';
+    document.body.style.paddingRight = scrollWidth + 'px';
     
-    // Reset form
-    document.getElementById('quick-followup-form').reset();
+    // Show modal with animation
+    modal.classList.add('show');
+    
+    // Focus datetime input
+    setTimeout(() => {
+        datetimeInput.focus();
+    }, 300);
 }
 
 // Handle follow-up form submission
@@ -2696,8 +2936,20 @@ document.addEventListener('keydown', function(e) {
         
         // Close follow-up modal if open
         const followupModal = document.getElementById('quick-followup-modal');
-        if (followupModal.style.display === 'block') {
+        if (followupModal.classList.contains('show')) {
             closeFollowupModal();
+        }
+        
+        // Close bulk assign modal if open
+        const bulkAssignModal = document.getElementById('bulk-assign-modal');
+        if (bulkAssignModal.classList.contains('show')) {
+            closeBulkAssignModal();
+        }
+        
+        // Close undo modal if open
+        const undoModal = document.getElementById('undo-assign-modal');
+        if (undoModal.classList.contains('show')) {
+            closeUndoModal();
         }
     }
     
@@ -2852,6 +3104,126 @@ function showNotification(message, type = 'info') {
 }
 
 // Add notification animations
+// Undo Assignment Functions
+function openUndoModal() {
+    const modal = document.getElementById('undo-assign-modal');
+    if (modal) {
+        // Prevent body scroll
+        const scrollWidth = window.innerWidth - document.documentElement.clientWidth;
+        document.body.style.overflow = 'hidden';
+        document.body.style.paddingRight = scrollWidth + 'px';
+        
+        // Show modal with animation
+        modal.classList.add('show');
+        loadUndoHistory();
+    }
+}
+
+function closeUndoModal() {
+    const modal = document.getElementById('undo-assign-modal');
+    if (modal) {
+        modal.classList.remove('show');
+        // Allow body scroll again
+        document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
+    }
+}
+
+function loadUndoHistory() {
+    const container = document.getElementById('undo-history-container');
+    const noAssignmentsMsg = document.getElementById('no-assignments-message');
+    
+    fetch('{% url "accounts:get_undo_history" %}', {
+        method: 'GET',
+        headers: {
+            'X-CSRFToken': getCSRFToken(),
+            'Content-Type': 'application/json',
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            if (data.assignments && data.assignments.length > 0) {
+                container.innerHTML = generateUndoHistoryHTML(data.assignments);
+                noAssignmentsMsg.style.display = 'none';
+            } else {
+                container.innerHTML = '';
+                noAssignmentsMsg.style.display = 'block';
+            }
+        } else {
+            container.innerHTML = `<div class="error-message">Error loading assignment history: ${data.message}</div>`;
+            noAssignmentsMsg.style.display = 'none';
+        }
+    })
+    .catch(error => {
+        console.error('Error loading undo history:', error);
+        container.innerHTML = '<div class="error-message">Error loading assignment history. Please try again.</div>';
+        noAssignmentsMsg.style.display = 'none';
+    });
+}
+
+function generateUndoHistoryHTML(assignments) {
+    let html = '<div class="undo-history-list">';
+    
+    assignments.forEach(assignment => {
+        html += `
+            <div class="undo-assignment-item" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 10px; background: var(--card-bg);">
+                <div class="assignment-info" style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <h4 style="margin: 0 0 5px 0; color: var(--text-primary);">
+                            Assigned to <strong>${assignment.assigned_to_name}</strong> 
+                            <span style="color: var(--text-secondary); font-size: 0.9em;">(${assignment.assigned_to_role})</span>
+                        </h4>
+                        <p style="margin: 5px 0; color: var(--text-secondary); font-size: 0.9em;">
+                            <i class="fas fa-users"></i> ${assignment.assignment_count} leads
+                        </p>
+                        <p style="margin: 5px 0; color: var(--text-secondary); font-size: 0.85em;">
+                            <i class="fas fa-clock"></i> ${assignment.created_at_formatted}
+                        </p>
+                    </div>
+                    <button class="btn btn-danger btn-sm" onclick="undoAssignment(${assignment.id})" 
+                            ${!assignment.can_undo ? 'disabled' : ''}>
+                        <i class="fas fa-undo"></i> Undo
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    return html;
+}
+
+function undoAssignment(assignmentId) {
+    if (!confirm('Are you sure you want to undo this bulk assignment? This will unassign all leads from this operation.')) {
+        return;
+    }
+    
+    fetch('{% url "accounts:undo_assignments" %}', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCSRFToken(),
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `assignment_id=${assignmentId}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            closeUndoModal();
+            // Refresh the page to show updated assignments
+            window.location.reload();
+        } else {
+            alert('Error: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error undoing assignment:', error);
+        alert('An error occurred while undoing the assignment. Please try again.');
+    });
+}
+
 const style = document.createElement('style');
 style.textContent = `
     @keyframes slideIn {
@@ -2877,5 +3249,21 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// Add undo button event listener
+document.addEventListener('DOMContentLoaded', function() {
+    const undoBtn = document.getElementById('undo-assign-btn');
+    if (undoBtn) {
+        undoBtn.addEventListener('click', openUndoModal);
+    }
+    
+    // Close undo modal when clicking outside
+    window.addEventListener('click', function(event) {
+        const undoModal = document.getElementById('undo-assign-modal');
+        if (event.target === undoModal) {
+            closeUndoModal();
+        }
+    });
+});
 </script>
 {% endblock %}

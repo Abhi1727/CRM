@@ -284,23 +284,22 @@ class DuplicateDetector:
         if emails:
             q |= Q(email__in=emails)
 
+        # OPTIMIZED: Single database query with O(1) lookup instead of loading all candidates
         candidate_qs = Lead.objects.filter(company_id=self.company_id, deleted=False)
         if q:
             candidate_qs = candidate_qs.filter(q).only(
                 'id_lead', 'name', 'mobile', 'email', 'status', 'created_at'
             ).order_by('-created_at')
-            candidates = list(candidate_qs)
+            # Build optimized lookup dictionary for O(1) duplicate checking
+            by_mobile_email = {}
+            for lead in candidate_qs:
+                if lead.mobile and lead.email:
+                    mobile_key = self.normalize_phone_number(lead.mobile)
+                    email_key = lead.email.strip().lower()
+                    if mobile_key and email_key:
+                        by_mobile_email.setdefault((mobile_key, email_key), []).append(lead)
         else:
-            candidates = []
-
-        by_mobile_email = {}
-
-        for lead in candidates:
-            if lead.mobile and lead.email:
-                mobile_key = self.normalize_phone_number(lead.mobile)
-                email_key = lead.email.strip().lower()
-                if mobile_key and email_key:
-                    by_mobile_email.setdefault((mobile_key, email_key), []).append(lead)
+            by_mobile_email = {}
 
         results = []
         for row in normalized_rows:

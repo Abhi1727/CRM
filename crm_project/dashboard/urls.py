@@ -73,4 +73,15 @@ urlpatterns = [
     
     # Quick Status Update API
     path("ajax/lead-status-update/", api_views.ajax_lead_status_update, name="ajax_lead_status_update"),
+    
+    # Inline Editing API
+    path("ajax/inline-field-update/", api_views.ajax_inline_field_update, name="ajax_inline_field_update"),
+    path("ajax/field-validation-rules/", api_views.get_lead_field_validation_rules, name="get_lead_field_validation_rules"),
+    
+    # Bulk Operations Progress Tracking API
+    path("api/bulk-operation-progress/<str:operation_id>/", api_views.bulk_operation_progress, name="bulk_operation_progress"),
+    path("api/running-operations/", api_views.running_operations, name="running_operations"),
+    path("api/bulk-operation-cancel/<str:operation_id>/", api_views.bulk_operation_cancel, name="bulk_operation_cancel"),
+    path("api/bulk-operations-history/", api_views.bulk_operations_history, name="bulk_operations_history"),
+    path("api/bulk-operation-details/<str:operation_id>/", api_views.bulk_operation_details, name="bulk_operation_details"),
 ]

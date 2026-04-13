@@ -9,6 +9,9 @@
     <div class="page-header">
         <h2><i class="fas fa-user-plus"></i> Create New User</h2>
         <p>Add a new user to your CRM team. Role-based permissions will be applied automatically.</p>
+        <div class="role-info" id="roleInfo" style="display: none;">
+            <span id="roleDescription"></span>
+        </div>
     </div>
 
     <div class="form-container">
@@ -100,11 +103,12 @@
                                 <div class="error-message">{{ form.role.errors.0 }}</div>
                             {% endif %}
                             <small class="help-text">{{ form.role.help_text }}</small>
+                            <div id="roleHelpText" class="role-help-text"></div>
                         </div>
                     </div>
 
                     {% if form.manager %}
-                    <div class="form-row">
+                    <div class="form-row" id="managerField">
                         <div class="form-group">
                             <label for="{{ form.manager.id_for_label }}">Assign to Manager</label>
                             {{ form.manager }}
@@ -112,12 +116,13 @@
                                 <div class="error-message">{{ form.manager.errors.0 }}</div>
                             {% endif %}
                             <small class="help-text">{{ form.manager.help_text }}</small>
+                            <div id="managerValidation" class="validation-message"></div>
                         </div>
                     </div>
                     {% endif %}
 
                     {% if form.team_lead %}
-                    <div class="form-row">
+                    <div class="form-row" id="teamLeadField">
                         <div class="form-group">
                             <label for="{{ form.team_lead.id_for_label }}">Assign to Team Lead</label>
                             {{ form.team_lead }}
@@ -125,9 +130,15 @@
                                 <div class="error-message">{{ form.team_lead.errors.0 }}</div>
                             {% endif %}
                             <small class="help-text">{{ form.team_lead.help_text }}</small>
+                            <div id="teamLeadValidation" class="validation-message"></div>
                         </div>
                     </div>
                     {% endif %}
+                    
+                    <div id="hierarchySummary" class="hierarchy-summary" style="display: none;">
+                        <h4><i class="fas fa-sitemap"></i> Hierarchy Preview</h4>
+                        <div id="hierarchyPreview"></div>
+                    </div>
                 </div>
 
                 <!-- Security -->
@@ -155,12 +166,17 @@
             </div>
 
             <div class="form-actions">
-                <button type="submit" class="btn btn-primary">
+                <button type="submit" class="btn btn-primary" id="submitBtn">
                     <i class="fas fa-user-plus"></i> Create User
                 </button>
                 <a href="{% url 'accounts:user_list' %}" class="btn btn-secondary">
                     <i class="fas fa-times"></i> Cancel
                 </a>
+            </div>
+            
+            <div id="validationSummary" class="validation-summary" style="display: none;">
+                <h4><i class="fas fa-exclamation-triangle"></i> Please fix the following issues:</h4>
+                <ul id="validationList"></ul>
             </div>
         </form>
     </div>
@@ -324,6 +340,117 @@
     border-color: rgba(231, 76, 60, 0.3);
 }
 
+.role-info {
+    margin-top: 15px;
+    padding: 10px 15px;
+    background: rgba(102, 126, 234, 0.1);
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    border-radius: 6px;
+    color: var(--accent-color);
+    font-size: 14px;
+}
+
+.role-help-text {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-left: 3px solid var(--accent-color);
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.validation-message {
+    margin-top: 5px;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: none;
+}
+
+.validation-message.error {
+    background: rgba(231, 76, 60, 0.1);
+    color: var(--danger-color);
+    border: 1px solid rgba(231, 76, 60, 0.3);
+    display: block;
+}
+
+.validation-message.success {
+    background: rgba(46, 204, 113, 0.1);
+    color: #2ecc71;
+    border: 1px solid rgba(46, 204, 113, 0.3);
+    display: block;
+}
+
+.validation-message.warning {
+    background: rgba(241, 196, 15, 0.1);
+    color: #f1c40f;
+    border: 1px solid rgba(241, 196, 15, 0.3);
+    display: block;
+}
+
+.hierarchy-summary {
+    margin: 20px 0;
+    padding: 15px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.hierarchy-summary h4 {
+    color: var(--text-primary);
+    margin-bottom: 10px;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#hierarchyPreview {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.validation-summary {
+    margin: 20px 0;
+    padding: 15px;
+    background: rgba(231, 76, 60, 0.1);
+    border: 1px solid rgba(231, 76, 60, 0.3);
+    border-radius: 8px;
+}
+
+.validation-summary h4 {
+    color: var(--danger-color);
+    margin-bottom: 10px;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.validation-summary ul {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--danger-color);
+}
+
+.validation-summary li {
+    margin-bottom: 5px;
+}
+
+.form-group.required label::after {
+    content: ' *';
+    color: var(--danger-color);
+}
+
+.form-group.optional label::after {
+    content: ' (optional)';
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: normal;
+}
+
 @media (max-width: 768px) {
     .form-row {
         grid-template-columns: 1fr;
@@ -339,4 +466,386 @@
     }
 }
 </style>
+
+<script>
+// Role descriptions and requirements
+const roleInfo = {
+    'manager': {
+        description: 'Can manage team leads and agents. Has access to all team performance data.',
+        requiresManager: false,
+        requiresTeamLead: false,
+        createdBy: 'owner'
+    },
+    'team_lead': {
+        description: 'Can manage agents and handle lead assignments. Reports to a manager.',
+        requiresManager: true,
+        requiresTeamLead: false,
+        createdBy: 'owner, manager'
+    },
+    'agent': {
+        description: 'Can manage assigned leads and update their status. Reports to manager or team lead.',
+        requiresManager: false,
+        requiresTeamLead: false,
+        createdBy: 'owner, manager, team_lead'
+    }
+};
+
+// Current user role (passed from template)
+const currentUserRole = '{{ request.user.role }}';
+
+// Cache for user data to avoid repeated AJAX calls
+const userDataCache = {};
+
+// Initialize form behavior
+document.addEventListener('DOMContentLoaded', function() {
+    const roleSelect = document.getElementById('{{ form.role.id_for_label }}');
+    const managerSelect = document.getElementById('{{ form.manager.id_for_label }}');
+    const teamLeadSelect = document.getElementById('{{ form.team_lead.id_for_label }}');
+    const form = document.querySelector('.user-form');
+    
+    if (roleSelect) {
+        // Initial state setup
+        updateFormFields(roleSelect.value);
+        updateRoleHelpText(roleSelect.value);
+        
+        // Event listeners
+        roleSelect.addEventListener('change', function() {
+            updateFormFields(this.value);
+            updateRoleHelpText(this.value);
+            validateHierarchy();
+        });
+        
+        if (managerSelect) {
+            managerSelect.addEventListener('change', function() {
+                loadTeamLeadsByManager(this.value);
+                validateHierarchy();
+            });
+        }
+        
+        if (teamLeadSelect) {
+            teamLeadSelect.addEventListener('change', validateHierarchy);
+        }
+        
+        // Form submission validation
+        form.addEventListener('submit', function(e) {
+            if (!validateForm()) {
+                e.preventDefault();
+                showValidationSummary();
+            }
+        });
+    }
+});
+
+function updateFormFields(selectedRole) {
+    const managerField = document.getElementById('managerField');
+    const teamLeadField = document.getElementById('teamLeadField');
+    const hierarchySummary = document.getElementById('hierarchySummary');
+    const managerSelect = document.getElementById('{{ form.manager.id_for_label }}');
+    const teamLeadSelect = document.getElementById('{{ form.team_lead.id_for_label }}');
+    
+    // Reset field visibility
+    if (managerField) managerField.style.display = 'none';
+    if (teamLeadField) teamLeadField.style.display = 'none';
+    if (hierarchySummary) hierarchySummary.style.display = 'none';
+    
+    // Clear validation messages
+    clearValidationMessages();
+    
+    const role = roleInfo[selectedRole];
+    if (!role) return;
+    
+    // Show/hide fields based on role and current user
+    if (selectedRole === 'manager' && currentUserRole === 'owner') {
+        // Owner creating manager - no hierarchy fields needed
+        updateHierarchyPreview(selectedRole, null, null);
+    } else if (selectedRole === 'team_lead') {
+        if (currentUserRole === 'owner' && managerSelect) {
+            // Owner creating team lead - show manager selection
+            managerField.style.display = 'block';
+            managerField.querySelector('.form-group').classList.add('required');
+            managerField.querySelector('.form-group').classList.remove('optional');
+        }
+        // Manager creating team lead - no field needed (auto-assigned)
+        updateHierarchyPreview(selectedRole, 
+            currentUserRole === 'owner' ? managerSelect?.value : '{{ request.user.get_full_name }}', 
+            null);
+    } else if (selectedRole === 'agent') {
+        if (currentUserRole === 'owner') {
+            // Owner creating agent - show both manager and team lead options
+            if (managerSelect) {
+                managerField.style.display = 'block';
+                managerField.querySelector('.form-group').classList.add('optional');
+                managerField.querySelector('.form-group').classList.remove('required');
+            }
+            if (teamLeadSelect) {
+                teamLeadField.style.display = 'block';
+                teamLeadField.querySelector('.form-group').classList.add('optional');
+                teamLeadField.querySelector('.form-group').classList.remove('required');
+            }
+        } else if (currentUserRole === 'manager') {
+            // Manager creating agent - show team lead selection
+            if (teamLeadSelect) {
+                teamLeadField.style.display = 'block';
+                teamLeadField.querySelector('.form-group').classList.add('optional');
+                teamLeadField.querySelector('.form-group').classList.remove('required');
+            }
+        }
+        // Team lead creating agent - no fields needed (auto-assigned)
+        updateHierarchyPreview(selectedRole, 
+            getSelectedManagerName(), 
+            getSelectedTeamLeadName());
+    }
+}
+
+function updateRoleHelpText(selectedRole) {
+    const roleHelpText = document.getElementById('roleHelpText');
+    const roleInfo = document.getElementById('roleInfo');
+    
+    if (roleInfo[selectedRole]) {
+        if (roleHelpText) {
+            roleHelpText.innerHTML = `
+                <strong>Responsibilities:</strong> ${roleInfo[selectedRole].description}<br>
+                <strong>Can be created by:</strong> ${roleInfo[selectedRole].createdBy}
+            `;
+        }
+        if (roleInfo) {
+            roleInfo.style.display = 'block';
+            document.getElementById('roleDescription').textContent = roleInfo[selectedRole].description;
+        }
+    }
+}
+
+function validateHierarchy() {
+    const selectedRole = document.getElementById('{{ form.role.id_for_label }}').value;
+    const managerSelect = document.getElementById('{{ form.manager.id_for_label }}');
+    const teamLeadSelect = document.getElementById('{{ form.team_lead.id_for_label }}');
+    
+    clearValidationMessages();
+    const errors = [];
+    
+    if (selectedRole === 'team_lead' && currentUserRole === 'owner') {
+        if (!managerSelect?.value) {
+            errors.push('Team leads must be assigned to a manager.');
+            showFieldError('manager', 'Please select a manager.');
+        }
+    } else if (selectedRole === 'agent') {
+        if (currentUserRole === 'owner') {
+            if (!managerSelect?.value && !teamLeadSelect?.value) {
+                errors.push('Agents must be assigned to either a manager or team lead.');
+                showFieldError('manager', 'Please select a manager or team lead.');
+                showFieldError('team_lead', 'Please select a manager or team lead.');
+            } else if (managerSelect?.value && teamLeadSelect?.value) {
+                // Validate that team lead reports to the selected manager
+                validateTeamLeadManagerRelation(teamLeadSelect.value, managerSelect.value);
+            }
+        }
+    }
+    
+    updateHierarchyPreview(selectedRole, getSelectedManagerName(), getSelectedTeamLeadName());
+    return errors.length === 0;
+}
+
+function validateTeamLeadManagerRelation(teamLeadId, managerId) {
+    // Get team lead data from cache or fetch it
+    if (userDataCache[teamLeadId]) {
+        checkTeamLeadManager(userDataCache[teamLeadId], managerId);
+    } else {
+        // This would typically be an AJAX call to get user data
+        // For now, we'll assume the data is available in the select options
+        const teamLeadSelect = document.getElementById('{{ form.team_lead.id_for_label }}');
+        const selectedOption = teamLeadSelect.querySelector(`option[value="${teamLeadId}"]`);
+        
+        if (selectedOption && selectedOption.dataset.managerId) {
+            const teamLeadManagerId = selectedOption.dataset.managerId;
+            if (teamLeadManagerId !== managerId) {
+                showFieldError('teamLead', 'This team lead does not report to the selected manager.');
+                showFieldError('manager', 'This manager does not supervise the selected team lead.');
+            } else {
+                showFieldSuccess('teamLead', 'Team lead reports to selected manager.');
+            }
+        }
+    }
+}
+
+function loadTeamLeadsByManager(managerId) {
+    const teamLeadSelect = document.getElementById('{{ form.team_lead.id_for_label }}');
+    const teamLeadField = document.getElementById('teamLeadField');
+    
+    if (!teamLeadSelect || !managerId) {
+        // Clear team lead options if no manager selected
+        if (teamLeadSelect) {
+            teamLeadSelect.innerHTML = '<option value="">Select a manager first</option>';
+        }
+        return;
+    }
+    
+    // Show loading state
+    const originalHtml = teamLeadSelect.innerHTML;
+    teamLeadSelect.innerHTML = '<option value="">Loading team leads...</option>';
+    teamLeadSelect.disabled = true;
+    
+    // Make AJAX call to fetch team leads
+    fetch(`/accounts/get-team-leads-by-manager/?manager_id=${managerId}`)
+        .then(response => response.json())
+        .then(data => {
+            teamLeadSelect.disabled = false;
+            
+            if (data.success) {
+                // Clear existing options
+                teamLeadSelect.innerHTML = '<option value="">Select a team lead (optional)</option>';
+                
+                // Add team lead options with manager data attributes
+                data.team_leads.forEach(teamLead => {
+                    const option = document.createElement('option');
+                    option.value = teamLead.id;
+                    option.textContent = teamLead.name;
+                    option.dataset.managerId = managerId; // Store manager ID for validation
+                    teamLeadSelect.appendChild(option);
+                });
+                
+                // Show success message
+                if (data.team_leads.length > 0) {
+                    showFieldSuccess('teamLead', `Found ${data.team_leads.length} team leads for ${data.manager_name}`);
+                } else {
+                    showFieldWarning('teamLead', `No team leads found for ${data.manager_name}`);
+                }
+            } else {
+                // Show error message
+                teamLeadSelect.innerHTML = '<option value="">Error loading team leads</option>';
+                showFieldError('teamLead', data.error || 'Failed to load team leads');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading team leads:', error);
+            teamLeadSelect.disabled = false;
+            teamLeadSelect.innerHTML = '<option value="">Error loading team leads</option>';
+            showFieldError('teamLead', 'Network error while loading team leads');
+        });
+}
+
+function updateHierarchyPreview(role, managerName, teamLeadName) {
+    const hierarchySummary = document.getElementById('hierarchySummary');
+    const hierarchyPreview = document.getElementById('hierarchyPreview');
+    
+    if (!hierarchySummary || !hierarchyPreview) return;
+    
+    let preview = `<strong>New User Role:</strong> ${role.charAt(0).toUpperCase() + role.slice(1)}<br>`;
+    
+    if (managerName) {
+        preview += `<strong>Reports to Manager:</strong> ${managerName}<br>`;
+    }
+    
+    if (teamLeadName) {
+        preview += `<strong>Reports to Team Lead:</strong> ${teamLeadName}<br>`;
+    }
+    
+    if (role === 'agent' && currentUserRole === 'owner') {
+        if (!managerName && !teamLeadName) {
+            preview += '<span style="color: var(--danger-color);">⚠️ Agent will not have a supervisor</span>';
+        } else if (managerName && teamLeadName) {
+            preview += '<span style="color: var(--accent-color);">✓ Agent will have both manager and team lead supervision</span>';
+        } else {
+            preview += '<span style="color: var(--accent-color);">✓ Agent will have supervisor</span>';
+        }
+    }
+    
+    hierarchyPreview.innerHTML = preview;
+    hierarchySummary.style.display = 'block';
+}
+
+function getSelectedManagerName() {
+    const managerSelect = document.getElementById('{{ form.manager.id_for_label }}');
+    if (managerSelect?.value) {
+        return managerSelect.options[managerSelect.selectedIndex]?.text || managerSelect.value;
+    }
+    return null;
+}
+
+function getSelectedTeamLeadName() {
+    const teamLeadSelect = document.getElementById('{{ form.team_lead.id_for_label }}');
+    if (teamLeadSelect?.value) {
+        return teamLeadSelect.options[teamLeadSelect.selectedIndex]?.text || teamLeadSelect.value;
+    }
+    return null;
+}
+
+function showFieldError(field, message) {
+    const validationDiv = document.getElementById(field + 'Validation');
+    if (validationDiv) {
+        validationDiv.textContent = message;
+        validationDiv.className = 'validation-message error';
+    }
+}
+
+function showFieldSuccess(field, message) {
+    const validationDiv = document.getElementById(field + 'Validation');
+    if (validationDiv) {
+        validationDiv.textContent = message;
+        validationDiv.className = 'validation-message success';
+    }
+}
+
+function showFieldWarning(field, message) {
+    const validationDiv = document.getElementById(field + 'Validation');
+    if (validationDiv) {
+        validationDiv.textContent = message;
+        validationDiv.className = 'validation-message warning';
+    }
+}
+
+function clearValidationMessages() {
+    const validationMessages = document.querySelectorAll('.validation-message');
+    validationMessages.forEach(msg => {
+        msg.textContent = '';
+        msg.className = 'validation-message';
+    });
+}
+
+function validateForm() {
+    const isValid = validateHierarchy();
+    
+    if (!isValid) {
+        return false;
+    }
+    
+    // Additional form validation can be added here
+    return true;
+}
+
+function showValidationSummary() {
+    const validationSummary = document.getElementById('validationSummary');
+    const validationList = document.getElementById('validationList');
+    
+    if (!validationSummary || !validationList) return;
+    
+    // Collect all validation errors
+    const errors = [];
+    
+    // Check hierarchy validation
+    const selectedRole = document.getElementById('{{ form.role.id_for_label }}').value;
+    const managerSelect = document.getElementById('{{ form.manager.id_for_label }}');
+    const teamLeadSelect = document.getElementById('{{ form.team_lead.id_for_label }}');
+    
+    if (selectedRole === 'team_lead' && currentUserRole === 'owner' && !managerSelect?.value) {
+        errors.push('Team leads must be assigned to a manager.');
+    }
+    
+    if (selectedRole === 'agent' && currentUserRole === 'owner' && !managerSelect?.value && !teamLeadSelect?.value) {
+        errors.push('Agents must be assigned to either a manager or team lead.');
+    }
+    
+    if (errors.length > 0) {
+        validationList.innerHTML = errors.map(error => `<li>${error}</li>`).join('');
+        validationSummary.style.display = 'block';
+        
+        // Scroll to validation summary
+        validationSummary.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        return false;
+    }
+    
+    validationSummary.style.display = 'none';
+    return true;
+}
+</script>
 {% endblock %}

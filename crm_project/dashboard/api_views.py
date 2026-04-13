@@ -11,7 +11,8 @@ import logging
 
 from dashboard.models import (
     Lead, InternalFollowUpReminder, InternalNotificationTemplate, 
-    TeamNotificationPreference, User, LeadHistory, LeadActivity
+    TeamNotificationPreference, User, LeadHistory, LeadActivity,
+    BulkOperation, BulkOperationProgress
 )
 from services.internal_reminder_service import InternalReminderService
 from services.internal_notification_service import InternalNotificationService
@@ -914,4 +915,564 @@ def ajax_lead_status_update(request):
         return JsonResponse({
             'success': False,
             'error': f'Error updating status: {str(e)}'
+        }, status=500)
+
+
+# Inline Editing API Endpoints for Agent Efficiency
+
+@login_required
+@require_http_methods(["POST"])
+@csrf_exempt
+def ajax_inline_field_update(request):
+    """Update lead field inline via AJAX"""
+    try:
+        data = json.loads(request.body)
+        lead_id = data.get('lead_id')
+        field_name = data.get('field_name')
+        new_value = data.get('new_value')
+        
+        if not lead_id or not field_name:
+            return JsonResponse({
+                'success': False,
+                'error': 'Lead ID and field name are required'
+            }, status=400)
+        
+        # Validate allowed fields
+        allowed_fields = ['name', 'email', 'mobile', 'followup_datetime']
+        if field_name not in allowed_fields:
+            return JsonResponse({
+                'success': False,
+                'error': f'Field {field_name} is not allowed for inline editing'
+            }, status=400)
+        
+        # Get the lead
+        lead = get_object_or_404(Lead, id_lead=lead_id)
+        
+        # Log the permission check attempt
+        logger.info(f"User {request.user.username} (role: {request.user.role}) attempting to update {field_name} for lead {lead_id}")
+        
+        # Check if user can update this lead
+        if not lead.can_be_accessed_by(request.user):
+            logger.warning(f"Permission denied for user {request.user.username} to update lead {lead_id}")
+            return JsonResponse({
+                'success': False,
+                'error': f'You do not have permission to update this lead. Your role: {request.user.role}'
+            }, status=403)
+        
+        # Store old value for history
+        old_value = getattr(lead, field_name, None)
+        
+        # Validate field-specific data
+        validation_error = None
+        if field_name == 'email' and new_value:
+            # Basic email validation
+            import re
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, new_value):
+                validation_error = 'Please enter a valid email address'
+        
+        elif field_name == 'mobile' and new_value:
+            # Basic phone validation (allow digits, spaces, +, -, parentheses)
+            import re
+            phone_pattern = r'^[\d\s\-\+\(\)]+$'
+            if not re.match(phone_pattern, new_value) or len(new_value.replace(' ', '').replace('-', '').replace('+', '').replace('(', '').replace(')', '')) < 10:
+                validation_error = 'Please enter a valid phone number (minimum 10 digits)'
+        
+        elif field_name == 'followup_datetime' and new_value:
+            # Parse datetime string
+            from datetime import datetime
+            try:
+                followup_dt = datetime.fromisoformat(new_value.replace('Z', '+00:00'))
+                if followup_dt < timezone.now():
+                    validation_error = 'Follow-up date cannot be in the past'
+            except ValueError:
+                validation_error = 'Invalid date format. Please use YYYY-MM-DD HH:MM format'
+        
+        elif field_name == 'name' and new_value:
+            # Name validation
+            if len(new_value.strip()) < 2:
+                validation_error = 'Name must be at least 2 characters long'
+            elif len(new_value.strip()) > 100:
+                validation_error = 'Name must be less than 100 characters'
+        
+        if validation_error:
+            return JsonResponse({
+                'success': False,
+                'error': validation_error
+            }, status=400)
+        
+        # Update lead field
+        setattr(lead, field_name, new_value if new_value and new_value.strip() else None)
+        lead.modified_user = request.user
+        lead.save()
+        
+        # Create lead history record
+        LeadHistory.objects.create(
+            lead=lead,
+            user=request.user,
+            field_name=field_name,
+            old_value=old_value,
+            new_value=new_value,
+            action='inline_edit'
+        )
+        
+        # Create activity log
+        LeadActivity.objects.create(
+            lead=lead,
+            user=request.user,
+            activity_type='field_update',
+            description=f'{field_name.replace("_", " ").title()} updated'
+        )
+        
+        # Log successful field update
+        logger.info(f"Lead {lead_id} field {field_name} successfully updated by user {request.user.username}")
+        
+        # Prepare response data
+        response_data = {
+            'success': True,
+            'message': f'{field_name.replace("_", " ").title()} updated successfully',
+            'field_name': field_name,
+            'old_value': old_value,
+            'new_value': new_value,
+            'display_value': new_value
+        }
+        
+        # Format display values for specific fields
+        if field_name == 'followup_datetime' and new_value:
+            from datetime import datetime
+            followup_dt = datetime.fromisoformat(new_value.replace('Z', '+00:00'))
+            response_data['display_value'] = followup_dt.strftime('%b %d, %Y')
+        
+        return JsonResponse(response_data)
+        
+    except json.JSONDecodeError:
+        logger.error(f"Invalid JSON data in inline field update request from user {request.user.username}")
+        return JsonResponse({
+            'success': False,
+            'error': 'Invalid JSON data received'
+        }, status=400)
+    except Exception as e:
+        logger.error(f"Error updating lead field for lead {data.get('lead_id', 'unknown')} by user {request.user.username}: {str(e)}", exc_info=True)
+        return JsonResponse({
+            'success': False,
+            'error': f'Error updating field: {str(e)}'
+        }, status=500)
+
+
+@login_required
+@require_http_methods(["GET"])
+def get_lead_field_validation_rules(request):
+    """Get validation rules for lead fields"""
+    try:
+        validation_rules = {
+            'name': {
+                'required': True,
+                'min_length': 2,
+                'max_length': 100,
+                'pattern': '^[a-zA-Z\\s\\-\\.]+$',
+                'message': 'Name must be 2-100 characters and contain only letters, spaces, hyphens, and dots'
+            },
+            'email': {
+                'required': False,
+                'pattern': '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$',
+                'message': 'Please enter a valid email address'
+            },
+            'mobile': {
+                'required': False,
+                'min_length': 10,
+                'pattern': '^[\\d\\s\\-\\+\\(\\)]+$',
+                'message': 'Please enter a valid phone number (minimum 10 digits)'
+            },
+            'followup_datetime': {
+                'required': False,
+                'message': 'Follow-up date cannot be in the past',
+                'format': 'YYYY-MM-DD HH:MM'
+            }
+        }
+        
+        return JsonResponse({
+            'success': True,
+            'validation_rules': validation_rules
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting validation rules: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+# Bulk Operations Progress Tracking API Endpoints
+
+@login_required
+@require_http_methods(["GET"])
+def bulk_operation_progress(request, operation_id):
+    """Get progress details for a specific bulk operation"""
+    try:
+        # Get the operation
+        operation = get_object_or_404(
+            BulkOperation.objects.select_related('user'),
+            operation_id=operation_id
+        )
+        
+        # Check if user has permission to view this operation
+        if (operation.user != request.user and 
+            operation.company_id != request.user.company_id and
+            request.user.role not in ['owner', 'manager']):
+            return JsonResponse({
+                'error': 'Permission denied'
+            }, status=403)
+        
+        # Get latest progress updates
+        progress_updates = operation.progress_updates.order_by('-created_at')[:10]
+        
+        # Calculate elapsed time
+        elapsed_seconds = 0
+        if operation.started_at:
+            elapsed_seconds = (timezone.now() - operation.started_at).total_seconds()
+        
+        # Prepare response data
+        response_data = {
+            'operation_id': operation.operation_id,
+            'operation_type': operation.operation_type,
+            'status': operation.status,
+            'total_items': operation.total_items,
+            'processed_items': operation.processed_items,
+            'success_items': operation.success_items,
+            'failed_items': operation.failed_items,
+            'skipped_items': operation.skipped_items,
+            'progress_percentage': round(operation.progress_percentage, 2),
+            'items_per_second': round(operation.items_per_second, 2),
+            'eta_display': operation.get_eta_display(),
+            'elapsed_seconds': round(elapsed_seconds, 2),
+            'started_at': operation.started_at.isoformat() if operation.started_at else None,
+            'completed_at': operation.completed_at.isoformat() if operation.completed_at else None,
+            'error_message': operation.error_message,
+            'operation_config': operation.operation_config,
+            'filter_snapshot': operation.filter_snapshot,
+            'user': {
+                'id': operation.user.id,
+                'username': operation.user.username,
+                'full_name': operation.user.get_full_name()
+            } if operation.user else None,
+            'progress_updates': [
+                {
+                    'update_id': update.update_id,
+                    'current_batch': update.current_batch,
+                    'batch_size': update.batch_size,
+                    'total_batches': update.total_batches,
+                    'batch_success': update.batch_success,
+                    'batch_failed': update.batch_failed,
+                    'batch_skipped': update.batch_skipped,
+                    'cumulative_processed': update.cumulative_processed,
+                    'cumulative_success': update.cumulative_success,
+                    'cumulative_failed': update.cumulative_failed,
+                    'cumulative_skipped': update.cumulative_skipped,
+                    'batch_duration': round(update.batch_duration, 2),
+                    'cumulative_duration': round(update.cumulative_duration, 2),
+                    'batch_rate': round(update.batch_rate, 2),
+                    'progress_percentage': round(update.progress_percentage, 2),
+                    'created_at': update.created_at.isoformat(),
+                    'error_samples': update.error_samples
+                }
+                for update in progress_updates
+            ],
+            'error_samples': operation.error_details.get('samples', []) if operation.error_details else []
+        }
+        
+        return JsonResponse(response_data)
+        
+    except Exception as e:
+        logger.error(f"Error getting bulk operation progress for {operation_id}: {str(e)}")
+        return JsonResponse({
+            'error': str(e)
+        }, status=500)
+
+
+@login_required
+@require_http_methods(["GET"])
+def running_operations(request):
+    """Get list of currently running bulk operations for the user's company"""
+    try:
+        # Get running operations for the user's company
+        running_ops = BulkOperation.objects.filter(
+            company_id=request.user.company_id,
+            status='running'
+        ).select_related('user').order_by('-started_at')
+        
+        # Filter based on user role
+        if request.user.role == 'agent':
+            # Agents can only see their own operations
+            running_ops = running_ops.filter(user=request.user)
+        elif request.user.role == 'team_lead':
+            # Team leads can see their operations and their team members' operations
+            team_member_ids = request.user.get_team_members().values_list('id', flat=True)
+            running_ops = running_ops.filter(
+                Q(user=request.user) | Q(user_id__in=team_member_ids)
+            )
+        # Managers and owners can see all operations in their company
+        
+        operations_data = []
+        for op in running_ops:
+            operations_data.append({
+                'operation_id': op.operation_id,
+                'operation_type': op.operation_type,
+                'status': op.status,
+                'progress_percentage': round(op.progress_percentage, 2),
+                'processed_items': op.processed_items,
+                'total_items': op.total_items,
+                'items_per_second': round(op.items_per_second, 2),
+                'eta_display': op.get_eta_display(),
+                'started_at': op.started_at.isoformat() if op.started_at else None,
+                'user': {
+                    'id': op.user.id,
+                    'username': op.user.username,
+                    'full_name': op.user.get_full_name()
+                } if op.user else None
+            })
+        
+        return JsonResponse({
+            'running_operations': [op['operation_id'] for op in operations_data],
+            'operations': operations_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting running operations for user {request.user.username}: {str(e)}")
+        return JsonResponse({
+            'error': str(e)
+        }, status=500)
+
+
+@login_required
+@require_http_methods(["POST"])
+def bulk_operation_cancel(request, operation_id):
+    """Cancel a running bulk operation"""
+    try:
+        # Get the operation
+        operation = get_object_or_404(BulkOperation, operation_id=operation_id)
+        
+        # Check if user has permission to cancel this operation
+        if (operation.user != request.user and 
+            operation.company_id != request.user.company_id and
+            request.user.role not in ['owner', 'manager']):
+            return JsonResponse({
+                'error': 'Permission denied'
+            }, status=403)
+        
+        # Check if operation can be cancelled
+        if operation.status not in ['pending', 'running']:
+            return JsonResponse({
+                'error': f'Cannot cancel operation in {operation.status} status'
+            }, status=400)
+        
+        # Cancel the operation
+        operation.cancel_operation(reason=f"Cancelled by {request.user.username}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Operation cancelled successfully',
+            'operation_id': operation.operation_id,
+            'status': operation.status
+        })
+        
+    except Exception as e:
+        logger.error(f"Error cancelling bulk operation {operation_id}: {str(e)}")
+        return JsonResponse({
+            'error': str(e)
+        }, status=500)
+
+
+@login_required
+@require_http_methods(["GET"])
+def bulk_operations_history(request):
+    """Get historical bulk operations for the user's company"""
+    try:
+        # Get query parameters
+        limit = int(request.GET.get('limit', 50))
+        offset = int(request.GET.get('offset', 0))
+        operation_type = request.GET.get('operation_type', '')
+        status = request.GET.get('status', '')
+        
+        # Build queryset
+        queryset = BulkOperation.objects.filter(
+            company_id=request.user.company_id
+        ).select_related('user').order_by('-created_at')
+        
+        # Filter based on user role
+        if request.user.role == 'agent':
+            # Agents can only see their own operations
+            queryset = queryset.filter(user=request.user)
+        elif request.user.role == 'team_lead':
+            # Team leads can see their operations and their team members' operations
+            team_member_ids = request.user.get_team_members().values_list('id', flat=True)
+            queryset = queryset.filter(
+                Q(user=request.user) | Q(user_id__in=team_member_ids)
+            )
+        # Managers and owners can see all operations in their company
+        
+        # Apply filters
+        if operation_type:
+            queryset = queryset.filter(operation_type=operation_type)
+        if status:
+            queryset = queryset.filter(status=status)
+        
+        # Get total count
+        total_count = queryset.count()
+        
+        # Get paginated results
+        operations = queryset[offset:offset + limit]
+        
+        operations_data = []
+        for op in operations:
+            operations_data.append({
+                'operation_id': op.operation_id,
+                'operation_type': op.operation_type,
+                'status': op.status,
+                'total_items': op.total_items,
+                'processed_items': op.processed_items,
+                'success_items': op.success_items,
+                'failed_items': op.failed_items,
+                'skipped_items': op.skipped_items,
+                'progress_percentage': round(op.progress_percentage, 2),
+                'items_per_second': round(op.items_per_second, 2),
+                'started_at': op.started_at.isoformat() if op.started_at else None,
+                'completed_at': op.completed_at.isoformat() if op.completed_at else None,
+                'created_at': op.created_at.isoformat(),
+                'estimated_duration': op.estimated_duration,
+                'error_message': op.error_message,
+                'user': {
+                    'id': op.user.id,
+                    'username': op.user.username,
+                    'full_name': op.user.get_full_name()
+                } if op.user else None,
+                'operation_config': op.operation_config
+            })
+        
+        return JsonResponse({
+            'operations': operations_data,
+            'total_count': total_count,
+            'limit': limit,
+            'offset': offset
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting bulk operations history for user {request.user.username}: {str(e)}")
+        return JsonResponse({
+            'error': str(e)
+        }, status=500)
+
+
+@login_required
+@require_http_methods(["GET"])
+def bulk_operation_details(request, operation_id):
+    """Get detailed information about a specific bulk operation including all progress updates"""
+    try:
+        # Get the operation
+        operation = get_object_or_404(
+            BulkOperation.objects.select_related('user'),
+            operation_id=operation_id
+        )
+        
+        # Check if user has permission to view this operation
+        if (operation.user != request.user and 
+            operation.company_id != request.user.company_id and
+            request.user.role not in ['owner', 'manager']):
+            return JsonResponse({
+                'error': 'Permission denied'
+            }, status=403)
+        
+        # Get all progress updates
+        progress_updates = operation.progress_updates.order_by('created_at')
+        
+        # Calculate performance metrics
+        performance_metrics = []
+        cumulative_processed = 0
+        cumulative_duration = 0
+        
+        for update in progress_updates:
+            cumulative_processed += update.batch_success + update.batch_failed + update.batch_skipped
+            cumulative_duration = update.cumulative_duration
+            
+            performance_metrics.append({
+                'batch_number': update.current_batch,
+                'timestamp': update.created_at.isoformat(),
+                'cumulative_processed': cumulative_processed,
+                'processing_rate': update.batch_rate,
+                'batch_duration': update.batch_duration,
+                'success_rate': (update.batch_success / max(1, update.batch_size)) * 100
+            })
+        
+        # Prepare response data
+        response_data = {
+            'operation': {
+                'operation_id': operation.operation_id,
+                'operation_type': operation.operation_type,
+                'status': operation.status,
+                'total_items': operation.total_items,
+                'processed_items': operation.processed_items,
+                'success_items': operation.success_items,
+                'failed_items': operation.failed_items,
+                'skipped_items': operation.skipped_items,
+                'progress_percentage': round(operation.progress_percentage, 2),
+                'items_per_second': round(operation.items_per_second, 2),
+                'eta_display': operation.get_eta_display(),
+                'started_at': operation.started_at.isoformat() if operation.started_at else None,
+                'completed_at': operation.completed_at.isoformat() if operation.completed_at else None,
+                'created_at': operation.created_at.isoformat(),
+                'estimated_duration': operation.estimated_duration,
+                'error_message': operation.error_message,
+                'error_details': operation.error_details,
+                'operation_config': operation.operation_config,
+                'filter_snapshot': operation.filter_snapshot,
+                'user': {
+                    'id': operation.user.id,
+                    'username': operation.user.username,
+                    'full_name': operation.user.get_full_name()
+                } if operation.user else None
+            },
+            'progress_updates': [
+                {
+                    'update_id': update.update_id,
+                    'current_batch': update.current_batch,
+                    'batch_size': update.batch_size,
+                    'total_batches': update.total_batches,
+                    'batch_success': update.batch_success,
+                    'batch_failed': update.batch_failed,
+                    'batch_skipped': update.batch_skipped,
+                    'cumulative_processed': update.cumulative_processed,
+                    'cumulative_success': update.cumulative_success,
+                    'cumulative_failed': update.cumulative_failed,
+                    'cumulative_skipped': update.cumulative_skipped,
+                    'batch_duration': round(update.batch_duration, 2),
+                    'cumulative_duration': round(update.cumulative_duration, 2),
+                    'batch_rate': round(update.batch_rate, 2),
+                    'progress_percentage': round(update.progress_percentage, 2),
+                    'created_at': update.created_at.isoformat(),
+                    'batch_details': update.batch_details,
+                    'error_samples': update.error_samples
+                }
+                for update in progress_updates
+            ],
+            'performance_metrics': performance_metrics,
+            'summary': {
+                'total_batches': len(progress_updates),
+                'average_batch_duration': round(
+                    sum(u.batch_duration for u in progress_updates) / max(1, len(progress_updates)), 2
+                ),
+                'peak_processing_rate': round(
+                    max(u.batch_rate for u in progress_updates) if progress_updates else 0, 2
+                ),
+                'total_duration': round(
+                    max(u.cumulative_duration for u in progress_updates) if progress_updates else 0, 2
+                )
+            }
+        }
+        
+        return JsonResponse(response_data)
+        
+    except Exception as e:
+        logger.error(f"Error getting bulk operation details for {operation_id}: {str(e)}")
+        return JsonResponse({
+            'error': str(e)
         }, status=500)

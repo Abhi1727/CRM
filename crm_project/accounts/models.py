@@ -153,17 +153,17 @@ class User(AbstractUser):
         from django.core.cache import cache
         
         # Clear this user's caches
-        cache.delete(f"accessible_users_{self.id}_{self.company_id}_{self.role}")
-        cache.delete(f"accessible_leads_{self.id}_{self.company_id}_{self.role}")
+        cache.delete(self._get_user_cache_key('accessible_users'))
+        cache.delete(self._get_user_cache_key('accessible_leads'))
         
         # Clear caches for users who might be affected by this user's changes
         if self.manager:
-            cache.delete(f"accessible_users_{self.manager.id}_{self.company_id}_{self.manager.role}")
-            cache.delete(f"accessible_leads_{self.manager.id}_{self.company_id}_{self.manager.role}")
+            cache.delete(self.manager._get_user_cache_key('accessible_users'))
+            cache.delete(self.manager._get_user_cache_key('accessible_leads'))
         
         if self.team_lead:
-            cache.delete(f"accessible_users_{self.team_lead.id}_{self.company_id}_{self.team_lead.role}")
-            cache.delete(f"accessible_leads_{self.team_lead.id}_{self.company_id}_{self.team_lead.role}")
+            cache.delete(self.team_lead._get_user_cache_key('accessible_users'))
+            cache.delete(self.team_lead._get_user_cache_key('accessible_leads'))
         
         # Clear caches for users managed by this user (if this user is a manager/team_lead)
         if self.role in ['manager', 'team_lead']:
@@ -176,7 +176,17 @@ class User(AbstractUser):
                 cache.delete(f"accessible_leads_{user_id}_{user_company_id}_{user_role}")
         
         # Clear dashboard statistics caches for all users in the company
-        # This is a bit aggressive but ensures consistency
+        self._clear_company_dashboard_caches()
+    
+    def _get_user_cache_key(self, cache_type):
+        """Generate cache key for this user"""
+        return f"{cache_type}_{self.id}_{self.company_id}_{self.role}"
+    
+    def _clear_company_dashboard_caches(self):
+        """Clear all dashboard statistics caches for this company"""
+        from django.core.cache import cache
+        
+        # Clear dashboard statistics caches for all users in the company
         all_company_users = User.objects.filter(company_id=self.company_id).values_list('id', flat=True)
         for user_id in all_company_users:
             cache.delete(f"dashboard_stats_{user_id}_{self.company_id}_main")
@@ -184,3 +194,84 @@ class User(AbstractUser):
             cache.delete(f"dashboard_stats_{user_id}_{self.company_id}_role_manager")
             cache.delete(f"dashboard_stats_{user_id}_{self.company_id}_role_team_lead")
             cache.delete(f"dashboard_stats_{user_id}_{self.company_id}_role_agent")
+    
+    @classmethod
+    def clear_hierarchy_caches(cls, company_id, affected_user_ids=None):
+        """Clear caches for specific users or entire company"""
+        from django.core.cache import cache
+        
+        if affected_user_ids:
+            # Clear caches for specific users
+            users = cls.objects.filter(id__in=affected_user_ids).select_related('manager', 'team_lead')
+            for user in users:
+                cache.delete(user._get_user_cache_key('accessible_users'))
+                cache.delete(user._get_user_cache_key('accessible_leads'))
+                
+                # Clear caches for their managers/team leads
+                if user.manager:
+                    cache.delete(user.manager._get_user_cache_key('accessible_users'))
+                    cache.delete(user.manager._get_user_cache_key('accessible_leads'))
+                
+                if user.team_lead:
+                    cache.delete(user.team_lead._get_user_cache_key('accessible_users'))
+                    cache.delete(user.team_lead._get_user_cache_key('accessible_leads'))
+        else:
+            # Clear caches for entire company
+            users = cls.objects.filter(company_id=company_id).values_list('id', 'role', 'company_id')
+            for user_id, user_role, user_company_id in users:
+                cache.delete(f"accessible_users_{user_id}_{user_company_id}_{user_role}")
+                cache.delete(f"accessible_leads_{user_id}_{user_company_id}_{user_role}")
+    
+    @classmethod
+    def warm_user_caches(cls, user_id):
+        """Warm cache for a specific user by pre-loading their accessible data"""
+        try:
+            user = cls.objects.get(id=user_id)
+            # This will trigger cache population
+            user.get_accessible_users()
+            user.get_accessible_leads_queryset()
+        except cls.DoesNotExist:
+            pass
+
+
+class BulkAssignmentUndo(models.Model):
+    """Tracks bulk assignment operations for undo functionality"""
+    assigned_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='bulk_assignments')
+    assigned_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name='received_bulk_assignments')
+    lead_ids = models.TextField(help_text="Comma-separated list of lead IDs")
+    assignment_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['assigned_by', 'created_at']),
+            models.Index(fields=['assigned_to', 'created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.assigned_by.username} assigned {self.assignment_count} leads to {self.assigned_to.username} on {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+    
+    def get_lead_ids_list(self):
+        """Return lead IDs as a list of integers"""
+        if self.lead_ids:
+            return [int(id.strip()) for id in self.lead_ids.split(',') if id.strip().isdigit()]
+        return []
+    
+    def undo_assignment(self):
+        """Undo the bulk assignment by setting assigned_user back to None"""
+        from dashboard.models import Lead
+        
+        lead_ids = self.get_lead_ids_list()
+        if lead_ids:
+            updated_count = Lead.objects.filter(
+                id__in=lead_ids,
+                assigned_user=self.assigned_to
+            ).update(assigned_user=None)
+            
+            # Clear relevant caches
+            self.assigned_to._clear_user_caches()
+            self.assigned_by._clear_user_caches()
+            
+            return updated_count
+        return 0
