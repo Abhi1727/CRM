@@ -1,5 +1,42 @@
+// CSRF Token Helper Function
+function getCSRFToken() {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    if (!csrfToken) {
+        console.warn('CSRF token not found in meta tag');
+        return null;
+    }
+    return csrfToken;
+}
+
+// Setup CSRF headers for all AJAX requests
+function setupCSRF() {
+    const csrfToken = getCSRFToken();
+    if (csrfToken) {
+        // Set up for fetch API
+        const originalFetch = window.fetch;
+        window.fetch = function(...args) {
+            if (args[1] && typeof args[1] === 'object') {
+                args[1].headers = {
+                    ...args[1].headers,
+                    'X-CSRFToken': csrfToken,
+                };
+            }
+            return originalFetch.apply(this, args);
+        };
+        
+        // Set up for XMLHttpRequest
+        const originalXHROpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(method, url) {
+            originalXHROpen.call(this, method, url);
+            this.setRequestHeader('X-CSRFToken', csrfToken);
+        };
+    }
+}
+
 // Sidebar Toggle
 document.addEventListener('DOMContentLoaded', function() {
+    // Setup CSRF for AJAX requests
+    setupCSRF();
     const sidebar = document.getElementById('sidebar');
     const mobileToggle = document.getElementById('mobileToggle');
     const sidebarToggle = document.getElementById('sidebarToggle');
@@ -270,13 +307,16 @@ function performBulkAction(action) {
     form.action = window.location.pathname;
     
     // Add CSRF token
-    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
+    const csrfToken = getCSRFToken() || document.querySelector('[name=csrfmiddlewaretoken]')?.value;
     if (csrfToken) {
         const csrfInput = document.createElement('input');
         csrfInput.type = 'hidden';
         csrfInput.name = 'csrfmiddlewaretoken';
-        csrfInput.value = csrfToken.value;
+        csrfInput.value = csrfToken;
         form.appendChild(csrfInput);
+    } else {
+        console.error('CSRF token not found for bulk action');
+        return;
     }
     
     // Add action

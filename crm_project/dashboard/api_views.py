@@ -227,7 +227,6 @@ def api_internal_reminders(request):
     })
 
 @require_http_methods(["POST"])
-@csrf_exempt
 @login_required
 def api_internal_reminders_create(request):
     """Create new internal reminder"""
@@ -296,7 +295,6 @@ def api_internal_reminders_create(request):
         }, status=500)
 
 @require_http_methods(["PUT"])
-@csrf_exempt
 @login_required
 def api_internal_reminders_update(request, reminder_id):
     """Update internal reminder"""
@@ -380,7 +378,6 @@ def api_internal_reminders_delete(request, reminder_id):
         }, status=500)
 
 @require_http_methods(["POST"])
-@csrf_exempt
 @login_required
 def api_internal_reminders_acknowledge(request, reminder_id):
     """Acknowledge internal reminder"""
@@ -407,7 +404,6 @@ def api_internal_reminders_acknowledge(request, reminder_id):
         }, status=500)
 
 @require_http_methods(["POST"])
-@csrf_exempt
 @login_required
 def api_internal_reminders_snooze(request, reminder_id):
     """Snooze internal reminder"""
@@ -442,7 +438,6 @@ def api_internal_reminders_snooze(request, reminder_id):
         }, status=500)
 
 @require_http_methods(["POST"])
-@csrf_exempt
 @login_required
 def api_internal_reminders_escalate(request, reminder_id):
     """Manual escalation of internal reminder"""
@@ -505,7 +500,6 @@ def api_notification_preferences(request):
         }, status=500)
 
 @require_http_methods(["PUT"])
-@csrf_exempt
 @login_required
 def api_notification_preferences_update(request):
     """Update team member preferences"""
@@ -761,7 +755,6 @@ def api_followup_hierarchy(request):
         }, status=500)
 
 @require_http_methods(["POST"])
-@csrf_exempt
 @login_required
 def api_notify_team(request):
     """Send team notifications"""
