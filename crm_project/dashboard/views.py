@@ -19,8 +19,40 @@ from datetime import datetime, time, timedelta
 from decimal import Decimal
 from collections import defaultdict
 import uuid
+import hashlib
+import pandas as pd
+import time as time_module
+import csv
+from io import TextIOWrapper
 
 from .models import Lead, LeadActivity, LeadHistory, LeadImportSession, LeadOperationLog, BulkOperation, BulkOperationProgress
+
+# Database retry decorator for remote MySQL stability
+from django.db import OperationalError
+import time as time_module
+
+def database_retry(max_retries=3):
+    """Decorator to retry database operations with exponential backoff"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except OperationalError as e:
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt  # Exponential backoff
+                        logger.warning(f"Database operation failed, retrying in {wait_time}s: {e}")
+                        time_module.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"Database operation failed after {max_retries} attempts: {e}")
+                        raise
+                except Exception as e:
+                    # Don't retry non-database errors
+                    raise
+            return None
+        return wrapper
+    return decorator
 from .forms import (
     LeadForm, LeadAssignmentForm, BulkLeadAssignmentForm, 
     LeadImportForm, LeadStatusUpdateForm, RestrictedLeadForm
@@ -987,7 +1019,7 @@ def bulk_lead_assign(request):
             # Use optimized bulk assignment processor
             processor = BulkAssignmentProcessor(
                 operation_id=operation.id,
-                lead_ids=list(target_leads.values_list('id', flat=True)),
+                lead_ids=list(target_leads.values_list('id_lead', flat=True)),
                 assigned_user_id=assigned_user.id,
                 assigned_by_id=request.user.id,
                 company_id=request.user.company_id
@@ -1133,7 +1165,7 @@ def _process_assignments_concurrently_with_progress(leads_queryset, assigned_use
     from django.db import transaction
     from .models import LeadActivity
     
-    BATCH_SIZE = 1000
+    BATCH_SIZE = 200  # Reduced from 1000 for remote MySQL
     total_leads = leads_queryset.count()
     total_batches = (total_leads + BATCH_SIZE - 1) // BATCH_SIZE
     
@@ -1145,7 +1177,7 @@ def _process_assignments_concurrently_with_progress(leads_queryset, assigned_use
         batch_failed = 0
         batch_errors = []
         
-        batch_start_time = time.time()
+        batch_start_time = time_module.time()
         
         try:
             with transaction.atomic():
@@ -1217,7 +1249,7 @@ def _process_assignments_concurrently_with_progress(leads_queryset, assigned_use
                 'batch_num': batch_num
             })
         
-        batch_duration = time.time() - batch_start_time
+        batch_duration = time_module.time() - batch_start_time
         
         # Update progress
         _update_operation_progress(
@@ -1455,9 +1487,6 @@ def lead_import(request):
                 # OPTIMIZED: Streaming file processing to reduce memory usage
                 def process_file_streaming(file):
                     """Process file in streaming mode to reduce memory usage"""
-                    import csv
-                    from io import TextIOWrapper
-                    
                     leads_data = []
                     
                     if file.name.endswith('.csv'):
@@ -1587,38 +1616,50 @@ def lead_import(request):
                             if index >= 100000:  # Safety limit
                                 break
                             
+                            # Convert pandas Series to dictionary to use .get() method
+                            row_dict = row.to_dict() if hasattr(row, 'to_dict') else dict(row)
+                            
                             lead_data = {
-                                'name': '' if pd.isna(row.get('name')) else str(row.get('name', '')).strip(),
-                                'mobile': '' if pd.isna(row.get('mobile')) else str(row.get('mobile', '')).strip(),
-                                'email': '' if pd.isna(row.get('email')) else str(row.get('email', '')).strip(),
-                                'alt_mobile': '' if pd.isna(row.get('alt_mobile')) else str(row.get('alt_mobile', '')).strip(),
-                                'whatsapp_no': '' if pd.isna(row.get('whatsapp_no')) else str(row.get('whatsapp_no', '')).strip(),
-                                'alt_email': '' if pd.isna(row.get('alt_email')) else str(row.get('alt_email', '')).strip(),
-                                'address': '' if pd.isna(row.get('address')) else str(row.get('address', '')).strip(),
-                                'city': '' if pd.isna(row.get('city')) else str(row.get('city', '')).strip(),
-                                'state': '' if pd.isna(row.get('state')) else str(row.get('state', '')).strip(),
-                                'postalcode': '' if pd.isna(row.get('postalcode')) else str(row.get('postalcode', '')).strip(),
-                                'country': '' if pd.isna(row.get('country')) else str(row.get('country', '')).strip(),
-                                'status': '' if pd.isna(row.get('status')) else str(row.get('status', 'lead')).strip() or 'lead',
-                                'status_description': '' if pd.isna(row.get('status_description')) else str(row.get('status_description', '')).strip(),
-                                'lead_source': '' if pd.isna(row.get('lead_source')) else str(row.get('lead_source', '')).strip(),
-                                'lead_source_description': '' if pd.isna(row.get('lead_source_description')) else str(row.get('lead_source_description', '')).strip(),
-                                'refered_by': '' if pd.isna(row.get('refered_by')) else str(row.get('refered_by', '')).strip(),
-                                'campaign_id': '' if pd.isna(row.get('campaign_id')) else str(row.get('campaign_id', '')).strip(),
-                                'course_name': '' if pd.isna(row.get('course_name')) else str(row.get('course_name', '')).strip(),
-                                'course_amount': '' if pd.isna(row.get('course_amount')) else str(row.get('course_amount', '')).strip(),
-                                'exp_revenue': '' if pd.isna(row.get('exp_revenue')) else str(row.get('exp_revenue', '')).strip(),
-                                'description': '' if pd.isna(row.get('description')) else str(row.get('description', '')).strip(),
-                                'company': '' if pd.isna(row.get('company')) else str(row.get('company', '')).strip(),
+                                'name': '' if pd.isna(row_dict.get('name')) else str(row_dict.get('name', '')).strip(),
+                                'mobile': '' if pd.isna(row_dict.get('mobile')) else str(row_dict.get('mobile', '')).strip(),
+                                'email': '' if pd.isna(row_dict.get('email')) else str(row_dict.get('email', '')).strip(),
+                                'alt_mobile': '' if pd.isna(row_dict.get('alt_mobile')) else str(row_dict.get('alt_mobile', '')).strip(),
+                                'whatsapp_no': '' if pd.isna(row_dict.get('whatsapp_no')) else str(row_dict.get('whatsapp_no', '')).strip(),
+                                'alt_email': '' if pd.isna(row_dict.get('alt_email')) else str(row_dict.get('alt_email', '')).strip(),
+                                'address': '' if pd.isna(row_dict.get('address')) else str(row_dict.get('address', '')).strip(),
+                                'city': '' if pd.isna(row_dict.get('city')) else str(row_dict.get('city', '')).strip(),
+                                'state': '' if pd.isna(row_dict.get('state')) else str(row_dict.get('state', '')).strip(),
+                                'postalcode': '' if pd.isna(row_dict.get('postalcode')) else str(row_dict.get('postalcode', '')).strip(),
+                                'country': '' if pd.isna(row_dict.get('country')) else str(row_dict.get('country', '')).strip(),
+                                'status': '' if pd.isna(row_dict.get('status')) else str(row_dict.get('status', 'lead')).strip() or 'lead',
+                                'status_description': '' if pd.isna(row_dict.get('status_description')) else str(row_dict.get('status_description', '')).strip(),
+                                'lead_source': '' if pd.isna(row_dict.get('lead_source')) else str(row_dict.get('lead_source', '')).strip(),
+                                'lead_source_description': '' if pd.isna(row_dict.get('lead_source_description')) else str(row_dict.get('lead_source_description', '')).strip(),
+                                'refered_by': '' if pd.isna(row_dict.get('refered_by')) else str(row_dict.get('refered_by', '')).strip(),
+                                'campaign_id': '' if pd.isna(row_dict.get('campaign_id')) else str(row_dict.get('campaign_id', '')).strip(),
+                                'course_name': '' if pd.isna(row_dict.get('course_name')) else str(row_dict.get('course_name', '')).strip(),
+                                'course_amount': '' if pd.isna(row_dict.get('course_amount')) else str(row_dict.get('course_amount', '')).strip(),
+                                'exp_revenue': '' if pd.isna(row_dict.get('exp_revenue')) else str(row_dict.get('exp_revenue', '')).strip(),
+                                'description': '' if pd.isna(row_dict.get('description')) else str(row_dict.get('description', '')).strip(),
+                                'company': '' if pd.isna(row_dict.get('company')) else str(row_dict.get('company', '')).strip(),
                             }
                             
                             # Add date fields if present
-                            if 'exp_close_date' in row and pd.notna(row['exp_close_date']):
-                                lead_data['exp_close_date'] = pd.to_datetime(row['exp_close_date']).date()
-                            if 'followup_datetime' in row and pd.notna(row['followup_datetime']):
-                                lead_data['followup_datetime'] = pd.to_datetime(row['followup_datetime'])
-                            if 'birthdate' in row and pd.notna(row['birthdate']):
-                                lead_data['birthdate'] = pd.to_datetime(row['birthdate']).date()
+                            if 'exp_close_date' in row_dict and pd.notna(row_dict['exp_close_date']):
+                                try:
+                                    lead_data['exp_close_date'] = pd.to_datetime(row_dict['exp_close_date']).date()
+                                except ValueError:
+                                    pass  # Skip invalid dates
+                            if 'followup_datetime' in row_dict and pd.notna(row_dict['followup_datetime']):
+                                try:
+                                    lead_data['followup_datetime'] = pd.to_datetime(row_dict['followup_datetime'])
+                                except ValueError:
+                                    pass  # Skip invalid dates
+                            if 'birthdate' in row_dict and pd.notna(row_dict['birthdate']):
+                                try:
+                                    lead_data['birthdate'] = pd.to_datetime(row_dict['birthdate']).date()
+                                except ValueError:
+                                    pass  # Skip invalid dates
                             
                             leads_data.append(lead_data)
                             
@@ -1631,22 +1672,35 @@ def lead_import(request):
                         if leads_data:
                             yield leads_data
                 
-                # OPTIMIZED: Process file in streaming mode and collect all leads
-                all_leads_data = []
-                try:
-                    for leads_chunk in process_file_streaming(file):
-                        all_leads_data.extend(leads_chunk)
-                except Exception as e:
-                    return _error_response(f"Error processing file: {str(e)}", form_instance=form)
-                
-                if not all_leads_data:
-                    return _error_response("No valid lead data found in file. Please check file format and required columns.", form_instance=form)
+                # MEMORY-EFFICIENT: Process file in true streaming mode without loading all data
+                def process_import_streaming(file_handler, batch_size=200):
+                    """Process import in true streaming mode without loading all data"""
+                    current_batch = []
+                    
+                    for lead_data in process_file_streaming(file_handler):
+                        current_batch.append(lead_data)
+                        
+                        if len(current_batch) >= batch_size:
+                            yield current_batch
+                            current_batch = []
+                    
+                    if current_batch:
+                        yield current_batch
                 
                 # Initialize duplicate detector
                 detector = DuplicateDetector(request.user.company_id)
                 
-                # Detect duplicates for all leads (now optimized)
-                duplicate_results = detector.batch_detect_duplicates(all_leads_data)
+                # Streaming duplicate detection
+                duplicate_results = []
+                try:
+                    for batch in process_import_streaming(file, batch_size=200):
+                        batch_results = detector.batch_detect_duplicates(batch)
+                        duplicate_results.extend(batch_results)
+                except Exception as e:
+                    return _error_response(f"Error processing file: {str(e)}", form_instance=form)
+                
+                if not duplicate_results:
+                    return _error_response("No valid lead data found in file. Please check file format and required columns.", form_instance=form)
 
                 # Build immutable import session for reliable preview/process reconciliation.
                 file_hash = hashlib.sha256(file_content).hexdigest()
@@ -1825,6 +1879,18 @@ def lead_import_status(request):
     if import_session.status == 'completed':
         percent = 100
 
+    # Enhanced error details and user-friendly messages
+    error_details = getattr(import_session, 'error_details', [])
+    user_friendly_errors = []
+    
+    for error in error_details[:10]:  # Limit to first 10 errors for performance
+        user_friendly_errors.append({
+            'type': error.get('error_type', 'Unknown'),
+            'message': get_user_friendly_error(error.get('error_type', ''), error.get('error_message', '')),
+            'lead_index': error.get('lead_index'),
+            'details': error.get('error_message', '')[:200]  # Truncate for display
+        })
+    
     return JsonResponse({
         'session_id': import_session.session_id,
         'status': import_session.status,
@@ -1835,7 +1901,37 @@ def lead_import_status(request):
         'skipped_rows': import_session.skipped_rows or 0,
         'failed_rows': import_session.failed_rows or 0,
         'percent': percent,
+        'error_details': user_friendly_errors,
+        'error_count': len(error_details),
+        'stage': 'processing' if import_session.status == 'processing' else 'completed'
     })
+
+
+def get_user_friendly_error(error_type, error_message):
+    """Convert technical errors to user-friendly messages"""
+    error_messages = {
+        'IntegrityError': 'Duplicate lead found in database',
+        'OperationalError': 'Database connection issue - please try again',
+        'MemoryError': 'File too large - please split into smaller files',
+        'ValidationError': 'Invalid data format in file',
+        'BatchError': 'Processing error in batch - some leads may not be imported',
+        'ValueError': 'Invalid data value found in file',
+        'KeyError': 'Missing required column in file',
+        'TypeError': 'Data type mismatch in file'
+    }
+    
+    # Check for specific error patterns
+    error_lower = error_message.lower()
+    if 'duplicate' in error_lower:
+        return 'Duplicate lead already exists in database'
+    elif 'connection' in error_lower or 'timeout' in error_lower:
+        return 'Database connection issue - please try again'
+    elif 'memory' in error_lower:
+        return 'File too large - please split into smaller files'
+    elif 'invalid' in error_lower or 'format' in error_lower:
+        return 'Invalid data format in file'
+    
+    return error_messages.get(error_type, f'Import error: {error_type}')
 
 
 @login_required
@@ -1874,8 +1970,9 @@ def lead_import_process(request):
     bulk_action_mode = request.POST.get('bulk_action_mode', 'custom').strip().lower()
     decisions = {}
     
+    @database_retry(max_retries=3)
     def _create_leads_bulk(lead_data_list, result_list, importing_user, import_session):
-        """Bulk create leads for massive performance improvement"""
+        """Bulk create leads with optimized queries and transaction safety"""
         from django.db import transaction
         
         # Prepare leads for bulk creation
@@ -1920,9 +2017,29 @@ def lead_import_process(request):
             
             leads_to_create.append(lead)
         
+        # Manual duplicate handling instead of ignore_conflicts for remote MySQL compatibility
+        company_id = importing_user.profile.company_id if hasattr(importing_user, 'profile') else 1
+        
+        # Check for existing leads with same mobile numbers
+        existing_mobiles = set(
+            Lead.objects.filter(
+                mobile__in=[lead.mobile for lead in leads_to_create if lead.mobile],
+                company_id=company_id
+            ).values_list('mobile', flat=True)
+        )
+        
+        # Only create leads that don't have duplicate mobile numbers
+        new_leads_to_create = [
+            lead for lead in leads_to_create 
+            if not lead.mobile or lead.mobile not in existing_mobiles
+        ]
+        
+        if not new_leads_to_create:
+            return []
+        
         # Bulk create leads with transaction safety
         with transaction.atomic():
-            created_leads = Lead.objects.bulk_create(leads_to_create, batch_size=1000, ignore_conflicts=True)
+            created_leads = Lead.objects.bulk_create(new_leads_to_create, batch_size=200)
             
             # Bulk create activities
             activities_to_create = [
@@ -1934,7 +2051,7 @@ def lead_import_process(request):
                 )
                 for lead in created_leads
             ]
-            LeadActivity.objects.bulk_create(activities_to_create, batch_size=1000)
+            LeadActivity.objects.bulk_create(activities_to_create, batch_size=200)
         
         return created_leads
     
@@ -1968,7 +2085,7 @@ def lead_import_process(request):
                 leads_to_import.append((result['lead_data'], result))
         
         # Split into batches for parallel processing
-        batch_size = 1000
+        batch_size = 200  # Reduced from 1000 for remote MySQL
         batches = [
             leads_to_import[i:i+batch_size] 
             for i in range(0, len(leads_to_import), batch_size)
@@ -1989,8 +2106,22 @@ def lead_import_process(request):
                     batch_result = future.result()
                     imported_count += batch_result['imported']
                 except Exception as e:
-                    print(f"Batch processing error: {e}")
+                    logger.error(f"Batch processing error: {e}", exc_info=True, extra={
+                        'batch_size': len(future_to_batch[future]),
+                        'session_id': import_session.session_id,
+                        'error_type': type(e).__name__,
+                        'error_message': str(e)
+                    })
                     failed_count += len(future_to_batch[future])
+                    # Store error details for user feedback
+                    if not hasattr(import_session, 'error_details'):
+                        import_session.error_details = []
+                    import_session.error_details.append({
+                        'error_type': 'BatchError',
+                        'error_message': str(e),
+                        'batch_size': len(future_to_batch[future]),
+                        'affected_leads': len(future_to_batch[future])
+                    })
         
         return imported_count, 0, 0, failed_count  # imported, skipped, updated, failed
     
@@ -2036,7 +2167,7 @@ def lead_import_process(request):
         skipped_count = 0
         updated_count = 0
         failed_count = 0
-        chunk_size = 5000  # 10X larger chunk size for better performance
+        chunk_size = 1000  # Reduced from 5000 for remote MySQL
         
         # Collect leads for bulk processing
         leads_to_import_batch = []
@@ -2119,8 +2250,23 @@ def lead_import_process(request):
                         )
             
             except Exception as e:
-                print(f"Error processing lead {i}: {e}")
+                logger.error(f"Error processing lead {i}: {e}", exc_info=True, extra={
+                    'lead_index': i,
+                    'lead_data': lead_data,
+                    'session_id': import_session.session_id,
+                    'error_type': type(e).__name__,
+                    'error_message': str(e)
+                })
                 failed_count += 1
+                # Store error details for user feedback
+                if not hasattr(import_session, 'error_details'):
+                    import_session.error_details = []
+                import_session.error_details.append({
+                    'lead_index': i,
+                    'error_type': type(e).__name__,
+                    'error_message': str(e),
+                    'lead_data': str(lead_data)[:200]  # Truncate for storage
+                })
                 continue
 
             # Persist progress every chunk.
@@ -2135,7 +2281,7 @@ def lead_import_process(request):
                 }
                 import_session.save(update_fields=[
                     'imported_rows', 'updated_rows', 'skipped_rows', 'failed_rows',
-                    'payload', 'updated_at'
+                    'payload', 'error_details', 'updated_at'
                 ])
     
     import_session.status = 'completed'
@@ -2149,7 +2295,7 @@ def lead_import_process(request):
     }
     import_session.save(update_fields=[
         'status', 'imported_rows', 'updated_rows', 'skipped_rows',
-        'failed_rows', 'payload', 'updated_at'
+        'failed_rows', 'payload', 'error_details', 'updated_at'
     ])
 
     _create_operation_log(
@@ -2201,6 +2347,213 @@ def lead_import_process(request):
         })
 
     return redirect("dashboard:leads_all")
+
+
+@login_required
+@hierarchy_required
+def enterprise_lead_import(request):
+    """
+    Enterprise-scale lead import with background processing for large files.
+    Handles 100k+ leads efficiently with streaming processing and real-time progress.
+    """
+    # Only owners can import leads for enterprise scale
+    if request.user.role != 'owner':
+        messages.error(request, "Only owners can perform enterprise-scale imports.")
+        return redirect("dashboard:leads_all")
+    
+    if request.method == 'POST':
+        try:
+            uploaded_file = request.FILES.get('import_file')
+            if not uploaded_file:
+                return JsonResponse({'error': 'No file uploaded'}, status=400)
+            
+            # Validate file size (100MB limit for enterprise import)
+            max_size = 100 * 1024 * 1024  # 100MB
+            if uploaded_file.size > max_size:
+                return JsonResponse({
+                    'error': f'File too large. Maximum size is 100MB for enterprise imports.'
+                }, status=400)
+            
+            # Validate file type
+            allowed_extensions = ['.csv', '.xlsx', '.xls']
+            file_name = uploaded_file.name.lower()
+            if not any(file_name.endswith(ext) for ext in allowed_extensions):
+                return JsonResponse({
+                    'error': 'Invalid file type. Please upload CSV or Excel files.'
+                }, status=400)
+            
+            # Create bulk operation record
+            operation = BulkOperation.objects.create(
+                operation_type='lead_import',
+                user=request.user,
+                company_id=request.user.company_id if hasattr(request.user, 'company_id') else 1,
+                status='pending',
+                description=f"Enterprise import: {uploaded_file.name}",
+                total_items=0,  # Will be updated during processing
+            )
+            
+            # Save uploaded file to temporary location
+            import tempfile
+            import os
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as temp_file:
+                for chunk in uploaded_file.chunks():
+                    temp_file.write(chunk)
+                temp_file_path = temp_file.name
+            
+            # Submit background task
+            from .tasks import enterprise_bulk_import_async
+            task = enterprise_bulk_import_async.delay(
+                operation_id=operation.id,
+                file_path=temp_file_path,
+                company_id=request.user.company_id if hasattr(request.user, 'company_id') else 1,
+                user_id=request.user.id,
+                file_name=uploaded_file.name
+            )
+            
+            # Store task ID for progress tracking
+            operation.task_id = task.id
+            operation.save()
+            
+            return JsonResponse({
+                'success': True,
+                'operation_id': operation.id,
+                'task_id': task.id,
+                'message': 'Enterprise import started. Processing will continue in background.',
+                'progress_url': reverse('dashboard:enterprise_import_progress', args=[operation.id])
+            })
+            
+        except Exception as e:
+            logger.error(f"Enterprise import error: {e}", exc_info=True)
+            return JsonResponse({
+                'error': f'Failed to start import: {str(e)}'
+            }, status=500)
+    
+    # GET request - show import form
+    return render(request, 'dashboard/enterprise_import.html', {
+        'page_title': 'Enterprise Lead Import',
+        'max_file_size': 100,  # MB
+        'supported_formats': ['CSV', 'Excel (.xlsx, .xls)'],
+        'estimated_processing': {
+            '10k_leads': '2-3 minutes',
+            '50k_leads': '8-12 minutes',
+            '100k_leads': '15-20 minutes',
+            '200k_leads': '30-40 minutes'
+        }
+    })
+
+
+@login_required
+@hierarchy_required
+def enterprise_import_progress(request, operation_id):
+    """
+    Get real-time progress for enterprise import operations.
+    """
+    # Only owners can view enterprise import progress
+    if request.user.role != 'owner':
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    
+    try:
+        operation = BulkOperation.objects.get(id=operation_id, user=request.user)
+        
+        # Get progress details
+        progress_data = {
+            'operation_id': operation.id,
+            'status': operation.status,
+            'total_items': operation.total_items,
+            'processed_items': operation.processed_items,
+            'items_created': operation.items_created,
+            'items_updated': operation.items_updated,
+            'error_count': operation.error_count,
+            'start_time': operation.start_time.isoformat() if operation.start_time else None,
+            'end_time': operation.end_time.isoformat() if operation.end_time else None,
+            'duration': operation.duration,
+            'processing_rate': operation.processing_rate,
+            'error_message': operation.error_message,
+            'percentage': 0,
+            'eta_seconds': 0,
+            'current_stage': 'initializing'
+        }
+        
+        # Calculate percentage
+        if operation.total_items > 0:
+            progress_data['percentage'] = min(100, (operation.processed_items / operation.total_items) * 100)
+        
+        # Calculate ETA if processing
+        if operation.status == 'running' and operation.processing_rate > 0:
+            remaining_items = operation.total_items - operation.processed_items
+            progress_data['eta_seconds'] = remaining_items / operation.processing_rate
+            progress_data['current_stage'] = 'processing'
+        elif operation.status == 'completed':
+            progress_data['current_stage'] = 'completed'
+        elif operation.status == 'failed':
+            progress_data['current_stage'] = 'failed'
+        
+        # Get recent progress entries for detailed view
+        recent_progress = BulkOperationProgress.objects.filter(
+            operation=operation
+        ).order_by('-created_at')[:10]
+        
+        progress_data['recent_progress'] = [
+            {
+                'batch_number': p.batch_number,
+                'items_processed': p.items_processed,
+                'items_created': p.items_created,
+                'processing_time': p.processing_time,
+                'error_count': p.error_count,
+                'created_at': p.created_at.isoformat()
+            }
+            for p in recent_progress
+        ]
+        
+        return JsonResponse(progress_data)
+        
+    except BulkOperation.DoesNotExist:
+        return JsonResponse({'error': 'Operation not found'}, status=404)
+    except Exception as e:
+        logger.error(f"Error getting import progress: {e}")
+        return JsonResponse({'error': 'Failed to get progress'}, status=500)
+
+
+@login_required
+@hierarchy_required
+def enterprise_import_cancel(request, operation_id):
+    """
+    Cancel a running enterprise import operation.
+    """
+    # Only owners can cancel enterprise imports
+    if request.user.role != 'owner':
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        operation = BulkOperation.objects.get(id=operation_id, user=request.user)
+        
+        if operation.status not in ['pending', 'running']:
+            return JsonResponse({'error': 'Cannot cancel operation in current status'}, status=400)
+        
+        # Cancel Celery task if it exists
+        if operation.task_id:
+            from celery import current_app
+            current_app.control.revoke(operation.task_id, terminate=True)
+        
+        # Mark operation as cancelled
+        operation.status = 'cancelled'
+        operation.end_time = timezone.now()
+        operation.save()
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Import operation cancelled successfully'
+        })
+        
+    except BulkOperation.DoesNotExist:
+        return JsonResponse({'error': 'Operation not found'}, status=404)
+    except Exception as e:
+        logger.error(f"Error cancelling import: {e}")
+        return JsonResponse({'error': 'Failed to cancel operation'}, status=500)
 
 
 # Lead Status and History Views
@@ -2773,7 +3126,7 @@ def _can_be_assigned_to_user_cached(lead, target_user, target_hierarchy):
 
 def _process_assignments_concurrently(leads, assigned_user, request_user, assignment_notes="", batch_size=1000):
     """Process lead assignments in parallel batches"""
-    start_time = time.time()
+    start_time = time_module.time()
     
     # Validate permissions in batch first
     valid_leads = _validate_bulk_assignments_optimized(leads, request_user, assigned_user)
@@ -2802,7 +3155,7 @@ def _process_assignments_concurrently(leads, assigned_user, request_user, assign
                 # Log error and count as failed
                 failed_count += len(future_to_batch[future])
     
-    elapsed_time = time.time() - start_time
+    elapsed_time = time_module.time() - start_time
     logger.info(f"Processed {len(valid_leads)} assignments in {elapsed_time:.2f}s using {len(batches)} batches")
     
     return successful_count, failed_count

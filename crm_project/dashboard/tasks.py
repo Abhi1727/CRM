@@ -305,6 +305,72 @@ def generate_report_async(report_type, user_id, filters, company_id):
         raise
 
 
+@shared_task(bind=True, soft_time_limit=1800, time_limit=3600)  # 30 min soft, 60 min hard limit
+def enterprise_bulk_import_async(self, operation_id: int, file_path: str, 
+                                 company_id: int, user_id: int, file_name: str):
+    """
+    Celery task for enterprise-scale bulk lead import.
+    
+    Args:
+        operation_id: BulkOperation ID for tracking
+        file_path: Path to the uploaded file
+        company_id: Company ID
+        user_id: User ID who initiated the import
+        file_name: Original file name
+    """
+    try:
+        logger.info(f"Starting enterprise import task: operation_id={operation_id}, file={file_name}")
+        
+        # Update task state
+        self.update_state(state='PROGRESS', meta={'status': 'Initializing import...'})
+        
+        # Initialize importer
+        from .enterprise_importer import EnterpriseLeadImporter
+        importer = EnterpriseLeadImporter(company_id, user_id, operation_id)
+        
+        # Open file and start import
+        with open(file_path, 'rb') as file_handler:
+            result = importer.import_leads_from_file(file_handler, file_name)
+        
+        # Clean up temporary file
+        import os
+        try:
+            os.remove(file_path)
+        except OSError:
+            logger.warning(f"Could not remove temporary file: {file_path}")
+        
+        logger.info(f"Enterprise import completed: {result}")
+        
+        return {
+            'status': 'success',
+            'operation_id': operation_id,
+            'result': result
+        }
+        
+    except Exception as e:
+        logger.error(f"Enterprise import task failed: {e}", exc_info=True)
+        
+        # Mark operation as failed
+        try:
+            operation = BulkOperation.objects.get(id=operation_id)
+            operation.status = 'failed'
+            operation.error_message = str(e)
+            operation.end_time = timezone.now()
+            operation.save()
+        except Exception as op_error:
+            logger.error(f"Error marking operation failed: {op_error}")
+        
+        # Clean up temporary file
+        import os
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+        
+        # Re-raise to mark task as failed
+        raise
+
+
 @shared_task
 def optimize_database_tables():
     """

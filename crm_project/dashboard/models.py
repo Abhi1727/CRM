@@ -596,6 +596,7 @@ class LeadImportSession(models.Model):
     updated_rows = models.PositiveIntegerField(default=0)
     skipped_rows = models.PositiveIntegerField(default=0)
     failed_rows = models.PositiveIntegerField(default=0)
+    error_details = models.JSONField(default=list, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)

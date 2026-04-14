@@ -1,0 +1,783 @@
+{% extends "dashboard/base_dashboard.html" %}
+{% load static %}
+
+{% block title %}Enterprise Lead Import{% endblock %}
+
+{% block extra_css %}
+<style>
+.enterprise-import-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.import-form-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    padding: 30px;
+    margin-bottom: 20px;
+}
+
+.upload-area {
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    padding: 40px;
+    text-align: center;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    background: #fafafa;
+}
+
+.upload-area:hover {
+    border-color: #007bff;
+    background: #f0f8ff;
+}
+
+.upload-area.dragover {
+    border-color: #007bff;
+    background: #e3f2fd;
+}
+
+.upload-icon {
+    font-size: 48px;
+    color: #ddd;
+    margin-bottom: 20px;
+}
+
+.file-input {
+    display: none;
+}
+
+.upload-text {
+    font-size: 18px;
+    color: #666;
+    margin-bottom: 10px;
+}
+
+.upload-subtext {
+    font-size: 14px;
+    color: #999;
+}
+
+.progress-container {
+    display: none;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.progress-title {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.progress-status {
+    font-size: 14px;
+    color: #666;
+}
+
+.progress-bar-container {
+    background: #f0f0f0;
+    border-radius: 4px;
+    height: 20px;
+    overflow: hidden;
+    margin-bottom: 15px;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #007bff, #0056b3);
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 4px;
+}
+
+.progress-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.progress-item {
+    text-align: center;
+}
+
+.progress-label {
+    font-size: 12px;
+    color: #666;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+}
+
+.progress-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+}
+
+.progress-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.btn-cancel {
+    background: #dc3545;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.btn-cancel:hover {
+    background: #c82333;
+}
+
+.btn-cancel:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+.info-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.info-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    padding: 20px;
+}
+
+.info-card h3 {
+    margin: 0 0 15px 0;
+    color: #333;
+    font-size: 16px;
+}
+
+.info-card ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.info-card li {
+    padding: 5px 0;
+    border-bottom: 1px solid #eee;
+    font-size: 14px;
+}
+
+.info-card li:last-child {
+    border-bottom: none;
+}
+
+.info-card .highlight {
+    color: #007bff;
+    font-weight: 600;
+}
+
+.error-message {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    border: 1px solid #f5c6cb;
+}
+
+.success-message {
+    background: #d4edda;
+    color: #155724;
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    border: 1px solid #c3e6cb;
+}
+
+.warning-message {
+    background: #fff3cd;
+    color: #856404;
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    border: 1px solid #ffeaa7;
+}
+
+.btn-import {
+    background: linear-gradient(135deg, #28a745, #20c997);
+    color: white;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    width: 100%;
+}
+
+.btn-import:hover {
+    background: linear-gradient(135deg, #218838, #1ea085);
+    transform: translateY(-1px);
+}
+
+.btn-import:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.file-info {
+    background: #f8f9fa;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.file-info-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    font-size: 14px;
+}
+
+.file-info-label {
+    font-weight: 600;
+    color: #666;
+}
+
+.file-info-value {
+    color: #333;
+}
+
+@media (max-width: 768px) {
+    .enterprise-import-container {
+        padding: 10px;
+    }
+    
+    .import-form-card {
+        padding: 20px;
+    }
+    
+    .progress-details {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .info-cards {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="enterprise-import-container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">Enterprise Lead Import</h1>
+        <a href="{% url 'dashboard:leads_all' %}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Leads
+        </a>
+    </div>
+
+    <!-- Messages -->
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <!-- Error/Success Messages Container -->
+    <div id="messageContainer"></div>
+
+    <!-- Information Cards -->
+    <div class="info-cards">
+        <div class="info-card">
+            <h3><i class="fas fa-rocket"></i> Performance</h3>
+            <ul>
+                <li><span class="highlight">10K leads:</span> {{ estimated_processing.10k_leads }}</li>
+                <li><span class="highlight">50K leads:</span> {{ estimated_processing.50k_leads }}</li>
+                <li><span class="highlight">100K leads:</span> {{ estimated_processing.100k_leads }}</li>
+                <li><span class="highlight">200K leads:</span> {{ estimated_processing.200k_leads }}</li>
+            </ul>
+        </div>
+        
+        <div class="info-card">
+            <h3><i class="fas fa-file-upload"></i> File Requirements</h3>
+            <ul>
+                <li><span class="highlight">Max size:</span> {{ max_file_size }}MB</li>
+                <li><span class="highlight">Formats:</span> {% for format in supported_formats %}{{ format }}{% if not forloop.last %}, {% endif %}{% endfor %}</li>
+                <li><span class="highlight">Required columns:</span> name, mobile</li>
+                <li><span class="highlight">Optional:</span> email, phone, address, etc.</li>
+            </ul>
+        </div>
+        
+        <div class="info-card">
+            <h3><i class="fas fa-shield-alt"></i> Features</h3>
+            <ul>
+                <li><span class="highlight">Streaming:</span> Memory-efficient processing</li>
+                <li><span class="highlight">Duplicate detection:</span> Smart caching</li>
+                <li><span class="highlight">Real-time progress:</span> Live updates</li>
+                <li><span class="highlight">Error handling:</span> Detailed reporting</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Import Form -->
+    <div class="import-form-card" id="importFormCard">
+        <h2 class="h4 mb-4">Upload Lead File</h2>
+        
+        <form id="enterpriseImportForm" enctype="multipart/form-data">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                </div>
+                <div class="upload-text">
+                    Drop your file here or click to browse
+                </div>
+                <div class="upload-subtext">
+                    Supports CSV and Excel files up to {{ max_file_size }}MB
+                </div>
+                <input type="file" id="fileInput" class="file-input" name="import_file" accept=".csv,.xlsx,.xls">
+            </div>
+            
+            <div id="fileInfo" class="file-info" style="display: none;">
+                <div class="file-info-item">
+                    <span class="file-info-label">File Name:</span>
+                    <span class="file-info-value" id="fileName">-</span>
+                </div>
+                <div class="file-info-item">
+                    <span class="file-info-label">File Size:</span>
+                    <span class="file-info-value" id="fileSize">-</span>
+                </div>
+                <div class="file-info-item">
+                    <span class="file-info-label">File Type:</span>
+                    <span class="file-info-value" id="fileType">-</span>
+                </div>
+            </div>
+            
+            <button type="submit" class="btn-import" id="importBtn" disabled>
+                <i class="fas fa-upload"></i> Start Enterprise Import
+            </button>
+        </form>
+    </div>
+
+    <!-- Progress Container -->
+    <div class="progress-container" id="progressContainer">
+        <div class="progress-header">
+            <div class="progress-title">Import Progress</div>
+            <div class="progress-status" id="progressStatus">Initializing...</div>
+        </div>
+        
+        <div class="progress-bar-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        
+        <div class="progress-details">
+            <div class="progress-item">
+                <div class="progress-label">Processed</div>
+                <div class="progress-value" id="processedCount">0</div>
+            </div>
+            <div class="progress-item">
+                <div class="progress-label">Total</div>
+                <div class="progress-value" id="totalCount">0</div>
+            </div>
+            <div class="progress-item">
+                <div class="progress-label">Imported</div>
+                <div class="progress-value" id="importedCount">0</div>
+            </div>
+            <div class="progress-item">
+                <div class="progress-label">Duplicates</div>
+                <div class="progress-value" id="duplicateCount">0</div>
+            </div>
+            <div class="progress-item">
+                <div class="progress-label">Rate</div>
+                <div class="progress-value" id="processingRate">0/s</div>
+            </div>
+            <div class="progress-item">
+                <div class="progress-label">ETA</div>
+                <div class="progress-value" id="etaTime">--:--</div>
+            </div>
+        </div>
+        
+        <div class="progress-actions">
+            <button class="btn-cancel" id="cancelBtn" onclick="cancelImport()">
+                <i class="fas fa-stop"></i> Cancel Import
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentOperationId = null;
+let progressInterval = null;
+let isImporting = false;
+
+// File upload handling
+const uploadArea = document.getElementById('uploadArea');
+const fileInput = document.getElementById('fileInput');
+const importForm = document.getElementById('enterpriseImportForm');
+const importBtn = document.getElementById('importBtn');
+const progressContainer = document.getElementById('progressContainer');
+const importFormCard = document.getElementById('importFormCard');
+
+// Upload area events
+uploadArea.addEventListener('click', () => fileInput.click());
+uploadArea.addEventListener('dragover', handleDragOver);
+uploadArea.addEventListener('dragleave', handleDragLeave);
+uploadArea.addEventListener('drop', handleDrop);
+
+fileInput.addEventListener('change', handleFileSelect);
+importForm.addEventListener('submit', handleImportSubmit);
+
+function handleDragOver(e) {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+}
+
+function handleDragLeave(e) {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        fileInput.files = files;
+        handleFileSelect();
+    }
+}
+
+function handleFileSelect() {
+    const file = fileInput.files[0];
+    if (!file) return;
+    
+    // Validate file size
+    const maxSize = {{ max_file_size }} * 1024 * 1024; // Convert MB to bytes
+    if (file.size > maxSize) {
+        showMessage(`File too large. Maximum size is {{ max_file_size }}MB.`, 'error');
+        fileInput.value = '';
+        return;
+    }
+    
+    // Validate file type
+    const allowedTypes = ['.csv', '.xlsx', '.xls'];
+    const fileName = file.name.toLowerCase();
+    const isValidType = allowedTypes.some(type => fileName.endsWith(type));
+    
+    if (!isValidType) {
+        showMessage('Invalid file type. Please upload CSV or Excel files.', 'error');
+        fileInput.value = '';
+        return;
+    }
+    
+    // Display file info
+    document.getElementById('fileName').textContent = file.name;
+    document.getElementById('fileSize').textContent = formatFileSize(file.size);
+    document.getElementById('fileType').textContent = fileName.split('.').pop().toUpperCase();
+    document.getElementById('fileInfo').style.display = 'block';
+    
+    // Enable import button
+    importBtn.disabled = false;
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+async function handleImportSubmit(e) {
+    e.preventDefault();
+    
+    if (isImporting) return;
+    
+    const formData = new FormData(importForm);
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        showMessage('Please select a file to import.', 'error');
+        return;
+    }
+    
+    isImporting = true;
+    importBtn.disabled = true;
+    importBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting Import...';
+    
+    try {
+        const response = await fetch('{% url "dashboard:enterprise_lead_import" %}', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            currentOperationId = result.operation_id;
+            showMessage('Import started successfully! Processing in background...', 'success');
+            
+            // Show progress container and hide form
+            importFormCard.style.display = 'none';
+            progressContainer.style.display = 'block';
+            
+            // Start progress tracking
+            startProgressTracking(result.progress_url);
+        } else {
+            showMessage(result.error || 'Failed to start import', 'error');
+            resetImportForm();
+        }
+    } catch (error) {
+        console.error('Import error:', error);
+        showMessage('Failed to start import. Please try again.', 'error');
+        resetImportForm();
+    }
+}
+
+function startProgressTracking(progressUrl) {
+    if (!currentOperationId) return;
+    
+    progressInterval = setInterval(async () => {
+        try {
+            const response = await fetch(progressUrl);
+            const progress = await response.json();
+            
+            if (response.ok) {
+                updateProgress(progress);
+                
+                // Stop tracking if completed or failed
+                if (progress.status === 'completed' || progress.status === 'failed' || progress.status === 'cancelled') {
+                    clearInterval(progressInterval);
+                    handleImportComplete(progress);
+                }
+            } else {
+                console.error('Progress tracking error:', response);
+            }
+        } catch (error) {
+            console.error('Progress tracking error:', error);
+        }
+    }, 2000); // Update every 2 seconds
+}
+
+function updateProgress(progress) {
+    // Update progress bar
+    const progressBar = document.getElementById('progressBar');
+    progressBar.style.width = `${progress.percentage}%`;
+    
+    // Update status
+    document.getElementById('progressStatus').textContent = progress.current_stage || 'Processing...';
+    
+    // Update counts
+    document.getElementById('processedCount').textContent = progress.processed_items?.toLocaleString() || '0';
+    document.getElementById('totalCount').textContent = progress.total_items?.toLocaleString() || '0';
+    document.getElementById('importedCount').textContent = progress.items_created?.toLocaleString() || '0';
+    document.getElementById('duplicateCount').textContent = 
+        ((progress.processed_items || 0) - (progress.items_created || 0)).toLocaleString();
+    
+    // Update processing rate
+    const rate = progress.processing_rate || 0;
+    document.getElementById('processingRate').textContent = `${rate.toFixed(1)}/s`;
+    
+    // Update ETA
+    const eta = progress.eta_seconds || 0;
+    document.getElementById('etaTime').textContent = formatTime(eta);
+    
+    // Update cancel button state
+    const cancelBtn = document.getElementById('cancelBtn');
+    if (progress.status === 'running') {
+        cancelBtn.disabled = false;
+    } else {
+        cancelBtn.disabled = true;
+    }
+}
+
+function formatTime(seconds) {
+    if (seconds === 0 || !seconds) return '--:--';
+    
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    } else {
+        return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    }
+}
+
+async function cancelImport() {
+    if (!currentOperationId) return;
+    
+    if (!confirm('Are you sure you want to cancel this import?')) return;
+    
+    const cancelBtn = document.getElementById('cancelBtn');
+    cancelBtn.disabled = true;
+    cancelBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling...';
+    
+    try {
+        const response = await fetch(`{% url "dashboard:enterprise_import_cancel" 0 %}`.replace('0', currentOperationId), {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            showMessage('Import cancelled successfully.', 'warning');
+            clearInterval(progressInterval);
+            resetImportForm();
+        } else {
+            showMessage(result.error || 'Failed to cancel import', 'error');
+            cancelBtn.disabled = false;
+            cancelBtn.innerHTML = '<i class="fas fa-stop"></i> Cancel Import';
+        }
+    } catch (error) {
+        console.error('Cancel error:', error);
+        showMessage('Failed to cancel import', 'error');
+        cancelBtn.disabled = false;
+        cancelBtn.innerHTML = '<i class="fas fa-stop"></i> Cancel Import';
+    }
+}
+
+function handleImportComplete(progress) {
+    const status = progress.status;
+    let message = '';
+    let messageType = 'success';
+    
+    if (status === 'completed') {
+        const imported = progress.items_created || 0;
+        const processed = progress.processed_items || 0;
+        const duplicates = processed - imported;
+        
+        message = `Import completed successfully! ${imported} leads imported, ${duplicates} duplicates found.`;
+        messageType = 'success';
+    } else if (status === 'failed') {
+        message = `Import failed: ${progress.error_message || 'Unknown error'}`;
+        messageType = 'error';
+    } else if (status === 'cancelled') {
+        message = 'Import was cancelled successfully.';
+        messageType = 'warning';
+    }
+    
+    showMessage(message, messageType);
+    
+    // Show reset button after a delay
+    setTimeout(() => {
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'btn btn-primary w-100';
+        resetBtn.innerHTML = '<i class="fas fa-plus"></i> Start New Import';
+        resetBtn.onclick = resetImportForm;
+        
+        progressContainer.appendChild(resetBtn);
+    }, 2000);
+}
+
+function resetImportForm() {
+    isImporting = false;
+    currentOperationId = null;
+    
+    if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+    }
+    
+    // Reset form
+    importForm.reset();
+    fileInput.value = '';
+    document.getElementById('fileInfo').style.display = 'none';
+    importBtn.disabled = true;
+    importBtn.innerHTML = '<i class="fas fa-upload"></i> Start Enterprise Import';
+    
+    // Show form, hide progress
+    importFormCard.style.display = 'block';
+    progressContainer.style.display = 'none';
+    
+    // Reset progress display
+    document.getElementById('progressBar').style.width = '0%';
+    document.getElementById('progressStatus').textContent = 'Initializing...';
+    document.getElementById('processedCount').textContent = '0';
+    document.getElementById('totalCount').textContent = '0';
+    document.getElementById('importedCount').textContent = '0';
+    document.getElementById('duplicateCount').textContent = '0';
+    document.getElementById('processingRate').textContent = '0/s';
+    document.getElementById('etaTime').textContent = '--:--';
+    
+    // Remove reset button if exists
+    const resetBtn = progressContainer.querySelector('.btn-primary');
+    if (resetBtn) {
+        resetBtn.remove();
+    }
+}
+
+function showMessage(message, type) {
+    const container = document.getElementById('messageContainer');
+    const alertClass = type === 'error' ? 'danger' : type;
+    const icon = type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle';
+    
+    const messageHtml = `
+        <div class="alert alert-${alertClass} alert-dismissible fade show" role="alert">
+            <i class="fas fa-${icon}"></i> ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    container.innerHTML = messageHtml;
+    
+    // Auto-dismiss after 5 seconds for success messages
+    if (type === 'success') {
+        setTimeout(() => {
+            const alert = container.querySelector('.alert');
+            if (alert) {
+                alert.remove();
+            }
+        }, 5000);
+    }
+}
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %}

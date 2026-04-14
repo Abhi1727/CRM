@@ -17,6 +17,11 @@ urlpatterns = [
     path("leads/import/preview/", views.lead_import_preview, name="lead_import_preview"),
     path("leads/import/status/", views.lead_import_status, name="lead_import_status"),
     path("leads/import/process/", views.lead_import_process, name="lead_import_process"),
+    
+    # Enterprise Import URLs
+    path("leads/import/enterprise/", views.enterprise_lead_import, name="enterprise_lead_import"),
+    path("leads/import/enterprise/progress/<int:operation_id>/", views.enterprise_import_progress, name="enterprise_import_progress"),
+    path("leads/import/enterprise/cancel/<int:operation_id>/", views.enterprise_import_cancel, name="enterprise_import_cancel"),
     path("leads/fresh/", views.leads_fresh, name="leads_fresh"),
     path("leads/working/", views.leads_working, name="leads_working"),
     path("leads/transferred/", views.leads_transferred, name="leads_transferred"),

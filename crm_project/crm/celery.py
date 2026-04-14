@@ -37,6 +37,7 @@ app.conf.update(
         'dashboard.tasks.bulk_lead_assignment': {'queue': 'bulk_operations'},
         'dashboard.tasks.bulk_lead_deletion': {'queue': 'bulk_operations'},
         'dashboard.tasks.bulk_lead_import': {'queue': 'bulk_operations'},
+        'dashboard.tasks.enterprise_bulk_import_async': {'queue': 'enterprise_import'},
         'dashboard.tasks.send_notifications': {'queue': 'notifications'},
         'dashboard.tasks.generate_reports': {'queue': 'reports'},
     },

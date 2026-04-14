@@ -12,6 +12,10 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -52,6 +56,12 @@ if DEBUG:
         'http://localhost:61705',
         'http://127.0.0.1:57870',
         'http://localhost:57870',
+        'http://127.0.0.1:50805',
+        'http://localhost:50805',
+        'http://127.0.0.1:61316',
+        'http://localhost:61316',
+        'http://127.0.0.1:64799',
+        'http://localhost:64799',
     ]
     
     # Add any additional ports from environment variable
