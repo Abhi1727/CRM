@@ -138,15 +138,16 @@ if DB_ENGINE == 'mysql':
             'HOST': os.getenv('DB_HOST', 'localhost'),
             'PORT': os.getenv('DB_PORT', '3306'),
             'OPTIONS': {
-                'init_command': "SET sql_mode='STRICT_TRANS_TABLES', innodb_lock_wait_timeout=50",
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES', innodb_lock_wait_timeout=50, wait_timeout=28800, interactive_timeout=28800",
                 'charset': 'utf8mb4',
-                # Connection pooling settings
-                'connect_timeout': 60,
+                # Optimized connection settings for remote database
+                'connect_timeout': 10,
                 'read_timeout': 30,
                 'write_timeout': 30,
+                'sql_mode': 'STRICT_TRANS_TABLES',
             },
-            # Connection pool settings
-            'CONN_MAX_AGE': 60,  # Persistent connections for 60 seconds
+            # Optimized connection pooling settings
+            'CONN_MAX_AGE': 3600,  # Persistent connections for 1 hour
             'ATOMIC_REQUESTS': True,  # Wrap each request in a transaction
         }
     }

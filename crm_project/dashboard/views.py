@@ -28,8 +28,12 @@ from .forms import (
 from accounts.permissions import hierarchy_required, role_required, can_access_lead_required
 from accounts.models import User
 from services.duplicate_detector import DuplicateDetector
+
+logger = logging.getLogger(__name__)
+from .bulk_assignment_processor import BulkAssignmentProcessor
 from core.cache import CacheManager, QueryResultCache, cache_result, cached_view
 from core.queries import OptimizedLeadManager, OptimizedUserManager, QueryOptimizer
+from .queries import OptimizedDashboardQueries, QueryOptimizer as DashboardQueryOptimizer
 
 # Role-based permission helpers
 def _can_edit_lead_details(user, lead):
@@ -83,7 +87,6 @@ def team_dashboard(request):
 
 @login_required
 @hierarchy_required
-@cache_result(timeout=300, key_prefix="dashboard_home", vary_on=['user.id', 'user.company_id'])
 def home(request):
     # Get greeting based on time
     current_hour = datetime.now().hour
@@ -94,175 +97,75 @@ def home(request):
     else:
         greeting_time = "Evening"
     
-    # Use optimized lead manager for better performance
-    lead_manager = OptimizedLeadManager()
-    lead_manager.model = Lead
-    
-    # Get accessible leads with optimization
-    accessible_leads = lead_manager.get_accessible_leads(request.user, request.user.company_id)
-    
-    # Get comprehensive statistics with single optimized query
-    cache_key = QueryResultCache.get_query_cache_key(
-        'dashboard_main_stats', request.user.id, request.user.company_id
-    )
-    
-    cached_stats = QueryResultCache.get_cached_query_result(cache_key)
-    if not cached_stats:
-        # Single query for all statistics
-        today = timezone.now().date()
-        stats = accessible_leads.aggregate(
-            total_leads=Count('id_lead'),
-            today_follow_ups=Count('id_lead', filter=Q(followup_datetime__date=today)),
-            exp_revenue=Sum('exp_revenue'),
-            course_amount_total=Sum('course_amount'),
+    # Use optimized dashboard queries
+    try:
+        dashboard_stats = OptimizedDashboardQueries.get_dashboard_statistics(
+            request.user, request.user.company_id
         )
         
-        # Status distribution
-        leads_by_status = dict(
-            accessible_leads.values('status')
-            .annotate(count=Count('id_lead'))
-            .values_list('status', 'count')
-        )
-        
-        # Format leads_by_status to match expected structure
+        # Format status distribution for template
         formatted_leads_by_status = {}
         for status_code, status_name in Lead.STATUS_CHOICES:
             formatted_leads_by_status[status_code] = {
                 'name': status_name,
-                'count': leads_by_status.get(status_code, 0)
+                'count': next(
+                    (item['count'] for item in dashboard_stats['status_distribution'] 
+                     if item['status'] == status_code), 0
+                )
             }
         
-        cached_stats = {
-            'total_leads': stats['total_leads'] or 0,
-            'today_follow_ups': stats['today_follow_ups'] or 0,
-            'exp_revenue': stats['exp_revenue'] or 0,
-            'course_amount_total': stats['course_amount_total'] or 0,
-            'formatted_leads_by_status': formatted_leads_by_status,
+        # Get follow-up reminders
+        follow_up_reminders = OptimizedDashboardQueries.get_follow_up_reminders(
+            request.user, request.user.company_id
+        )
+        
+        # Prepare context based on user role
+        context = {
+            'user': request.user,
+            'role': request.user.get_role_display(),
+            'greeting_time': greeting_time,
+            'total_leads': dashboard_stats['total_leads'],
+            'today_follow_ups': dashboard_stats['today_follow_ups'],
+            'expected_revenue': dashboard_stats['exp_revenue'],
+            'actual_revenue': dashboard_stats['course_amount'],
+            'leads_by_status': formatted_leads_by_status,
+            'conversion_rate': dashboard_stats['conversion_rate'],
+            'follow_up_reminders': follow_up_reminders,
         }
         
-        QueryResultCache.cache_query_result(cache_key, cached_stats, timeout=300)
-    
-    total_leads = cached_stats['total_leads']
-    today_follow_ups = cached_stats['today_follow_ups']
-    exp_revenue = cached_stats['exp_revenue']
-    course_amount_total = cached_stats['course_amount_total']
-    formatted_leads_by_status = cached_stats['formatted_leads_by_status']
-    
-    # Role-specific metrics with caching
-    role_cache_key = f"dashboard_home_role_{request.user.id}_{request.user.company_id}_{request.user.role}"
-    cached_role_stats = cache.get(role_cache_key)
-    
-    if cached_role_stats:
-        role_context = cached_role_stats
-    else:
-        role_context = {}
-        accessible_leads = request.hierarchy_context['accessible_leads']
-        
-        if request.user.role == 'agent':
-            # Agent metrics - optimized with single query
-            my_leads_qs = accessible_leads.filter(assigned_user=request.user)
-            agent_stats = my_leads_qs.aggregate(
-                total_leads=Count('id_lead'),
-                converted_leads=Count('id_lead', filter=Q(status='sale_done'))
-            )
-            
-            total_leads_count = agent_stats['total_leads']
-            converted_count = agent_stats['converted_leads']
-            pending_count = total_leads_count - converted_count
-            
-            role_context.update({
-                'my_leads_count': total_leads_count,
-                'converted_leads': converted_count,
-                'pending_leads': pending_count,
-                'conversion_rate': (converted_count / total_leads_count * 100) if total_leads_count > 0 else 0,
+        # Add role-specific context
+        user_performance = dashboard_stats['user_performance']
+        if user_performance['type'] == 'agent':
+            context.update({
+                'my_leads_count': user_performance['total_leads'],
+                'converted_leads': user_performance['converted_leads'],
+                'pending_followups': user_performance['pending_followups'],
+                'conversion_rate': user_performance['conversion_rate'],
+            })
+        elif user_performance['type'] == 'team_lead':
+            context.update({
+                'team_agents_count': user_performance['team_members_count'],
+                'agent_performance': user_performance['agent_performance'],
+                'team_conversion_rate': user_performance['team_conversion_rate'],
+            })
+        elif user_performance['type'] == 'manager':
+            context.update({
+                'team_leads_count': user_performance['team_leads_count'],
+                'lead_performance': user_performance['lead_performance'],
+                'manager_conversion_rate': user_performance['manager_conversion_rate'],
             })
         
-        elif request.user.role == 'team_lead':
-            # Team Lead metrics - optimized with bulk query
-            team_agents = request.user.get_accessible_users().select_related('team_lead')
-            
-            # Get all team agent lead stats in single query
-            team_stats = accessible_leads.filter(
-                assigned_user__in=team_agents
-            ).values('assigned_user').annotate(
-                total_leads=Count('id_lead'),
-                converted_leads=Count('id_lead', filter=Q(status='sale_done'))
-            )
-            
-            # Create lookup dict for stats
-            stats_lookup = {stat['assigned_user']: stat for stat in team_stats}
-            
-            agent_performance = []
-            for agent in team_agents:
-                agent_stat = stats_lookup.get(agent.id, {'total_leads': 0, 'converted_leads': 0})
-                total_leads = agent_stat['total_leads']
-                converted = agent_stat['converted_leads']
-                
-                agent_performance.append({
-                    'agent': agent,
-                    'total_leads': total_leads,
-                    'converted': converted,
-                    'conversion_rate': (converted / total_leads * 100) if total_leads > 0 else 0,
-                })
-            
-            role_context.update({
-                'team_agents_count': team_agents.count(),
-                'agent_performance': agent_performance,
-            })
+        return render(request, 'dashboard/home.html', context)
         
-        elif request.user.role == 'manager':
-            # Manager metrics - optimized with bulk queries
-            team_leads = request.user.get_accessible_users().filter(role='team_lead').select_related('manager')
-            
-            # Get all team agents for all team leads in single query
-            all_team_agents = User.objects.filter(
-                team_lead__in=team_leads
-            ).select_related('team_lead')
-            
-            # Get lead stats for all team agents in single query
-            team_stats = accessible_leads.filter(
-                assigned_user__in=all_team_agents
-            ).values('assigned_user__team_lead').annotate(
-                total_leads=Count('id_lead'),
-                converted_leads=Count('id_lead', filter=Q(status='sale_done'))
-            )
-            
-            # Create lookup dict for team lead stats
-            stats_lookup = {stat['assigned_user__team_lead']: stat for stat in team_stats}
-            
-            team_performance = []
-            for team_lead in team_leads:
-                team_stat = stats_lookup.get(team_lead.id, {'total_leads': 0, 'converted_leads': 0})
-                total_leads = team_stat['total_leads']
-                converted = team_stat['converted_leads']
-                
-                team_performance.append({
-                    'team_lead': team_lead,
-                    'total_leads': total_leads,
-                    'converted': converted,
-                    'conversion_rate': (converted / total_leads * 100) if total_leads > 0 else 0,
-                })
-            
-            role_context.update({
-                'team_leads_count': team_leads.count(),
-                'team_performance': team_performance,
-            })
-        
-        # Cache role-specific statistics for 5 minutes
-        cache.set(role_cache_key, role_context, 300)
-    
-    context = {
-        'user': request.user,
-        'role': request.user.get_role_display(),
-        'greeting_time': greeting_time,
-        'total_leads': total_leads,
-        'today_follow_ups': today_follow_ups,
-        'expected_revenue': exp_revenue,
-        'actual_revenue': course_amount_total,
-        'leads_by_status': formatted_leads_by_status,
-        **role_context,  # Add role-specific metrics
-    }
-    return render(request, 'dashboard/home.html', context)
+    except Exception as e:
+        logger.error(f"Error loading dashboard: {str(e)}")
+        # Fallback to basic dashboard
+        return render(request, 'dashboard/home.html', {
+            'user': request.user,
+            'role': request.user.get_role_display(),
+            'greeting_time': greeting_time,
+            'error': 'Dashboard statistics temporarily unavailable'
+        })
 
 @login_required
 def profile(request):
@@ -493,43 +396,52 @@ def _render_leads_list_page(request, base_queryset, page_title, default_sort='-c
     logger.debug(f"DEBUG: Extracted filters: {filters}")
     
     sort_by = filters['sort'] if filters['sort'] in LEAD_SORT_FIELDS else default_sort
-    leads_qs = _apply_common_lead_filters(base_queryset, request.user, filters)
     
-    # Optimize: Apply ordering and select_related before count to avoid duplicate queries
-    leads_qs = leads_qs.order_by(LEAD_SORT_FIELDS.get(sort_by, default_sort))
+    # Apply filters to base queryset
+    filtered_queryset = _apply_common_lead_filters(base_queryset, request.user, filters)
     
-    # Use count() with optimization for large datasets
+    # Use optimized lead list function
     try:
-        # For MySQL, use SQL_CALC_FOUND_ROWS for better performance on large datasets
+        lead_list_data = OptimizedDashboardQueries.get_lead_list_optimized(
+            filtered_queryset,
+            filters,
+            page_size=filters['page_size'],
+            page=int(request.GET.get('page', 1))
+        )
+        
+        # Apply sorting
+        if sort_by in LEAD_SORT_FIELDS:
+            lead_list_data['leads'] = lead_list_data['leads'].order_by(LEAD_SORT_FIELDS[sort_by])
+        
+        # Create paginator object for template compatibility
+        paginator = Paginator([], filters['page_size'])  # Empty paginator
+        paginator.count = lead_list_data['total_count']
+        paginator.num_pages = lead_list_data['total_pages']
+        
+        # Create page object
+        class MockPage:
+            def __init__(self, object_list, number, paginator):
+                self.object_list = object_list
+                self.number = number
+                self.paginator = paginator
+                self.has_previous = number > 1
+                self.has_next = number < paginator.num_pages
+                self.previous_page_number = number - 1 if self.has_previous else None
+                self.next_page_number = number + 1 if self.has_next else None
+            
+            def __len__(self):
+                return len(self.object_list)
+        
+        page_obj = MockPage(lead_list_data['leads'], lead_list_data['page'], paginator)
+        total_filtered_count = lead_list_data['total_count']
+        
+    except Exception as e:
+        logger.error(f"Error in optimized lead list: {str(e)}")
+        # Fallback to original method
+        leads_qs = filtered_queryset.order_by(LEAD_SORT_FIELDS.get(sort_by, default_sort))
         total_filtered_count = leads_qs.count()
-    except Exception:
-        # Fallback to len() if count() fails
-        total_filtered_count = len(leads_qs)
-    
-    logger.debug(f"DEBUG: Final filtered leads count: {total_filtered_count}")
-    
-    # Create paginator with optimized queryset
-    paginator = Paginator(leads_qs, filters['page_size'])
-    page_obj = paginator.get_page(request.GET.get('page'))
-    
-    # Optimize: Only apply select_related to the current page objects
-    if page_obj.object_list:
-        # Get the IDs from current page and fetch with select_related
-        page_lead_ids = [lead.id_lead for lead in page_obj.object_list]
-        optimized_leads = Lead.objects.filter(
-            id_lead__in=page_lead_ids
-        ).select_related(
-            'assigned_user', 'created_by', 
-            'assigned_user__manager', 'assigned_user__team_lead'
-        ).order_by(LEAD_SORT_FIELDS.get(sort_by, default_sort))
-        
-        # Create a lookup dict for quick access
-        leads_lookup = {lead.id_lead: lead for lead in optimized_leads}
-        
-        # Replace the page objects with optimized ones
-        page_obj.object_list = [
-            leads_lookup[lead.id_lead] for lead in page_obj.object_list
-        ]
+        paginator = Paginator(leads_qs, filters['page_size'])
+        page_obj = paginator.get_page(request.GET.get('page'))
 
     filter_snapshot = request.GET.copy()
     filter_snapshot.pop('page', None)
@@ -1072,14 +984,19 @@ def bulk_lead_assign(request):
             # Start operation
             operation.start_operation()
             
-            # Use optimized bulk assignment with progress tracking
-            successful_assignments, failed_assignments = _process_assignments_concurrently_with_progress(
-                target_leads.select_related('assigned_user'),
-                assigned_user,
-                request.user,
-                assignment_notes,
-                operation
+            # Use optimized bulk assignment processor
+            processor = BulkAssignmentProcessor(
+                operation_id=operation.id,
+                lead_ids=list(target_leads.values_list('id', flat=True)),
+                assigned_user_id=assigned_user.id,
+                assigned_by_id=request.user.id,
+                company_id=request.user.company_id
             )
+            
+            # Execute the optimized bulk assignment
+            result = processor.execute()
+            successful_assignments = result['processed']
+            failed_assignments = result['errors']
             
             # Complete operation
             operation.complete_operation(
@@ -3035,8 +2952,8 @@ def _bulk_resolve_duplicates(leads, assigned_user, request_user, reassign_reason
     
     # Bulk update duplicate resolution
     update_count = Lead.objects.filter(id_lead__in=lead_ids).update(
-        assigned_user=assigned_user,
-        assigned_by=request_user,
+        assigned_user_id=assigned_user.id,
+        assigned_by_id=request_user.id,
         assigned_at=timezone.now(),
         duplicate_status='resolved',
         duplicate_resolution_status='resolved',

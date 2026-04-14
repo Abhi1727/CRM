@@ -1386,7 +1386,7 @@
             <span class="close">&times;</span>
         </div>
         <div class="modal-body">
-            <form id="bulk-assign-form" method="post" action="{% url 'dashboard:bulk_lead_assign' %}">
+            <form id="bulk-assign-form" method="post" action="{% url 'accounts:bulk_assign' %}">
                 {% csrf_token %}
                 <div class="selected-leads-info">
                     <h4>Selected Leads (<span id="modal-selected-count">0</span>)</h4>

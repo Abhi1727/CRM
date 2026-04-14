@@ -18,6 +18,7 @@ urlpatterns = [
     
     # Lead assignment
     path('assign-lead/', views.assign_lead, name='assign_lead'),
+    path('bulk-assign/', views.bulk_assign_leads, name='bulk_assign'),
     path('get-users-by-role/', views.get_users_by_role, name='get_users_by_role'),
     path('transfer-history/', views.lead_transfer_history, name='transfer_history'),
     

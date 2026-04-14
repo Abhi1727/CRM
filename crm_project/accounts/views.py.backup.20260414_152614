@@ -392,6 +392,163 @@ def get_users_by_role(request):
     
     return JsonResponse({'error': 'Invalid request'}, status=400)
 
+@login_required
+@hierarchy_required
+def bulk_assign_leads(request):
+    """Bulk assign multiple leads to team members"""
+    accessible_users = request.hierarchy_context['accessible_users']
+    accessible_leads = request.hierarchy_context['accessible_leads']
+    
+    if request.method == 'POST':
+        assigned_user_id = request.POST.get('assigned_user')
+        lead_ids = request.POST.getlist('lead_ids')
+        remarks = request.POST.get('remarks', '') or request.POST.get('assignment_notes', '')
+        action_scope = request.POST.get('action_scope', 'current_page').strip() or 'current_page'
+        filter_snapshot = request.POST.get('filter_snapshot', '')
+        
+        if action_scope == 'current_page' and not lead_ids:
+            messages.error(request, 'Please select at least one lead to assign.')
+            return redirect('accounts:bulk_assign')
+        
+        try:
+            assigned_user = accessible_users.get(id=assigned_user_id)
+            
+            # Verify user is active and can be assigned to
+            if not assigned_user.is_active or assigned_user.account_status != 'active':
+                messages.error(request, 'Cannot assign leads to deactivated user.')
+                return redirect('accounts:bulk_assign')
+            
+            # Verify user can assign to this person
+            if not request.user.can_manage_user(assigned_user):
+                messages.error(request, 'You cannot assign leads to this user due to hierarchy restrictions.')
+                return redirect('accounts:bulk_assign')
+            
+            if action_scope == 'all_filtered':
+                target_leads_qs = _apply_lead_snapshot_filters(
+                    accessible_leads.filter(deleted=False),
+                    request.user,
+                    filter_snapshot
+                )
+            else:
+                target_leads_qs = accessible_leads.filter(id_lead__in=lead_ids, deleted=False)
+
+            if not target_leads_qs.exists():
+                messages.error(request, 'No leads found for bulk assignment in selected scope.')
+                return redirect('dashboard:leads_all')
+
+            successful_assignments = 0
+            failed_assignments = 0
+            assigned_lead_ids = []
+            
+            for lead in target_leads_qs:
+                try:
+                    if lead.can_be_assigned_by(request.user) and lead.can_be_assigned_to_user(assigned_user, request.user):
+                        success = lead.assign_to_user(assigned_user, request.user)
+                        if success:
+                            successful_assignments += 1
+                            assigned_lead_ids.append(lead.id_lead)
+                            
+                            # Add remarks to assignment history if provided
+                            if remarks:
+                                assignment_history = lead.assignment_history or {}
+                                if not isinstance(assignment_history, dict):
+                                    assignment_history = {'assignments': []}
+                                assignment_history.setdefault('assignments', []).append({
+                                    'action': 'bulk_assignment_with_remarks',
+                                    'assigned_to': assigned_user.id,
+                                    'assigned_to_name': assigned_user.get_full_name() or assigned_user.username,
+                                    'assigned_by': request.user.id,
+                                    'assigned_by_name': request.user.get_full_name() or request.user.username,
+                                    'assigned_at': timezone.now().isoformat(),
+                                    'remarks': remarks
+                                })
+                                lead.assignment_history = assignment_history
+                                lead.save()
+                        else:
+                            failed_assignments += 1
+                    else:
+                        failed_assignments += 1
+                        
+                except Lead.DoesNotExist:
+                    failed_assignments += 1
+            
+            if successful_assignments > 0:
+                messages.success(request, f'Successfully assigned {successful_assignments} leads to {assigned_user.get_full_name() or assigned_user.username}.')
+            
+            if failed_assignments > 0:
+                messages.warning(request, f'Failed to assign {failed_assignments} leads due to permission restrictions.')
+
+            LeadOperationLog.objects.create(
+                operation_id=f"bulk_assign_{uuid.uuid4().hex[:14]}",
+                operation_type='bulk_assign',
+                user=request.user,
+                company_id=request.user.company_id,
+                action_scope=action_scope,
+                filter_snapshot=filter_snapshot,
+                requested_count=target_leads_qs.count(),
+                processed_count=successful_assignments + failed_assignments,
+                success_count=successful_assignments,
+                failed_count=failed_assignments,
+                metadata={'assigned_user_id': assigned_user.id},
+            )
+            
+            # Create BulkAssignmentUndo record if any assignments were successful
+            if successful_assignments > 0 and assigned_lead_ids:
+                BulkAssignmentUndo.objects.create(
+                    assigned_by=request.user,
+                    assigned_to=assigned_user,
+                    lead_ids=','.join(map(str, assigned_lead_ids)),
+                    assignment_count=successful_assignments
+                )
+                
+        except User.DoesNotExist:
+            messages.error(request, 'Selected user not found.')
+        
+        return redirect('dashboard:leads_all')
+    
+    # GET request - show bulk assignment form with pagination
+    page_size = request.GET.get('page_size', '50')
+    
+    # Validate page size
+    valid_page_sizes = ['5', '10', '20', '25', '50', '100', '200', '500']
+    if page_size not in valid_page_sizes:
+        page_size = '50'
+    page_size = int(page_size)
+    
+    paginator = Paginator(accessible_leads.select_related('assigned_user'), page_size)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Get available roles based on current user's role
+    available_roles = []
+    if request.user.role == 'owner':
+        available_roles = [
+            ('manager', 'Manager'),
+            ('team_lead', 'Team Lead'),
+            ('agent', 'Agent'),
+        ]
+    elif request.user.role == 'manager':
+        available_roles = [
+            ('team_lead', 'Team Lead'),
+            ('agent', 'Agent'),
+        ]
+    elif request.user.role == 'team_lead':
+        available_roles = [
+            ('agent', 'Agent'),
+        ]
+    
+    context = {
+        'users': accessible_users.filter(
+            is_active=True,
+            account_status='active'
+        ).select_related('manager', 'team_lead'),
+        'page_obj': page_obj,
+        'leads': page_obj,  # Keep for backward compatibility
+        'available_roles': available_roles,
+        'page_title': 'Bulk Assign Leads',
+        'current_page_size': page_size,
+    }
+    return render(request, 'accounts/bulk_assign_leads.html', context)
 
 @login_required
 @hierarchy_required

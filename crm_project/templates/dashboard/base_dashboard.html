@@ -106,8 +106,7 @@
                         </ul>
                     </li>
                     
-                    <!-- Lead Assignment section commented out -->
-                    <!--
+                    <!-- Lead Assignment section -->
                     <li class="has-submenu">
                         <a href="javascript:void(0);" class="submenu-toggle">
                             <i class="fas fa-exchange-alt"></i> 
@@ -116,11 +115,10 @@
                         </a>
                         <ul class="submenu">
                             <li><a href="{% url 'accounts:assign_lead' %}"><i class="fas fa-user-plus"></i> Assign Lead</a></li>
-                            <li><a href="{% url 'accounts:bulk_assign' %}"><i class="fas fa-users"></i> Bulk Assign</a></li>
+                            <li><a href="{% url 'dashboard:bulk_lead_assign' %}"><i class="fas fa-users"></i> Bulk Assign</a></li>
                             <li><a href="{% url 'accounts:transfer_history' %}"><i class="fas fa-history"></i> Transfer History</a></li>
                         </ul>
                     </li>
-                    -->
                     {% endif %}
                     
                     <!-- <li><a href="{% url 'dashboard:reports' %}"><i class="fas fa-analytics"></i> <span>Analytics</span></a></li> -->

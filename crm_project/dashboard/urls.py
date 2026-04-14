@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from . import api_views
+from . import views_performance
 
 app_name = "dashboard"
 
@@ -84,4 +85,10 @@ urlpatterns = [
     path("api/bulk-operation-cancel/<str:operation_id>/", api_views.bulk_operation_cancel, name="bulk_operation_cancel"),
     path("api/bulk-operations-history/", api_views.bulk_operations_history, name="bulk_operations_history"),
     path("api/bulk-operation-details/<str:operation_id>/", api_views.bulk_operation_details, name="bulk_operation_details"),
+    
+    # Performance Monitoring URLs
+    path("performance/", views_performance.performance_dashboard, name="performance_dashboard"),
+    path("api/performance/stats/", views_performance.api_performance_stats, name="api_performance_stats"),
+    path("api/performance/clear-cache/", views_performance.clear_performance_cache, name="clear_performance_cache"),
+    path("api/performance/test-bulk-assignment/", views_performance.test_bulk_assignment_performance, name="test_bulk_assignment_performance"),
 ]

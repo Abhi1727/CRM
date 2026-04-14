@@ -1,0 +1,23 @@
+[
+  {
+    "size": 50,
+    "optimized_time": 0.6495110988616943,
+    "leads_per_second": 76.98097859702149,
+    "leads_processed": 50,
+    "errors": 0
+  },
+  {
+    "size": 100,
+    "optimized_time": 0.6509048938751221,
+    "leads_per_second": 153.63227553054054,
+    "leads_processed": 100,
+    "errors": 0
+  },
+  {
+    "size": 200,
+    "optimized_time": 0.6780056953430176,
+    "leads_per_second": 294.9827728199477,
+    "leads_processed": 200,
+    "errors": 0
+  }
+]
