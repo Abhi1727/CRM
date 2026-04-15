@@ -107,7 +107,7 @@
                     </li>
                     
                     <!-- Lead Assignment section -->
-                    <li class="has-submenu">
+                    <!-- <li class="has-submenu">
                         <a href="javascript:void(0);" class="submenu-toggle">
                             <i class="fas fa-exchange-alt"></i> 
                             <span>Lead Assignment</span>
@@ -118,7 +118,7 @@
                             <li><a href="{% url 'dashboard:bulk_lead_assign' %}"><i class="fas fa-users"></i> Bulk Assign</a></li>
                             <li><a href="{% url 'accounts:transfer_history' %}"><i class="fas fa-history"></i> Transfer History</a></li>
                         </ul>
-                    </li>
+                    </li> -->
                     {% endif %}
                     
                     <!-- <li><a href="{% url 'dashboard:reports' %}"><i class="fas fa-analytics"></i> <span>Analytics</span></a></li> -->
@@ -257,6 +257,9 @@
     
     <!-- Bulk Operations Progress Tracking -->
     <script src="{% static 'js/bulk_operations_progress.js' %}?v=1.0"></script>
+    
+    <!-- Import Progress Tracking -->
+    <script src="{% static 'js/import-progress.js' %}?v=1.0"></script>
     
     <!-- Inline Editing for Agent Efficiency -->
     <script src="{% static 'js/inline-editing.js' %}?v=1.0"></script>

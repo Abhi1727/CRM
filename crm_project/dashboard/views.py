@@ -25,7 +25,7 @@ import time as time_module
 import csv
 from io import TextIOWrapper
 
-from .models import Lead, LeadActivity, LeadHistory, LeadImportSession, LeadOperationLog, BulkOperation, BulkOperationProgress
+from .models import Lead, LeadActivity, LeadHistory, LeadImportSession, LeadOperationLog, BulkOperation, BulkOperationProgress, ImportProgressTracker
 
 # Database retry decorator for remote MySQL stability
 from django.db import OperationalError
@@ -849,7 +849,9 @@ def lead_edit(request, pk):
             print(f"DEBUG: Using LeadForm for {user_role}")
         
         # Debug: Check form initial values
-        print(f"DEBUG: Form initialized, status field initial='{form.fields.get('status', {}).get('initial', 'N/A')}'")
+        status_field = form.fields.get('status')
+        status_initial = getattr(status_field, 'initial', 'N/A') if status_field else 'N/A'
+        print(f"DEBUG: Form initialized, status field initial='{status_initial}'")
 
     context = {
         "form": form,
@@ -1486,9 +1488,7 @@ def lead_import(request):
                 
                 # OPTIMIZED: Streaming file processing to reduce memory usage
                 def process_file_streaming(file):
-                    """Process file in streaming mode to reduce memory usage"""
-                    leads_data = []
-                    
+                    """Process file in streaming mode to reduce memory usage - yields individual lead records"""
                     if file.name.endswith('.csv'):
                         # STREAMING CSV PROCESSING
                         file.seek(0)
@@ -1525,7 +1525,7 @@ def lead_import(request):
                         if missing_columns:
                             raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
                         
-                        # Process rows in streaming mode
+                        # Process rows in streaming mode - yield individual records
                         for row_num, row in enumerate(reader):
                             if row_num >= 100000:  # Safety limit
                                 break
@@ -1581,16 +1581,8 @@ def lead_import(request):
                             if not lead_data['name'] or not lead_data['mobile']:
                                 continue
                             
-                            leads_data.append(lead_data)
-                            
-                            # PROCESS IN CHUNKS TO SAVE MEMORY
-                            if len(leads_data) >= 5000:
-                                yield leads_data
-                                leads_data = []
-                        
-                        # PROCESS REMAINING RECORDS
-                        if leads_data:
-                            yield leads_data
+                            # Yield individual lead record
+                            yield lead_data
                     
                     else:
                         # For Excel files, still use pandas but with memory optimization
@@ -1610,8 +1602,7 @@ def lead_import(request):
                         if missing_columns:
                             raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
                         
-                        # Process Excel data in chunks
-                        leads_data = []
+                        # Process Excel data - yield individual records
                         for index, row in df.iterrows():
                             if index >= 100000:  # Safety limit
                                 break
@@ -1661,16 +1652,12 @@ def lead_import(request):
                                 except ValueError:
                                     pass  # Skip invalid dates
                             
-                            leads_data.append(lead_data)
+                            # VALIDATE REQUIRED FIELDS
+                            if not lead_data['name'] or not lead_data['mobile']:
+                                continue
                             
-                            # PROCESS IN CHUNKS TO SAVE MEMORY
-                            if len(leads_data) >= 5000:
-                                yield leads_data
-                                leads_data = []
-                        
-                        # PROCESS REMAINING RECORDS
-                        if leads_data:
-                            yield leads_data
+                            # Yield individual lead record
+                            yield lead_data
                 
                 # MEMORY-EFFICIENT: Process file in true streaming mode without loading all data
                 def process_import_streaming(file_handler, batch_size=200):
@@ -1687,17 +1674,83 @@ def lead_import(request):
                     if current_batch:
                         yield current_batch
                 
-                # Initialize duplicate detector
+                # Initialize duplicate detector and progress tracker
                 detector = DuplicateDetector(request.user.company_id)
+                
+                # Create progress tracker with error handling
+                session_id = f"imp_{uuid.uuid4().hex[:16]}"
+                progress_tracker = None
+                try:
+                    progress_tracker = ImportProgressTracker.objects.create(
+                        session_id=session_id,
+                        user=request.user,
+                        company_id=request.user.company_id,
+                        status='validating',
+                        current_stage='Validating file format and data'
+                    )
+                except Exception as tracker_error:
+                    # Log the error but continue with import - progress tracking is optional
+                    print(f"Warning: Failed to create progress tracker: {str(tracker_error)}")
+                    logger.warning(f"Import progress tracker creation failed: {tracker_error}")
+                    # Continue without progress tracking
                 
                 # Streaming duplicate detection
                 duplicate_results = []
+                total_records = 0
                 try:
+                    batch_count = 0
                     for batch in process_import_streaming(file, batch_size=200):
-                        batch_results = detector.batch_detect_duplicates(batch)
-                        duplicate_results.extend(batch_results)
+                        batch_count += 1
+                        try:
+                            # Validate batch structure
+                            if not isinstance(batch, list):
+                                raise ValueError(f"Expected batch to be a list, got {type(batch)}")
+                            
+                            # Update progress for validation stage
+                            total_records += len(batch)
+                            if progress_tracker:
+                                progress_tracker.update_progress(
+                                    processed=total_records,
+                                    stage=f'Validating batch {batch_count}'
+                                )
+                            
+                            batch_results = detector.batch_detect_duplicates(batch)
+                            
+                            # Validate batch results structure
+                            if not isinstance(batch_results, list):
+                                raise ValueError(f"Expected batch_results to be a list, got {type(batch_results)}")
+                            
+                            duplicate_results.extend(batch_results)
+                            
+                            # Log progress for large files
+                            if batch_count % 10 == 0:
+                                print(f"Processed {batch_count} batches, {len(duplicate_results)} records so far")
+                                
+                        except Exception as batch_error:
+                            print(f"Error in batch {batch_count}: {str(batch_error)}")
+                            if progress_tracker:
+                                progress_tracker.update_progress(
+                                    error=f"Error in batch {batch_count}: {str(batch_error)}"
+                                )
+                            raise batch_error
+                    
+                    # Update progress tracker with final totals
+                    if progress_tracker:
+                        progress_tracker.total_records = total_records
+                        progress_tracker.validated_records = total_records
+                        progress_tracker.save(update_fields=['total_records', 'validated_records'])
+                            
+                except ValueError as ve:
+                    if progress_tracker:
+                        progress_tracker.update_progress(status='failed', error=ve)
+                    return _error_response(f"Data validation error: {str(ve)}", form_instance=form)
                 except Exception as e:
-                    return _error_response(f"Error processing file: {str(e)}", form_instance=form)
+                    print(f"Import processing error: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    if progress_tracker:
+                        progress_tracker.update_progress(status='failed', error=e)
+                    return _error_response(f"Error processing file: {str(e)}. Please check file format and try again.", form_instance=form)
                 
                 if not duplicate_results:
                     return _error_response("No valid lead data found in file. Please check file format and required columns.", form_instance=form)
@@ -1718,7 +1771,13 @@ def lead_import(request):
                         "Continuing with a fresh import session."
                     )
 
-                session_id = f"imp_{uuid.uuid4().hex[:16]}"
+                # Update progress tracker to show duplicate checking completed
+                if progress_tracker:
+                    progress_tracker.update_progress(
+                        status='processing',
+                        stage='Duplicate checking completed - Ready for preview'
+                    )
+                
                 summary = {
                     'total': len(duplicate_results),
                     'new': len([r for r in duplicate_results if r['status'] == 'new']),
@@ -1728,7 +1787,7 @@ def lead_import(request):
                 }
 
                 LeadImportSession.objects.create(
-                    session_id=session_id,
+                    session_id=session_id,  # Use the same session_id as progress tracker
                     idempotency_key=idempotency_key,
                     user=request.user,
                     company_id=request.user.company_id,
@@ -1739,6 +1798,7 @@ def lead_import(request):
                         'duplicate_results': duplicate_results,
                         'summary': summary,
                         'decisions': {},
+                        'progress_tracker_id': session_id,  # Link to progress tracker
                     },
                     total_rows=summary['total'],
                     new_rows=summary['new'],

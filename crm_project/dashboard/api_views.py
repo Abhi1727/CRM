@@ -12,7 +12,7 @@ import logging
 from dashboard.models import (
     Lead, InternalFollowUpReminder, InternalNotificationTemplate, 
     TeamNotificationPreference, User, LeadHistory, LeadActivity,
-    BulkOperation, BulkOperationProgress
+    BulkOperation, BulkOperationProgress, ImportProgressTracker
 )
 from services.internal_reminder_service import InternalReminderService
 from services.internal_notification_service import InternalNotificationService
@@ -1469,3 +1469,166 @@ def bulk_operation_details(request, operation_id):
         return JsonResponse({
             'error': str(e)
         }, status=500)
+
+
+# Import Progress Tracking API Endpoints
+
+@login_required
+def import_progress(request):
+    """Get real-time progress for import operation"""
+    session_id = request.GET.get('session_id')
+    if not session_id:
+        return JsonResponse({'error': 'Session ID required'}, status=400)
+    
+    try:
+        progress = ImportProgressTracker.objects.get(
+            session_id=session_id,
+            company_id=request.user.company_id
+        )
+        
+        response_data = {
+            'session_id': progress.session_id,
+            'status': progress.status,
+            'current_stage': progress.current_stage,
+            'progress_percentage': round(progress.progress_percentage, 2),
+            'total_records': progress.total_records,
+            'processed_records': progress.processed_records,
+            'validated_records': progress.validated_records,
+            'duplicate_checked_records': progress.duplicate_checked_records,
+            'imported_records': progress.imported_records,
+            'failed_records': progress.failed_records,
+            'skipped_records': progress.skipped_records,
+            'records_per_second': round(progress.records_per_second, 2),
+            'estimated_time_remaining': progress.estimated_time_remaining,
+            'error_count': progress.error_count,
+            'last_error': progress.last_error,
+            'started_at': progress.started_at.isoformat(),
+            'updated_at': progress.updated_at.isoformat(),
+            'completed_at': progress.completed_at.isoformat() if progress.completed_at else None,
+        }
+        
+        return JsonResponse(response_data)
+        
+    except ImportProgressTracker.DoesNotExist:
+        return JsonResponse({'error': 'Import session not found'}, status=404)
+    except Exception as e:
+        logger.error(f"Error getting import progress for {session_id}: {str(e)}")
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
+def running_imports(request):
+    """Get all currently running import operations"""
+    try:
+        running_imports = ImportProgressTracker.objects.filter(
+            company_id=request.user.company_id,
+            status__in=['pending', 'processing', 'validating', 'duplicate_checking', 'importing']
+        ).order_by('-started_at')
+        
+        imports_data = []
+        for imp in running_imports:
+            imports_data.append({
+                'session_id': imp.session_id,
+                'status': imp.status,
+                'current_stage': imp.current_stage,
+                'progress_percentage': round(imp.progress_percentage, 2),
+                'total_records': imp.total_records,
+                'processed_records': imp.processed_records,
+                'records_per_second': round(imp.records_per_second, 2),
+                'estimated_time_remaining': imp.estimated_time_remaining,
+                'started_at': imp.started_at.isoformat(),
+                'updated_at': imp.updated_at.isoformat(),
+            })
+        
+        return JsonResponse({'running_imports': imports_data})
+        
+    except Exception as e:
+        logger.error(f"Error getting running imports: {str(e)}")
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
+@require_http_methods(['POST'])
+def cancel_import(request):
+    """Cancel a running import operation"""
+    session_id = request.POST.get('session_id')
+    if not session_id:
+        return JsonResponse({'error': 'Session ID required'}, status=400)
+    
+    try:
+        progress = ImportProgressTracker.objects.get(
+            session_id=session_id,
+            company_id=request.user.company_id,
+            status__in=['pending', 'processing', 'validating', 'duplicate_checking', 'importing']
+        )
+        
+        progress.update_progress(status='cancelled')
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Import cancelled successfully',
+            'session_id': session_id
+        })
+        
+    except ImportProgressTracker.DoesNotExist:
+        return JsonResponse({'error': 'Import session not found or not cancellable'}, status=404)
+    except Exception as e:
+        logger.error(f"Error cancelling import {session_id}: {str(e)}")
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
+def import_history(request):
+    """Get historical import operations with pagination"""
+    try:
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 20))
+        
+        imports = ImportProgressTracker.objects.filter(
+            company_id=request.user.company_id
+        ).order_by('-started_at')
+        
+        # Pagination
+        from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+        paginator = Paginator(imports, page_size)
+        
+        try:
+            page_obj = paginator.page(page)
+        except PageNotAnInteger:
+            page_obj = paginator.page(1)
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)
+        
+        imports_data = []
+        for imp in page_obj.object_list:
+            imports_data.append({
+                'session_id': imp.session_id,
+                'status': imp.status,
+                'current_stage': imp.current_stage,
+                'progress_percentage': round(imp.progress_percentage, 2),
+                'total_records': imp.total_records,
+                'processed_records': imp.processed_records,
+                'imported_records': imp.imported_records,
+                'failed_records': imp.failed_records,
+                'skipped_records': imp.skipped_records,
+                'records_per_second': round(imp.records_per_second, 2),
+                'error_count': imp.error_count,
+                'started_at': imp.started_at.isoformat(),
+                'completed_at': imp.completed_at.isoformat() if imp.completed_at else None,
+                'duration': round((imp.completed_at - imp.started_at).total_seconds() if imp.completed_at else 0, 2)
+            })
+        
+        return JsonResponse({
+            'imports': imports_data,
+            'pagination': {
+                'current_page': page_obj.number,
+                'num_pages': paginator.num_pages,
+                'has_next': page_obj.has_next(),
+                'has_previous': page_obj.has_previous(),
+                'total_count': paginator.count
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting import history: {str(e)}")
+        return JsonResponse({'error': str(e)}, status=500)

@@ -611,6 +611,102 @@ class LeadImportSession(models.Model):
     def __str__(self):
         return f"ImportSession {self.session_id} ({self.status})"
 
+class ImportProgressTracker(models.Model):
+    """Real-time progress tracking for lead import operations"""
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('validating', 'Validating'),
+        ('duplicate_checking', 'Checking Duplicates'),
+        ('importing', 'Importing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    session_id = models.CharField(max_length=64, unique=True, db_index=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    company_id = models.IntegerField(default=1, db_index=True)
+    
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    current_stage = models.CharField(max_length=50, default='starting')
+    
+    # Progress metrics
+    total_records = models.PositiveIntegerField(default=0)
+    processed_records = models.PositiveIntegerField(default=0)
+    validated_records = models.PositiveIntegerField(default=0)
+    duplicate_checked_records = models.PositiveIntegerField(default=0)
+    imported_records = models.PositiveIntegerField(default=0)
+    failed_records = models.PositiveIntegerField(default=0)
+    skipped_records = models.PositiveIntegerField(default=0)
+    
+    # Performance metrics
+    records_per_second = models.FloatField(default=0.0)
+    estimated_time_remaining = models.PositiveIntegerField(default=0)  # seconds
+    progress_percentage = models.FloatField(default=0.0)
+    
+    # Error tracking
+    error_count = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True, null=True)
+    error_details = models.JSONField(default=list, blank=True)
+    
+    # Timing
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-started_at']
+        indexes = [
+            models.Index(fields=['company_id', 'status', 'started_at']),
+            models.Index(fields=['session_id']),
+        ]
+    
+    def __str__(self):
+        return f"ImportProgress {self.session_id} ({self.status})"
+    
+    def update_progress(self, processed=None, stage=None, status=None, error=None):
+        """Update progress with automatic calculations"""
+        if processed is not None:
+            self.processed_records = processed
+            if self.total_records > 0:
+                self.progress_percentage = (processed / self.total_records) * 100
+                
+                # Calculate processing speed
+                elapsed = (timezone.now() - self.started_at).total_seconds()
+                if elapsed > 0:
+                    self.records_per_second = processed / elapsed
+                    
+                    # Estimate remaining time
+                    remaining = self.total_records - processed
+                    if self.records_per_second > 0:
+                        self.estimated_time_remaining = int(remaining / self.records_per_second)
+        
+        if stage:
+            self.current_stage = stage
+        
+        if status:
+            self.status = status
+            if status in ['completed', 'failed', 'cancelled']:
+                self.completed_at = timezone.now()
+        
+        if error:
+            self.error_count += 1
+            self.last_error = str(error)
+            self.error_details.append({
+                'timestamp': timezone.now().isoformat(),
+                'error': str(error),
+                'processed_records': self.processed_records
+            })
+        
+        self.save(update_fields=[
+            'processed_records', 'progress_percentage', 'records_per_second',
+            'estimated_time_remaining', 'current_stage', 'status', 'completed_at',
+            'error_count', 'last_error', 'error_details', 'updated_at'
+        ])
+
+
 class InternalFollowUpReminder(models.Model):
     PRIORITY_LEVELS = [
         ('low', 'Low'),

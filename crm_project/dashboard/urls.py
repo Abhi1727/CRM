@@ -91,6 +91,12 @@ urlpatterns = [
     path("api/bulk-operations-history/", api_views.bulk_operations_history, name="bulk_operations_history"),
     path("api/bulk-operation-details/<str:operation_id>/", api_views.bulk_operation_details, name="bulk_operation_details"),
     
+    # Import Progress Tracking API
+    path("api/import-progress/", api_views.import_progress, name="import_progress"),
+    path("api/running-imports/", api_views.running_imports, name="running_imports"),
+    path("api/import-cancel/", api_views.cancel_import, name="cancel_import"),
+    path("api/import-history/", api_views.import_history, name="import_history"),
+    
     # Performance Monitoring URLs
     path("performance/", views_performance.performance_dashboard, name="performance_dashboard"),
     path("api/performance/stats/", views_performance.api_performance_stats, name="api_performance_stats"),

@@ -258,16 +258,26 @@ class DuplicateDetector:
                 'created_at': lead.created_at.isoformat() if lead.created_at else None,
             }
 
+        # Validate input data structure
+        if not isinstance(leads_data, list):
+            raise ValueError(f"Expected leads_data to be a list, got {type(leads_data)}")
+        
         normalized_rows = []
         mobiles = set()
         emails = set()
+        
         for i, row in enumerate(leads_data):
-            mobile = self.normalize_phone_number(_clean_text(row.get('mobile')))
-            email = _clean_text(row.get('email')).lower()
+            # Validate each row is a dictionary
+            if not isinstance(row, dict):
+                raise ValueError(f"Expected row {i} to be a dictionary, got {type(row)}")
+            
+            # Safely extract values with .get() method
+            mobile = self.normalize_phone_number(_clean_text(row.get('mobile', '')))
+            email = _clean_text(row.get('email', '')).lower()
 
             normalized = {
                 'index': i,
-                'raw': row,
+                'raw': row,  # Store the original row data
                 'mobile': mobile,
                 'email': email,
             }
@@ -325,7 +335,7 @@ class DuplicateDetector:
                 }
 
             result['row_index'] = row['index']
-            result['lead_data'] = row['raw']
+            result['lead_data'] = row['raw']  # Ensure lead_data is always included
             results.append(result)
 
         return results

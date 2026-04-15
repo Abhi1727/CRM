@@ -314,7 +314,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const fileInput = document.getElementById('file');
     const uploadBtn = document.getElementById('uploadBtn');
     const wrap = document.getElementById('uploadProgressWrap');
-    const bar = document.getElementById('uploadProgressBar');
+    const progressBar = document.getElementById('uploadProgressBar');
     const percent = document.getElementById('uploadPercentText');
     const statusText = document.getElementById('uploadStatusText');
 
@@ -326,10 +326,11 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        // Disable button and show progress
         uploadBtn.disabled = true;
         uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
         wrap.style.display = 'block';
-        bar.style.width = '0%';
+        progressBar.style.width = '0%';
         percent.textContent = '0%';
         statusText.textContent = 'Uploading file...';
 
@@ -338,54 +339,130 @@ document.addEventListener('DOMContentLoaded', function () {
         xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 
         xhr.upload.onprogress = function (event) {
-            if (!event.lengthComputable) return;
-            const p = Math.round((event.loaded / event.total) * 100);
-            bar.style.width = p + '%';
-            percent.textContent = p + '%';
-            if (p >= 100) {
-                statusText.textContent = 'Upload complete. Processing duplicates...';
+            if (event.lengthComputable) {
+                const percentComplete = Math.round((event.loaded / event.total) * 100);
+                progressBar.style.width = percentComplete + '%';
+                percent.textContent = percentComplete + '%';
+                statusText.textContent = `Uploading file... ${percentComplete}%`;
             }
         };
 
         xhr.onload = function () {
-            let payload = null;
-            try {
-                payload = JSON.parse(xhr.responseText || '{}');
-            } catch (e) {
-                payload = null;
-            }
+            if (xhr.status === 200) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.ok) {
+                        progressBar.style.width = '100%';
+                        percent.textContent = '100%';
+                        statusText.textContent = 'Upload complete! Processing file...';
 
-            if (xhr.status >= 200 && xhr.status < 400 && payload && payload.ok) {
-                window.location.href = payload.redirect_url || "{% url 'dashboard:lead_import_preview' %}";
-                return;
+                        // Initialize progress tracker for the import processing
+                        // The session ID will be available after redirect
+                        setTimeout(function () {
+                            window.location.href = response.redirect_url;
+                        }, 1000);
+                    } else {
+                        statusText.textContent = 'Error: ' + (response.message || 'Upload failed');
+                        uploadBtn.disabled = false;
+                        uploadBtn.innerHTML = '<i class="fas fa-upload"></i> Import Leads';
+                    }
+                } catch (e) {
+                    statusText.textContent = 'Error parsing server response';
+                    uploadBtn.disabled = false;
+                    uploadBtn.innerHTML = '<i class="fas fa-upload"></i> Import Leads';
+                }
+            } else {
+                statusText.textContent = 'Upload failed. Please try again.';
+                uploadBtn.disabled = false;
+                uploadBtn.innerHTML = '<i class="fas fa-upload"></i> Import Leads';
             }
-
-            uploadBtn.disabled = false;
-            uploadBtn.innerHTML = '<i class="fas fa-upload"></i> Import Leads';
-
-            if (xhr.status === 413) {
-                statusText.textContent = 'Upload failed: file too large (server limit exceeded).';
-                return;
-            }
-            if (xhr.status === 504) {
-                statusText.textContent = 'Upload timed out. Please retry with a smaller file.';
-                return;
-            }
-            if (payload && payload.error) {
-                statusText.textContent = payload.error;
-                return;
-            }
-            statusText.textContent = `Upload failed (HTTP ${xhr.status}). Please retry.`;
         };
 
         xhr.onerror = function () {
+            statusText.textContent = 'Network error during upload. Please retry.';
             uploadBtn.disabled = false;
             uploadBtn.innerHTML = '<i class="fas fa-upload"></i> Import Leads';
-            statusText.textContent = 'Network error during upload. Please retry.';
         };
 
         xhr.send(new FormData(form));
     });
 });
 </script>
+
+{% block extra_js %}
+<script>
+// Auto-detect and start progress tracking for import sessions
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if we have an import session in the current page
+    const sessionIdElement = document.querySelector('[data-import-session-id]');
+    if (sessionIdElement) {
+        const sessionId = sessionIdElement.getAttribute('data-import-session-id');
+        if (sessionId) {
+            // Start progress tracking
+            window.importProgressTracker = new ImportProgressTracker({
+                sessionId: sessionId,
+                onProgress: function(data) {
+                    console.log('Import progress:', data);
+                },
+                onComplete: function(data) {
+                    console.log('Import completed:', data);
+                    // Show completion notification
+                    const notification = document.createElement('div');
+                    notification.className = 'alert alert-success alert-dismissible fade show position-fixed';
+                    notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+                    notification.innerHTML = `
+                        <h6><i class="fas fa-check-circle me-2"></i>Import Completed!</h6>
+                        <div class="small">
+                            Successfully imported ${data.imported_records} leads.<br>
+                            Failed: ${data.failed_records} records
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    `;
+                    document.body.appendChild(notification);
+                    
+                    // Auto-remove notification after 5 seconds
+                    setTimeout(() => {
+                        if (notification.parentNode) {
+                            notification.parentNode.removeChild(notification);
+                        }
+                    }, 5000);
+                },
+                onError: function(data) {
+                    console.error('Import failed:', data);
+                    // Show error notification
+                    const notification = document.createElement('div');
+                    notification.className = 'alert alert-danger alert-dismissible fade show position-fixed';
+                    notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+                    notification.innerHTML = `
+                        <h6><i class="fas fa-exclamation-triangle me-2"></i>Import Failed</h6>
+                        <div class="small">
+                            ${data.error || 'Unknown error occurred'}
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    `;
+                    document.body.appendChild(notification);
+                }
+            });
+        }
+    }
+    
+    // Auto-check for running imports every 10 seconds
+    setInterval(function() {
+        fetch('/dashboard/api/running-imports/')
+            .then(response => response.json())
+            .then(data => {
+                if (data.running_imports && data.running_imports.length > 0) {
+                    // Show notification for running imports
+                    data.running_imports.forEach(importData => {
+                        if (!window.importProgressTracker || window.importProgressTracker.sessionId !== importData.session_id) {
+                            console.log('Found running import:', importData);
+                        }
+                    });
+                }
+            })
+            .catch(error => console.log('Error checking running imports:', error));
+    }, 10000);
+});
+</script>
+{% endblock %}
 {% endblock %}

@@ -233,6 +233,9 @@
 {% endblock %}
 
 {% block content %}
+<!-- Import session ID for progress tracking -->
+<div data-import-session-id="{{ import_session.session_id }}" style="display: none;"></div>
+
 <div class="import-preview">
     <div class="page-header">
         <h2>Import Preview - {{ file_name }}</h2>
