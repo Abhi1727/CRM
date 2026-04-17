@@ -19,7 +19,6 @@ from datetime import datetime, time, timedelta
 from decimal import Decimal
 from collections import defaultdict
 import uuid
-import os
 import hashlib
 import pandas as pd
 import time as time_module
@@ -219,7 +218,7 @@ LEAD_SORT_FIELDS = {
 }
 
 
-def _normalize_page_size(raw_value, default=100):
+def _normalize_page_size(raw_value, default=25):
     raw = str(raw_value or default).strip()
     if raw not in VALID_PAGE_SIZES:
         return default
@@ -227,69 +226,18 @@ def _normalize_page_size(raw_value, default=100):
 
 
 def _extract_lead_filters(params):
-    """
-    Enhanced filter extraction with validation and error handling.
-    Supports all filter types from dynamic filter snapshot.
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    try:
-        # Extract and validate all filter parameters
-        filters = {
-            'status': (params.get('status', '') or '').strip(),
-            'sort': (params.get('sort', '-created_at') or '-created_at').strip(),
-            'page_size': _normalize_page_size(params.get('page_size', '100')),
-            'search': (params.get('search', '') or '').strip(),
-            'country': (params.get('country', '') or '').strip(),
-            'course': (params.get('course', '') or '').strip(),
-            'start_date': (params.get('start_date', '') or '').strip(),
-            'end_date': (params.get('end_date', '') or '').strip(),
-            'assigned_user': (params.get('assigned_user', '') or '').strip(),
-            'preset': (params.get('preset', '') or '').strip(),
-        }
-        
-        # Validate date formats if provided
-        if filters['start_date']:
-            try:
-                datetime.strptime(filters['start_date'], '%Y-%m-%d')
-            except ValueError:
-                logger.warning(f"Invalid start_date format: {filters['start_date']}")
-                filters['start_date'] = ''
-        
-        if filters['end_date']:
-            try:
-                datetime.strptime(filters['end_date'], '%Y-%m-%d')
-            except ValueError:
-                logger.warning(f"Invalid end_date format: {filters['end_date']}")
-                filters['end_date'] = ''
-        
-        # Validate preset values
-        valid_presets = {'today', 'week', 'month', 'team', 'my'}
-        if filters['preset'] and filters['preset'] not in valid_presets:
-            logger.warning(f"Invalid preset value: {filters['preset']}")
-            filters['preset'] = ''
-        
-        # Log filter extraction for debugging
-        logger.debug(f"Extracted filters: {filters}")
-        
-        return filters
-        
-    except Exception as e:
-        logger.error(f"Error extracting filters: {e}")
-        # Return safe default filters on error
-        return {
-            'status': '',
-            'sort': '-created_at',
-            'page_size': 100,
-            'search': '',
-            'country': '',
-            'course': '',
-            'start_date': '',
-            'end_date': '',
-            'assigned_user': '',
-            'preset': '',
-        }
+    return {
+        'status': params.get('status', '').strip(),
+        'sort': params.get('sort', '-created_at').strip(),
+        'page_size': _normalize_page_size(params.get('page_size', '25')),
+        'search': params.get('search', '').strip(),
+        'country': params.get('country', '').strip(),
+        'course': params.get('course', '').strip(),
+        'start_date': params.get('start_date', '').strip(),
+        'end_date': params.get('end_date', '').strip(),
+        'assigned_user': params.get('assigned_user', '').strip(),
+        'preset': params.get('preset', '').strip(),
+    }
 
 
 def _apply_common_lead_filters(queryset, user, filters):
@@ -535,7 +483,6 @@ def _render_leads_list_page(request, base_queryset, page_title, default_sort='-c
         'leads': page_obj,
         'status_choices': Lead.STATUS_CHOICES,
         'page_title': page_title,
-        'show_top_bar': False,  # Leads pages don't show top bar
         'current_sort': sort_by,
         'current_page_size': filters['page_size'],
         'search_query': filters['search'],
@@ -949,45 +896,17 @@ def settings(request):
                 # Reset form to show updated data
                 profile_form = UserProfileForm(instance=request.user)
         elif 'password_submit' in request.POST:
-            # Handle password change with enhanced error handling
+            # Handle password change
             password_form = CustomPasswordChangeForm(user=request.user, data=request.POST)
             if password_form.is_valid():
-                from django.db import transaction
-                import logging
-                logger = logging.getLogger(__name__)
-                
-                try:
-                    with transaction.atomic():
-                        # Log password change attempt
-                        logger.info(f"Password change attempt for user {request.user.username} (ID: {request.user.id})")
-                        
-                        # Save the new password
-                        user = password_form.save()
-                        
-                        # Verify password was actually saved
-                        user.refresh_from_db()
-                        logger.info(f"Password saved successfully for user {request.user.username}")
-                        
-                        # Update the session to prevent logout
-                        from django.contrib.auth import update_session_auth_hash
-                        update_session_auth_hash(request, password_form.user)
-                        logger.info(f"Session updated for user {request.user.username}")
-                        
-                        messages.success(request, 'Your password has been changed successfully!')
-                        password_success = True
-                        
-                except Exception as e:
-                    logger.error(f"Password change failed for user {request.user.username}: {str(e)}")
-                    messages.error(request, 'Password change failed. Please try again. If the problem persists, contact your administrator.')
-                    
-                # Reset form regardless of outcome
+                password_form.save()
+                messages.success(request, 'Your password has been changed successfully!')
+                password_success = True
+                # Update the session to prevent logout
+                from django.contrib.auth import update_session_auth_hash
+                update_session_auth_hash(request, password_form.user)
+                # Reset form
                 password_form = CustomPasswordChangeForm(user=request.user)
-            else:
-                # Log validation errors
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Password change validation failed for user {request.user.username}: {password_form.errors}")
-                messages.error(request, 'Please correct the errors below.')
     
     context = {
         'profile_form': profile_form,
@@ -1137,67 +1056,33 @@ def bulk_lead_assign(request):
 
 def _resolve_bulk_scope_queryset(request, base_queryset):
     """
-    Enhanced bulk action targets resolution with filter snapshot validation:
+    Resolve bulk action targets using explicit scope contract:
     - current_page: uses posted lead_ids
-    - all_filtered: reconstructs queryset from validated filter snapshot
+    - all_filtered: reconstructs queryset from posted filter snapshot
     """
-    import logging
-    logger = logging.getLogger(__name__)
-    
     action_scope = request.POST.get('action_scope', 'current_page').strip() or 'current_page'
     selected_ids = request.POST.getlist('lead_ids')
-    
-    logger.debug(f"Resolving bulk scope: action_scope={action_scope}, selected_ids_count={len(selected_ids)}")
 
     if action_scope == 'all_filtered':
         filter_snapshot = request.POST.get('filter_snapshot', '')
-        
-        # Validate filter snapshot
-        if not filter_snapshot:
-            logger.warning("Empty filter snapshot provided for all_filtered scope")
-            # Fall back to GET parameters if snapshot is empty
-            params = request.GET
-        else:
-            try:
-                # Parse filter snapshot safely
-                params = QueryDict(filter_snapshot, mutable=False)
-                logger.debug(f"Successfully parsed filter snapshot with {len(params)} parameters")
-            except Exception as e:
-                logger.error(f"Error parsing filter snapshot: {e}")
-                # Fall back to GET parameters on parsing error
-                params = request.GET
-        
-        # Extract filters with validation
+        params = QueryDict(filter_snapshot, mutable=False) if filter_snapshot else request.GET
         filters = _extract_lead_filters(params)
-        logger.debug(f"Extracted filters for bulk operation: {filters}")
-        
-        # Apply filters to base queryset
         scoped_qs = _apply_common_lead_filters(base_queryset, request.user, filters)
-        
-        # Count for logging
-        scoped_count = scoped_qs.count()
-        logger.debug(f"Filtered queryset count: {scoped_count}")
 
-        # Handle excluded IDs if any
         excluded_ids = request.POST.getlist('excluded_ids')
         if excluded_ids:
             try:
                 excluded_ids_int = [int(value) for value in excluded_ids if str(value).strip()]
                 scoped_qs = scoped_qs.exclude(id_lead__in=excluded_ids_int)
-                logger.debug(f"Excluded {len(excluded_ids_int)} IDs from scope")
-            except ValueError as e:
-                logger.warning(f"Invalid excluded_ids format: {e}")
-        
+            except ValueError:
+                pass
         return scoped_qs, action_scope
 
     # current_page / explicit selection fallback
     try:
         selected_ids_int = [int(value) for value in selected_ids if str(value).strip()]
-        logger.debug(f"Using current_page scope with {len(selected_ids_int)} selected IDs")
-    except ValueError as e:
-        logger.warning(f"Invalid selected_ids format: {e}")
+    except ValueError:
         selected_ids_int = []
-    
     return base_queryset.filter(id_lead__in=selected_ids_int), action_scope
 
 
@@ -1378,7 +1263,7 @@ def _process_assignments_concurrently_with_progress(leads_queryset, assigned_use
         return batch_success, batch_failed
     
     # Process batches in parallel
-    with ThreadPoolExecutor(max_workers=12) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         futures = []
         batch_num = 0
         
@@ -1601,42 +1486,25 @@ def lead_import(request):
                 # Reset file pointer to beginning for pandas
                 file.seek(0)
                 
-                # ENTERPRISE OPTIMIZED: Enhanced chunked streaming for large files
+                # OPTIMIZED: Streaming file processing to reduce memory usage
                 def process_file_streaming(file):
-                    """Process file in enterprise streaming mode with chunked processing for memory efficiency"""
+                    """Process file in streaming mode to reduce memory usage - yields individual lead records"""
                     if file.name.endswith('.csv'):
-                        # ENHANCED CHUNKED CSV PROCESSING
+                        # STREAMING CSV PROCESSING
                         file.seek(0)
                         reader = None
                         
-                        # ENTERPRISE: Read file in chunks to handle very large files efficiently
-                        chunk_size = 1024 * 1024  # 1MB chunks for memory efficiency
-                        file_content = b''
-                        chunks_read = 0
-                        
-                        # Read file in chunks to avoid memory overload
-                        while True:
-                            chunk = file.read(chunk_size)
-                            if not chunk:
-                                break
-                            file_content += chunk
-                            chunks_read += 1
-                            
-                            # Progress logging for large files
-                            if chunks_read % 50 == 0:  # Log every 50MB
-                                print(f"Read {chunks_read}MB of file...")
-                        
-                        file.seek(0)
-                        
-                        # Fast encoding detection with chunked approach
+                        # Try different encodings for CSV files
                         encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']
                         for encoding in encodings:
                             try:
-                                # Decode content efficiently
-                                decoded_content = file_content.decode(encoding)
-                                from io import StringIO
-                                csv_buffer = StringIO(decoded_content)
-                                reader = csv.DictReader(csv_buffer)
+                                file.seek(0)
+                                if hasattr(file, 'read'):
+                                    # Handle Django uploaded file
+                                    text_file = TextIOWrapper(file, encoding=encoding)
+                                    reader = csv.DictReader(text_file)
+                                else:
+                                    reader = csv.DictReader(file)
                                 break
                             except UnicodeDecodeError:
                                 continue
@@ -1650,7 +1518,12 @@ def lead_import(request):
                         
                         column_names = [str(col).strip().lower() for col in reader.fieldnames]
                         
-                        # Accept all columns - no validation required
+                        # Validate required columns
+                        required_columns = ['name', 'mobile']
+                        missing_columns = [col for col in required_columns if col not in column_names]
+                        
+                        if missing_columns:
+                            raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
                         
                         # Process rows in streaming mode - yield individual records
                         for row_num, row in enumerate(reader):
@@ -1704,7 +1577,9 @@ def lead_import(request):
                                 except ValueError:
                                     pass  # Skip invalid dates
                             
-                            # ACCEPT ALL ROWS - NO VALIDATION
+                            # VALIDATE REQUIRED FIELDS
+                            if not lead_data['name'] or not lead_data['mobile']:
+                                continue
                             
                             # Yield individual lead record
                             yield lead_data
@@ -1720,7 +1595,12 @@ def lead_import(request):
                         if df.empty:
                             raise ValueError("No data found in Excel file")
                         
-                        # Accept all columns - no validation required
+                        # Validate required columns
+                        required_columns = ['name', 'mobile']
+                        missing_columns = [col for col in required_columns if col not in df.columns]
+                        
+                        if missing_columns:
+                            raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
                         
                         # Process Excel data - yield individual records
                         for index, row in df.iterrows():
@@ -1772,13 +1652,15 @@ def lead_import(request):
                                 except ValueError:
                                     pass  # Skip invalid dates
                             
-                            # ACCEPT ALL ROWS - NO VALIDATION
+                            # VALIDATE REQUIRED FIELDS
+                            if not lead_data['name'] or not lead_data['mobile']:
+                                continue
                             
                             # Yield individual lead record
                             yield lead_data
                 
                 # MEMORY-EFFICIENT: Process file in true streaming mode without loading all data
-                def process_import_streaming(file_handler, batch_size=2000):
+                def process_import_streaming(file_handler, batch_size=200):
                     """Process import in true streaming mode without loading all data"""
                     current_batch = []
                     
@@ -1791,10 +1673,6 @@ def lead_import(request):
                     
                     if current_batch:
                         yield current_batch
-                
-                # ENTERPRISE: Initialize performance monitoring
-                import_start_time = time_module.time()
-                print(f"Starting enterprise import at {time_module.strftime('%Y-%m-%d %H:%M:%S')}")
                 
                 # Initialize duplicate detector and progress tracker
                 detector = DuplicateDetector(request.user.company_id)
@@ -1816,14 +1694,12 @@ def lead_import(request):
                     logger.warning(f"Import progress tracker creation failed: {tracker_error}")
                     # Continue without progress tracking
                 
-                # ENTERPRISE: Streaming duplicate detection with performance monitoring
+                # Streaming duplicate detection
                 duplicate_results = []
                 total_records = 0
-                duplicate_detection_start = time_module.time()
-                print(f"Starting duplicate detection phase...")
                 try:
                     batch_count = 0
-                    for batch in process_import_streaming(file, batch_size=2000):
+                    for batch in process_import_streaming(file, batch_size=200):
                         batch_count += 1
                         try:
                             # Validate batch structure
@@ -1858,12 +1734,7 @@ def lead_import(request):
                                 )
                             raise batch_error
                     
-                    # ENTERPRISE: Update progress tracker with final totals and performance metrics
-                    duplicate_detection_time = time_module.time() - duplicate_detection_start
-                    print(f"Duplicate detection completed in {duplicate_detection_time:.2f} seconds")
-                    print(f"Processed {batch_count} batches, {total_records} total records")
-                    print(f"Average processing rate: {total_records/duplicate_detection_time:.0f} records/second")
-                    
+                    # Update progress tracker with final totals
                     if progress_tracker:
                         progress_tracker.total_records = total_records
                         progress_tracker.validated_records = total_records
@@ -1906,12 +1777,6 @@ def lead_import(request):
                         status='processing',
                         stage='Duplicate checking completed - Ready for preview'
                     )
-                
-                # ENTERPRISE: Calculate final performance metrics
-                total_import_time = time_module.time() - import_start_time
-                print(f"Enterprise import completed in {total_import_time:.2f} seconds")
-                print(f"Total performance: {total_records/total_import_time:.0f} records/second")
-                print(f"Memory-efficient streaming with chunked processing successful")
                 
                 summary = {
                     'total': len(duplicate_results),
@@ -2270,8 +2135,7 @@ def lead_import_process(request):
             else:
                 action_field = request.POST.get(f'actions_{i}')
                 if action_field is None:
-                    # More permissive default: import unless exact duplicate
-                    action = 'skip' if result['status'] == 'exact_duplicate' else 'import'
+                    action = 'import' if result['status'] == 'new' else 'skip'
                 elif str(i) in selected_rows:
                     action = action_field
                 else:
@@ -2291,7 +2155,7 @@ def lead_import_process(request):
         failed_count = 0
         
         # Process batches in parallel
-        with ThreadPoolExecutor(max_workers=12) as executor:
+        with ThreadPoolExecutor(max_workers=4) as executor:
             future_to_batch = {
                 executor.submit(_process_batch_with_transaction, batch, request.user, import_session): batch
                 for batch in batches
@@ -2384,11 +2248,10 @@ def lead_import_process(request):
                 action = 'import' if result['status'] == 'new' else 'skip'
             else:
                 # With paginated preview, POST only contains rows from visible page.
-                # Default to importing all leads unless they are exact duplicates
+                # Keep default behavior for rows not present in payload.
                 action_field = request.POST.get(f'actions_{i}')
                 if action_field is None:
-                    # More permissive default: import unless exact duplicate
-                    action = 'skip' if result['status'] == 'exact_duplicate' else 'import'
+                    action = 'import' if result['status'] == 'new' else 'skip'
                 elif str(i) in selected_rows:
                     action = action_field
                 else:
@@ -2909,98 +2772,27 @@ def ajax_bulk_assignment_data(request):
 @hierarchy_required
 def leads_duplicates(request):
     """Main duplicate leads list view"""
-    # Initialize duplicate detector with error handling
-    detector = None  # Ensure detector is always defined
-    try:
-        logger.info(f"Initializing DuplicateDetector for company_id: {request.user.company_id}")
-        detector = DuplicateDetector(request.user.company_id)
-        logger.info("DuplicateDetector initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing DuplicateDetector: {str(e)}")
-        # Try importing inside function to avoid circular import issues
-        try:
-            from services.duplicate_detector import DuplicateDetector
-            detector = DuplicateDetector(request.user.company_id)
-            logger.info("DuplicateDetector initialized successfully after inline import")
-        except Exception as e2:
-            logger.error(f"Failed to initialize DuplicateDetector even with inline import: {str(e2)}")
-            # Create a mock detector to prevent NameError
-            class MockDetector:
-                def find_duplicate_groups_paginated(self, **kwargs):
-                    return {'page_obj': [], 'total_count': 0}
-                def get_duplicate_statistics(self):
-                    return {'total_groups': 0, 'pending_groups': 0, 'resolved_groups': 0}
-            detector = MockDetector()
-            logger.warning("Using mock detector due to initialization failure")
+    # Initialize duplicate detector
+    detector = DuplicateDetector(request.user.company_id)
     
     # Get pagination parameters
     page_number = request.GET.get('page', 1)
     page_size = request.GET.get('page_size', '20')
     
     # Validate page size
-    valid_page_sizes = ['5', '10', '20', '25', '50', '100', '200']
+    valid_page_sizes = ['5', '10', '20', '25', '50', '100', '200', '500']
     if page_size not in valid_page_sizes:
         page_size = '20'
     page_size = int(page_size)
     
     # Get filter parameters
-    status_filter = request.GET.get('status', '')
+    status_filter = request.GET.get('status', 'pending')
     duplicate_type = request.GET.get('type', '')
-    search_query = request.GET.get('search', '')
-    assigned_user = request.GET.get('assigned_user', '')
-    start_date = request.GET.get('start_date', '')
-    end_date = request.GET.get('end_date', '')
-    preset = request.GET.get('preset', '')
-    
-    # Handle preset filters
-    if preset and not status_filter:
-        today = timezone.now().date()
-        if preset == 'today':
-            start_date = today.strftime('%Y-%m-%d')
-            end_date = today.strftime('%Y-%m-%d')
-        elif preset == 'week':
-            week_start = today - timezone.timedelta(days=today.weekday())
-            start_date = week_start.strftime('%Y-%m-%d')
-            end_date = today.strftime('%Y-%m-%d')
-        elif preset == 'month':
-            month_start = today.replace(day=1)
-            start_date = month_start.strftime('%Y-%m-%d')
-            end_date = today.strftime('%Y-%m-%d')
-        elif preset == 'pending':
-            status_filter = 'pending'
-        elif preset == 'resolved':
-            status_filter = 'resolved'
-        elif preset == 'team':
-            # Filter by team members (for managers/owners)
-            if request.user.role in ['owner', 'manager']:
-                assigned_user = request.user.id  # Will be filtered to show team's duplicates
-        elif preset == 'my':
-            # Filter by current user's assigned duplicates
-            assigned_user = request.user.id
-    
-    # Ensure detector is available (double-check)
-    if 'detector' not in locals() or detector is None:
-        try:
-            from services.duplicate_detector import DuplicateDetector
-            detector = DuplicateDetector(request.user.company_id)
-        except Exception as e:
-            logger.error(f"Emergency detector initialization failed: {e}")
-            # Create mock detector
-            class MockDetector:
-                def find_duplicate_groups_paginated(self, **kwargs):
-                    return {'page_obj': [], 'total_count': 0}
-                def get_duplicate_statistics(self):
-                    return {'total_groups': 0, 'pending_groups': 0, 'resolved_groups': 0}
-            detector = MockDetector()
     
     # Get paginated duplicate groups
     groups = detector.find_duplicate_groups_paginated(
         status=status_filter,
         duplicate_type=duplicate_type,
-        search=search_query,
-        assigned_user=assigned_user,
-        start_date=start_date,
-        end_date=end_date,
         page=page_number,
         page_size=page_size
     )
@@ -3008,33 +2800,12 @@ def leads_duplicates(request):
     # Get statistics
     stats = detector.get_duplicate_statistics()
     
-    # Calculate active filters count
-    active_filters_count = 0
-    if status_filter:
-        active_filters_count += 1
-    if duplicate_type:
-        active_filters_count += 1
-    if search_query:
-        active_filters_count += 1
-    if assigned_user:
-        active_filters_count += 1
-    if start_date:
-        active_filters_count += 1
-    if end_date:
-        active_filters_count += 1
-
     context = {
         'page_obj': groups['page_obj'],
         'groups': groups['page_obj'],
         'stats': stats,
         'status_filter': status_filter,
         'duplicate_type': duplicate_type,
-        'search_query': search_query,
-        'assigned_user': assigned_user,
-        'start_date': start_date,
-        'end_date': end_date,
-        'preset': preset,
-        'active_filters_count': active_filters_count,
         'page_title': 'Duplicate Leads',
         'current_page_size': page_size,
         'total_groups': groups['total_count'],
@@ -3066,19 +2837,8 @@ def lead_duplicate_detail(request, pk):
     duplicate_group = lead.get_duplicate_group()
     
     # Get reassignment recommendations
-    try:
-        detector = DuplicateDetector(request.user.company_id)
-        recommendations = detector.get_reassignment_recommendations(lead.duplicate_group_id) if lead.duplicate_group_id else {}
-    except Exception as e:
-        logger.error(f"Error initializing DuplicateDetector in lead_duplicate_detail: {str(e)}")
-        # Try importing inside function to avoid circular import issues
-        try:
-            from services.duplicate_detector import DuplicateDetector
-            detector = DuplicateDetector(request.user.company_id)
-            recommendations = detector.get_reassignment_recommendations(lead.duplicate_group_id) if lead.duplicate_group_id else {}
-        except Exception as e2:
-            logger.error(f"Failed to initialize DuplicateDetector in lead_duplicate_detail: {str(e2)}")
-            recommendations = {}
+    detector = DuplicateDetector(request.user.company_id)
+    recommendations = detector.get_reassignment_recommendations(lead.duplicate_group_id) if lead.duplicate_group_id else {}
     
     # Get assignment history
     assignment_history = []
@@ -3242,19 +3002,8 @@ def bulk_duplicate_reassign(request):
             messages.error(request, f"Error in bulk reassignment: {str(e)}")
     
     # Get duplicate groups for selection
-    try:
-        detector = DuplicateDetector(request.user.company_id)
-        groups = detector.find_duplicate_groups('pending')
-    except Exception as e:
-        logger.error(f"Error initializing DuplicateDetector in bulk_duplicate_reassign: {str(e)}")
-        # Try importing inside function to avoid circular import issues
-        try:
-            from services.duplicate_detector import DuplicateDetector
-            detector = DuplicateDetector(request.user.company_id)
-            groups = detector.find_duplicate_groups('pending')
-        except Exception as e2:
-            logger.error(f"Failed to initialize DuplicateDetector in bulk_duplicate_reassign: {str(e2)}")
-            groups = []
+    detector = DuplicateDetector(request.user.company_id)
+    groups = detector.find_duplicate_groups('pending')
     
     # Get accessible users with real-time lead counts
     accessible_users = []
@@ -3281,144 +3030,6 @@ def bulk_duplicate_reassign(request):
 
 @login_required
 @hierarchy_required
-def bulk_duplicate_resolve(request):
-    """Bulk resolve duplicate groups"""
-    if request.method == "POST":
-        group_ids = request.POST.getlist('group_ids')
-        
-        if not group_ids:
-            messages.error(request, "No duplicate groups selected.")
-            return redirect("dashboard:leads_duplicates")
-        
-        try:
-            # Get all leads in the selected groups
-            leads = Lead.objects.filter(
-                duplicate_group_id__in=group_ids,
-                company_id=request.user.company_id,
-                deleted=False
-            )
-            
-            # Check permissions for each lead
-            accessible_leads = []
-            for lead in leads:
-                if lead.can_be_accessed_by(request.user):
-                    accessible_leads.append(lead)
-            
-            if not accessible_leads:
-                messages.error(request, "You don't have permission to resolve these duplicates.")
-                return redirect("dashboard:leads_duplicates")
-            
-            # Update duplicate resolution status
-            updated_count = leads.filter(
-                id_lead__in=[lead.id_lead for lead in accessible_leads]
-            ).update(
-                duplicate_resolution_status='resolved',
-                updated_at=timezone.now()
-            )
-            
-            # Create activity log
-            for lead in accessible_leads:
-                LeadActivity.objects.create(
-                    lead=lead,
-                    user=request.user,
-                    activity_type='bulk_duplicate_resolution',
-                    description=f'Bulk resolved duplicate group {lead.duplicate_group_id}'
-                )
-            
-            messages.success(request, f"Successfully resolved {updated_count} duplicate groups.")
-            
-        except Exception as e:
-            logger.error(f"Error in bulk_duplicate_resolve: {str(e)}")
-            messages.error(request, "An error occurred while resolving duplicates.")
-        
-        return redirect("dashboard:leads_duplicates")
-    
-    # GET request - show confirmation page
-    try:
-        detector = DuplicateDetector(request.user.company_id)
-        groups = detector.find_duplicate_groups('pending')
-    except Exception as e:
-        logger.error(f"Error initializing DuplicateDetector in bulk_duplicate_resolve: {str(e)}")
-        groups = []
-    
-    context = {
-        'groups': groups,
-        'page_title': 'Bulk Resolve Duplicates'
-    }
-    return render(request, 'dashboard/bulk_duplicate_resolve.html', context)
-
-
-@login_required
-@hierarchy_required
-def bulk_duplicate_ignore(request):
-    """Bulk ignore duplicate groups"""
-    if request.method == "POST":
-        group_ids = request.POST.getlist('group_ids')
-        
-        if not group_ids:
-            messages.error(request, "No duplicate groups selected.")
-            return redirect("dashboard:leads_duplicates")
-        
-        try:
-            # Get all leads in the selected groups
-            leads = Lead.objects.filter(
-                duplicate_group_id__in=group_ids,
-                company_id=request.user.company_id,
-                deleted=False
-            )
-            
-            # Check permissions for each lead
-            accessible_leads = []
-            for lead in leads:
-                if lead.can_be_accessed_by(request.user):
-                    accessible_leads.append(lead)
-            
-            if not accessible_leads:
-                messages.error(request, "You don't have permission to ignore these duplicates.")
-                return redirect("dashboard:leads_duplicates")
-            
-            # Update duplicate resolution status
-            updated_count = leads.filter(
-                id_lead__in=[lead.id_lead for lead in accessible_leads]
-            ).update(
-                duplicate_resolution_status='ignored',
-                updated_at=timezone.now()
-            )
-            
-            # Create activity log
-            for lead in accessible_leads:
-                LeadActivity.objects.create(
-                    lead=lead,
-                    user=request.user,
-                    activity_type='bulk_duplicate_ignore',
-                    description=f'Bulk ignored duplicate group {lead.duplicate_group_id}'
-                )
-            
-            messages.success(request, f"Successfully ignored {updated_count} duplicate groups.")
-            
-        except Exception as e:
-            logger.error(f"Error in bulk_duplicate_ignore: {str(e)}")
-            messages.error(request, "An error occurred while ignoring duplicates.")
-        
-        return redirect("dashboard:leads_duplicates")
-    
-    # GET request - show confirmation page
-    try:
-        detector = DuplicateDetector(request.user.company_id)
-        groups = detector.find_duplicate_groups('pending')
-    except Exception as e:
-        logger.error(f"Error initializing DuplicateDetector in bulk_duplicate_ignore: {str(e)}")
-        groups = []
-    
-    context = {
-        'groups': groups,
-        'page_title': 'Bulk Ignore Duplicates'
-    }
-    return render(request, 'dashboard/bulk_duplicate_ignore.html', context)
-
-
-@login_required
-@hierarchy_required
 def team_duplicate_leads(request):
     """Team-specific duplicate leads view"""
     # Get pagination parameters
@@ -3432,29 +3043,13 @@ def team_duplicate_leads(request):
     page_size = int(page_size)
     
     # Get paginated duplicate groups based on user role
-    try:
-        detector = DuplicateDetector(request.user.company_id)
-        groups = detector.find_duplicate_groups_paginated(
-            page=page_number,
-            page_size=page_size,
-            user_role=request.user.role,
-            user=request.user
-        )
-    except Exception as e:
-        logger.error(f"Error initializing DuplicateDetector in team_duplicate_leads: {str(e)}")
-        # Try importing inside function to avoid circular import issues
-        try:
-            from services.duplicate_detector import DuplicateDetector
-            detector = DuplicateDetector(request.user.company_id)
-            groups = detector.find_duplicate_groups_paginated(
-                page=page_number,
-                page_size=page_size,
-                user_role=request.user.role,
-                user=request.user
-            )
-        except Exception as e2:
-            logger.error(f"Failed to initialize DuplicateDetector in team_duplicate_leads: {str(e2)}")
-            groups = {'page_obj': [], 'total_count': 0}
+    detector = DuplicateDetector(request.user.company_id)
+    groups = detector.find_duplicate_groups_paginated(
+        page=page_number,
+        page_size=page_size,
+        user_role=request.user.role,
+        user=request.user
+    )
     
     # Get team statistics (limited to current page for performance)
     team_stats = {}
@@ -3503,27 +3098,13 @@ def my_duplicate_leads(request):
     page_size = int(page_size)
     
     # Get paginated groups for current user
-    try:
-        detector = DuplicateDetector(request.user.company_id)
-        groups = detector.find_duplicate_groups_paginated(
-            page=page_number,
-            page_size=page_size,
-            user=request.user
-        )
-    except Exception as e:
-        logger.error(f"Error initializing DuplicateDetector in my_duplicate_leads: {str(e)}")
-        # Try importing inside function to avoid circular import issues
-        try:
-            from services.duplicate_detector import DuplicateDetector
-            detector = DuplicateDetector(request.user.company_id)
-            groups = detector.find_duplicate_groups_paginated(
-                page=page_number,
-                page_size=page_size,
-                user=request.user
-            )
-        except Exception as e2:
-            logger.error(f"Failed to initialize DuplicateDetector in my_duplicate_leads: {str(e2)}")
-            groups = {'page_obj': [], 'total_count': 0}
+    detector = DuplicateDetector(request.user.company_id)
+    groups = detector.find_duplicate_groups_paginated(
+        page=page_number,
+        page_size=page_size,
+        user_role='agent',
+        user=request.user
+    )
     
     # Get user's duplicate statistics
     user_leads = Lead.objects.filter(
@@ -3623,7 +3204,7 @@ def _process_assignments_concurrently(leads, assigned_user, request_user, assign
     successful_count = 0
     
     # Process batches concurrently
-    with ThreadPoolExecutor(max_workers=12) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         future_to_batch = {
             executor.submit(_process_assignment_batch, batch, assigned_user, request_user, assignment_notes): batch
             for batch in batches

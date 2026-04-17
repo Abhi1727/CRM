@@ -312,21 +312,49 @@ class DuplicateDetector:
             by_mobile_email = {}
 
         results = []
+        new_count = 0
+        duplicate_count = 0
+        missing_field_count = 0
+        
         for row in normalized_rows:
             exact = []
-            if row['mobile'] and row['email']:
+            # Check if this lead has missing fields
+            has_mobile = bool(row['mobile'])
+            has_email = bool(row['email'])
+            
+            if not has_mobile and not has_email:
+                missing_field_count += 1
+                # No contact info - treat as new
+                result = {
+                    'status': 'new',
+                    'duplicates': [],
+                    'duplicate_type': None,
+                    'confidence': 0.0,
+                }
+            elif has_mobile and has_email:
+                # Both fields present - check for exact duplicates
                 exact = _dedupe_by_id(
                     by_mobile_email.get((row['mobile'], row['email']), [])
                 )
-
-            if exact:
-                result = {
-                    'status': 'exact_duplicate',
-                    'duplicates': [_serialize_lead(dup) for dup in exact],
-                    'duplicate_type': 'EXACT',
-                    'confidence': 1.0,
-                }
+                if exact:
+                    duplicate_count += 1
+                    result = {
+                        'status': 'exact_duplicate',
+                        'duplicates': [_serialize_lead(dup) for dup in exact],
+                        'duplicate_type': 'EXACT',
+                        'confidence': 1.0,
+                    }
+                else:
+                    new_count += 1
+                    result = {
+                        'status': 'new',
+                        'duplicates': [],
+                        'duplicate_type': None,
+                        'confidence': 0.0,
+                    }
             else:
+                # Only one field present - treat as new (can't be exact duplicate)
+                new_count += 1
                 result = {
                     'status': 'new',
                     'duplicates': [],
@@ -389,6 +417,8 @@ class DuplicateDetector:
         return list(groups.values())
     
     def find_duplicate_groups_paginated(self, status: str = None, duplicate_type: str = None, 
+                                      search: str = None, assigned_user: str = None, 
+                                      start_date: str = None, end_date: str = None,
                                       page: int = 1, page_size: int = 20, user_role: str = None, user=None) -> Dict:
         """
         Find duplicate groups with database-level pagination.
@@ -411,6 +441,29 @@ class DuplicateDetector:
         # Apply duplicate type filter
         if duplicate_type:
             leads_qs = leads_qs.filter(duplicate_status=duplicate_type)
+        
+        # Apply search filter
+        if search:
+            search_terms = search.strip()
+            if search_terms:
+                # Search across multiple fields
+                search_filter = (
+                    Q(name__icontains=search_terms) |
+                    Q(mobile__icontains=search_terms) |
+                    Q(email__icontains=search_terms) |
+                    Q(duplicate_group_id__icontains=search_terms)
+                )
+                leads_qs = leads_qs.filter(search_filter)
+        
+        # Apply assigned user filter
+        if assigned_user:
+            leads_qs = leads_qs.filter(assigned_user_id=assigned_user)
+        
+        # Apply date range filter
+        if start_date:
+            leads_qs = leads_qs.filter(created_at__date__gte=start_date)
+        if end_date:
+            leads_qs = leads_qs.filter(created_at__date__lte=end_date)
         
         # Apply role-based filtering
         if user_role and user:

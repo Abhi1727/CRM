@@ -1,99 +1,171 @@
 {% extends 'dashboard/base_dashboard.html' %}
+{% load pagination_tags %}
 
 {% block page_title %}{{ page_title|default:"Leads" }}{% endblock %}
 
 {% block content %}
 <div class="leads-page">
     <div class="page-header">
-        <h2>{{ page_title }}</h2>
-        <div class="page-actions">
-            {% if user.role == 'owner' %}
-            <a href="{% url 'dashboard:lead_import' %}" class="btn btn-secondary">
-                <i class="fas fa-file-import"></i> Import Leads
-            </a>
-            {% endif %}
-            {% if user.role != 'agent' %}
-            <button id="bulk-assign-btn" class="btn btn-warning" style="display: none;">
-                <i class="fas fa-users"></i> Bulk Assign (<span id="selected-count">0</span>)
-            </button>
-            <button id="undo-assign-btn" class="btn btn-info" title="Undo recent bulk assignments">
-                <i class="fas fa-undo"></i> Undo Assignments
-            </button>
-            <button id="bulk-delete-btn" class="btn btn-danger" style="display: none;">
-                <i class="fas fa-trash"></i> Delete Selected (<span id="delete-selected-count">0</span>)
-            </button>
-            {% if page_title == 'Trash Leads' %}
-            <button id="bulk-restore-btn" class="btn btn-success" style="display: none;">
-                <i class="fas fa-undo"></i> Restore Selected (<span id="restore-selected-count">0</span>)
-            </button>
-            {% if user.role == 'owner' %}
-            <button id="purge-trash-btn" class="btn btn-danger">
-                <i class="fas fa-fire"></i> Purge Trash
-            </button>
-            {% endif %}
-            {% endif %}
-            {% endif %}
-            {% if user.role != 'agent' and page_title != 'Trash Leads' %}
-            <a href="{% url 'dashboard:leads_trash' %}" class="btn btn-secondary">
-                <i class="fas fa-trash-restore"></i> Trash
-            </a>
-            {% endif %}
-            {% if page_title == 'Trash Leads' %}
-            <a href="{% url 'dashboard:leads_all' %}" class="btn btn-secondary">
-                <i class="fas fa-arrow-left"></i> Back to Active Leads
-            </a>
-            {% endif %}
-            {% if user.role == 'owner' %}
-            <a href="{% url 'dashboard:lead_create' %}" class="btn btn-primary">
-                <i class="fas fa-plus"></i> Add New Lead
-            </a>
-            {% endif %}
-        </div>
-    </div>
-    <div style="margin-bottom:12px; color:var(--text-secondary);">
-        Total filtered leads: <strong>{{ total_filtered_count|default:0 }}</strong> |
-        Current page: <strong>{{ current_page_count|default:0 }}</strong>
-    </div>
-    
-    <div class="filters">
-        <div class="filter-basic">
-            <div class="search-box">
-                <i class="fas fa-search"></i>
-                <input type="text" id="search-input" placeholder="Search leads..." value="{{ search_query|default:'' }}" autocomplete="off">
-                {% if search_query %}
-                <button type="button" id="clear-search" class="clear-search-btn" title="Clear search">
-                    <i class="fas fa-times"></i>
+        <!-- Left Column: Back + Title + Stats (25% width) -->
+        <div class="page-header-left">
+            <div class="back-section">
+                <button id="universalBackButton" class="universal-back-button back-button-visible" onclick="goBackWithFallback()" title="Go back to previous page">
+                    <i class="fas fa-arrow-left"></i>
+                    <span>Back</span>
                 </button>
-                {% endif %}
             </div>
-            
-            <button type="button" id="advanced-filter-toggle" class="btn btn-secondary">
-                <i class="fas fa-filter"></i> Advanced Filter
-                {% if active_filters_count > 0 %}
-                <span class="filter-indicator">{{ active_filters_count }}</span>
-                {% endif %}
-            </button>
-            
-            {% if user.role != 'agent' %}
-            <button id="select-all-btn" class="btn btn-sm btn-outline">Select All</button>
-            <button id="select-all-filtered-btn" class="btn btn-sm btn-outline">Select All Filtered ({{ total_filtered_count|default:0 }})</button>
-            <button id="clear-selection-btn" class="btn btn-sm btn-outline">Clear Selection</button>
-            {% endif %}
-            
-            <!-- Quick Filter Presets -->
-            <div class="filter-presets">
-                <button type="button" class="preset-btn" data-preset="today">Today</button>
-                <button type="button" class="preset-btn" data-preset="week">This Week</button>
-                <button type="button" class="preset-btn" data-preset="month">This Month</button>
-                {% if user.role != 'agent' %}
-                <button type="button" class="preset-btn" data-preset="team">My Team's Leads</button>
-                {% endif %}
-                <button type="button" class="preset-btn" data-preset="my">My Leads</button>
+            <div class="title-section">
+                <h2>{{ page_title }}</h2>
+            </div>
+            <div class="stats-section">
+                <div class="page-stats">
+                    <span class="stat-item">
+                        <i class="fas fa-list"></i>
+                        <strong>{{ total_filtered_count|default:0 }}</strong> leads
+                    </span>
+                    <span class="stat-item">
+                        <i class="fas fa-file"></i>
+                        Page <strong>{{ current_page_count|default:0 }}</strong>
+                    </span>
+                </div>
             </div>
         </div>
         
+        <!-- Center Column: Filter Presets + Search + Pagination (40% width) -->
+        <div class="page-header-center">
+            <div class="filters-row">
+                <div class="filter-presets-large">
+                    <button type="button" class="preset-btn-large" data-preset="today" title="Today">Today</button>
+                    <button type="button" class="preset-btn-large" data-preset="week" title="This Week">Week</button>
+                    <button type="button" class="preset-btn-large" data-preset="month" title="This Month">Month</button>
+                    {% if user.role != 'agent' %}
+                    <button type="button" class="preset-btn-large" data-preset="team" title="My Team's Leads">Team</button>
+                    {% endif %}
+                    <button type="button" class="preset-btn-large" data-preset="my" title="My Leads">My</button>
+                    <button type="button" id="advanced-filter-toggle" class="btn btn-secondary btn-compact" title="Advanced Filter">
+                        <i class="fas fa-filter"></i>
+                        {% if active_filters_count > 0 %}
+                        <span class="filter-indicator">{{ active_filters_count }}</span>
+                        {% endif %}
+                    </button>
+                </div>
+            </div>
+            <div class="search-pagination-row">
+                <div class="search-box-compact">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="search-input" placeholder="Search leads..." value="{{ search_query|default:'' }}" autocomplete="off">
+                    {% if search_query %}
+                    <button type="button" id="clear-search" class="clear-search-btn" title="Clear search">
+                        <i class="fas fa-times"></i>
+                    </button>
+                    {% endif %}
+                </div>
+                
+                <!-- Pagination Controls Group -->
+                {% if page_obj.paginator.num_pages > 1 %}
+                <div class="controls-group pagination-controls">
+                    <div class="header-pagination">
+                        <div class="page-nav-controls">
+                            {% if page_obj.has_previous %}
+                                <button class="page-nav-btn prev" onclick="navigateToPage({{ page_obj.previous_page_number|escapejs }})" title="Previous">
+                                    <i class="fas fa-chevron-left"></i>
+                                </button>
+                            {% endif %}
+                            
+                            <div class="page-nav-numbers">
+                                {% generate_page_numbers page_obj request.GET %}
+                            </div>
+                            
+                            {% if page_obj.has_next %}
+                                <button class="page-nav-btn next" onclick="navigateToPage({{ page_obj.next_page_number|escapejs }})" title="Next">
+                                    <i class="fas fa-chevron-right"></i>
+                                </button>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="page-nav-info">
+                            <span class="page-nav-current">{{ page_obj.number }}</span>
+                            <span class="page-nav-separator">/</span>
+                            <span class="page-nav-total">{{ page_obj.paginator.num_pages }}</span>
+                        </div>
+                        
+                        <div class="page-nav-jump">
+                            <input type="number" class="page-jump-input" min="1" max="{{ page_obj.paginator.num_pages|escapejs }}" value="{{ page_obj.number|escapejs }}" placeholder="Go">
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Right Column: Primary Actions + Add Lead (35% width) -->
+        <div class="page-header-right">
+            <div class="primary-actions-row">
+                <div class="controls-group action-controls">
+                    {% if user.role != 'agent' %}
+                    <button id="bulk-delete-btn" class="btn btn-danger btn-compact" style="display: none;" title="Delete Selected">
+                        <i class="fas fa-trash"></i> Delete (<span id="delete-selected-count">0</span>)
+                    </button>
+                    {% if page_title == 'Trash Leads' %}
+                    <button id="bulk-restore-btn" class="btn btn-success btn-compact" style="display: none;" title="Restore Selected">
+                        <i class="fas fa-undo"></i> Restore (<span id="restore-selected-count">0</span>)
+                    </button>
+                    {% if user.role == 'owner' %}
+                    <button id="purge-trash-btn" class="btn btn-danger btn-compact" title="Purge Trash">
+                        <i class="fas fa-fire"></i> Purge
+                    </button>
+                    {% endif %}
+                    {% endif %}
+                    {% endif %}
+                    {% if page_title == 'Trash Leads' %}
+                    <a href="{% url 'dashboard:leads_all' %}" class="btn btn-secondary btn-compact" title="Back to Active Leads">
+                        <i class="fas fa-arrow-left"></i> Back
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="secondary-action-top">
+                <div class="controls-group action-controls">
+                    {% if user.role != 'agent' %}
+                    <button id="select-all-btn" class="btn btn-sm btn-outline btn-compact" title="Select All">Select All</button>
+                    <button id="clear-selection-btn" class="btn btn-sm btn-outline btn-compact" title="Clear Selection">Clear</button>
+                    {% endif %}
+                    
+                    {% if user.role == 'owner' %}
+                    <a href="{% url 'dashboard:lead_import' %}" class="btn btn-secondary btn-compact" title="Import Leads">
+                        <i class="fas fa-file-import"></i> Import
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="secondary-action-bottom">
+                <div class="controls-group action-controls">
+                    {% if user.role != 'agent' %}
+                    <button id="bulk-assign-btn" class="btn btn-warning btn-compact" style="display: none;" title="Bulk Assign">
+                        <i class="fas fa-users"></i> Assign (<span id="selected-count">0</span>)
+                    </button>
+                    <button id="undo-assign-btn" class="btn btn-info btn-compact" title="Undo recent bulk assignments">
+                        <i class="fas fa-undo"></i> Undo
+                    </button>
+                    {% endif %}
+                    {% if user.role != 'agent' and page_title != 'Trash Leads' %}
+                    <a href="{% url 'dashboard:leads_trash' %}" class="btn btn-secondary btn-compact" title="Trash">
+                        <i class="fas fa-trash-restore"></i> Trash
+                    </a>
+                    {% endif %}
+                    {% if user.role == 'owner' %}
+                    <a href="{% url 'dashboard:lead_create' %}" class="btn btn-primary btn-add-lead" title="Add New Lead">
+                        <i class="fas fa-plus"></i> Add Lead
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+            
         <!-- Advanced Filter Panel -->
-        <div id="advanced-filter-panel" class="advanced-filter-panel" style="display: none;">
+    <div id="advanced-filter-panel" class="advanced-filter-panel" style="display: none;">
             <div class="filter-row">
                 <div class="filter-group">
                     <label for="country-select">Country</label>
@@ -151,7 +223,7 @@
                         <option value="10" {% if request.GET.page_size == '10' %}selected{% endif %}>10</option>
                         <option value="25" {% if request.GET.page_size == '25' %}selected{% endif %}>25</option>
                         <option value="50" {% if request.GET.page_size == '50' %}selected{% endif %}>50</option>
-                        <option value="100" {% if request.GET.page_size == '100' %}selected{% endif %}>100</option>
+                        <option value="100" {% if request.GET.page_size == '100' or not request.GET.page_size %}selected{% endif %}>100</option>
                         <option value="200" {% if request.GET.page_size == '200' %}selected{% endif %}>200</option>
                         <option value="500" {% if request.GET.page_size == '500' %}selected{% endif %}>500</option>
                     </select>
@@ -237,7 +309,7 @@
                                     data-lead-id="{{ lead.id_lead }}" 
                                     data-current-status="{{ lead.status }}"
                                     onclick="toggleStatusDropdown(this)"
-                                    title="DEBUG: status='{{ lead.status }}', display='{{ lead.get_status_display }}'">
+                                    title="Change status">
                                 {{ lead.get_status_display }}
                                 <i class="fas fa-chevron-down"></i>
                             </button>
@@ -290,9 +362,7 @@
         </table>
     </div>
     
-    <!-- Enhanced Pagination -->
-    {% include 'dashboard/pagination.html' with item_name="leads" %}
-</div>
+    </div>
 
 <style>
 .leads-page {
@@ -301,15 +371,1189 @@
 
 .page-header {
     display: flex;
+    align-items: stretch; /* Changed to stretch for equal height columns */
     justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 4px; /* 50% reduction from 8px */
+    padding: 4px 8px; /* 50% reduction from 8px 12px */
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px; /* Reduced from 6px (33% reduction) */
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02); /* Further reduced shadow */
+    min-height: 32px; /* Explicit minimum height */
+}
+
+/* Three Column Layout - Left Column (25% width) */
+.page-header-left {
+    display: flex;
+    flex-direction: column; /* Changed to column for vertical organization */
+    justify-content: space-between; /* Even spacing between sections */
+    gap: 4px; /* Reduced gap for vertical layout */
+    flex: 0 0 25%; /* Fixed 25% width */
+    flex-shrink: 0; /* Prevent shrinking */
+    min-width: 0; /* Allow content to determine width */
+    padding: 2px 0; /* Small vertical padding */
+}
+
+/* New section containers for left column */
+.back-section {
+    display: flex;
     align-items: center;
-    margin-bottom: 30px;
+    justify-content: flex-start;
+}
+
+.title-section {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.stats-section {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+/* Three Column Layout - Center Column (40% width) */
+.page-header-center {
+    display: flex;
+    flex-direction: column; /* Two rows for optimal space usage */
+    justify-content: space-between;
+    gap: 4px;
+    flex: 0 0 40%; /* Fixed 40% width */
+    flex-shrink: 0;
+    padding: 2px 0;
+}
+
+.filters-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px; /* Reduced from 6px to accommodate larger filter buttons */
+    flex-wrap: wrap;
+}
+
+.search-pagination-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px; /* Reduced from 8px for better element distribution */
+    flex-wrap: wrap;
+}
+
+/* Three Column Layout - Right Column (35% width) */
+.page-header-right {
+    display: flex;
+    flex-direction: column; /* Two rows for actions */
+    justify-content: space-between;
+    gap: 3px; /* Reduced from 4px to accommodate larger buttons */
+    flex: 0 0 35%; /* Fixed 35% width */
+    flex-shrink: 0;
+    padding: 2px 0;
+}
+
+.primary-actions-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px; /* Reduced from 4px to accommodate larger buttons */
+    flex-wrap: wrap;
+}
+
+.secondary-action-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px; /* Reduced from 4px to accommodate larger buttons */
+    flex-wrap: wrap;
+}
+
+.secondary-action-top {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px; /* Reduced from 4px to accommodate larger buttons */
+    flex-wrap: wrap;
+}
+
+.secondary-action-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px; /* Reduced from 4px to accommodate larger buttons */
+    flex-wrap: wrap;
+}
+
+/* Higher specificity rules to override external CSS */
+.leads-page .page-header-right .secondary-action-top {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 3px !important;
+    flex-wrap: wrap !important;
+    flex-direction: row !important;
+}
+
+.leads-page .page-header-right .secondary-action-bottom {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 3px !important;
+    flex-wrap: wrap !important;
+    flex-direction: row !important;
+}
+
+/* Compact Header Pagination */
+.header-pagination {
+    display: flex;
+    align-items: center;
+    gap: 8px; /* Reduced from 12px (33% reduction) */
+    margin-left: 0; /* Removed margin */
+    padding: 3px 6px; /* Reduced from 4px 8px (25% reduction) */
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px; /* Reduced from 8px (50% reduction) */
+    min-height: 24px; /* Reduced from 32px (25% reduction) */
+}
+
+.page-nav-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.page-nav-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px; /* 50% increase: 20px→30px */
+    height: 30px; /* 50% increase: 20px→30px */
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 3px; /* Reduced from 4px (25% reduction) */
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 14px; /* 50% increase: 9px→13.5px→14px */
+}
+
+.page-nav-btn:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.page-nav-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.page-nav-numbers {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.page-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px; /* 50% increase: 20px→30px */
+    height: 30px; /* 50% increase: 20px→30px */
+    padding: 0 6px; /* 50% increase: 4px→6px */
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 3px; /* Reduced from 4px (25% reduction) */
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 14px; /* 50% increase: 9px→13.5px→14px */
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.page-btn:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.page-btn.current {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    font-weight: 600;
+}
+
+.page-btn.ellipsis {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: default;
+    padding: 0 4px;
+}
+
+.page-btn.ellipsis:hover {
+    background: transparent;
+    transform: none;
+}
+
+.page-nav-info {
+    display: flex;
+    align-items: center;
+    gap: 1px; /* Reduced from 2px (50% reduction) */
+    font-size: 9px; /* Reduced from 10px (10% reduction) */
+    color: var(--text-secondary);
+    font-weight: 500;
+    padding: 0 4px; /* Reduced from 0 6px (33% reduction) */
+}
+
+.page-nav-current {
+    color: var(--accent-color);
+    font-weight: 600;
+}
+
+.page-nav-separator {
+    color: var(--text-muted);
+}
+
+.page-nav-total {
+    color: var(--text-secondary);
+}
+
+.page-nav-jump {
+    display: flex;
+    align-items: center;
+}
+
+.page-jump-input {
+    width: 53px; /* 50% increase: 35px→52.5px→53px */
+    height: 30px; /* 50% increase: 20px→30px */
+    padding: 0 5px; /* 50% increase: 3px→4.5px→5px */
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 3px; /* Reduced from 4px (25% reduction) */
+    color: var(--text-primary);
+    font-size: 14px; /* 50% increase: 9px→13.5px→14px */
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.page-jump-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.page-jump-input::placeholder {
+    color: var(--text-muted);
+    font-size: 9px;
 }
 
 .page-header h2 {
-    font-size: 26px;
+    font-size: 18px; /* Reduced from 20px (10% reduction) */
     color: var(--text-primary);
     font-weight: 600;
+    margin: 0;
+    line-height: 1.1; /* Even tighter line height */
+    flex-shrink: 0; /* Prevent title from shrinking */
+}
+
+/* Compact Statistics Display */
+.page-stats {
+    display: flex;
+    gap: 8px; /* Reduced from 12px (33% reduction) */
+    align-items: center;
+    margin-left: 8px; /* Reduced from 10px (20% reduction) */
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: 2px; /* Reduced from 3px (33% reduction) */
+    font-size: 9px; /* Reduced from 10px (10% reduction) */
+    color: var(--text-secondary);
+    background: rgba(var(--accent-color-rgb, 102, 126, 234), 0.08); /* Lighter accent background */
+    padding: 2px 4px; /* Reduced from 3px 6px (33% reduction) */
+    border-radius: 6px; /* Reduced from 8px (25% reduction) */
+    border: 1px solid rgba(var(--accent-color-rgb, 102, 126, 234), 0.15); /* Lighter accent border */
+    font-weight: 500;
+    flex-shrink: 0; /* Prevent stats from shrinking */
+}
+
+.stat-item i {
+    font-size: 7px; /* Reduced from 8px (13% reduction) */
+    color: var(--accent-color);
+    opacity: 0.8;
+    flex-shrink: 0; /* Prevent icon from shrinking */
+}
+
+.stat-item strong {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 10px; /* Reduced from 11px (9% reduction) */
+}
+
+/* Legacy classes - kept for compatibility */
+/* Right Column: Two-column layout for controls */
+/* Note: page-header-right styles are defined above to avoid conflicts */
+
+/* Top Row: Filter Controls */
+.page-controls-top {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* Bottom Row: Pagination + Action Controls */
+.page-controls-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* Control Groups - Optimized for two-column layout */
+.controls-group {
+    display: flex;
+    align-items: center;
+    gap: 4px; /* Reduced gap between controls (33% reduction) */
+    flex-wrap: wrap;
+    padding: 2px 4px; /* Reduced padding (33% reduction) */
+    border-radius: 3px; /* Reduced from 4px */
+    background: rgba(var(--bg-secondary-rgb, 248, 249, 250), 0.3); /* Lighter background */
+    border: 1px solid rgba(var(--border-color-rgb, 222, 226, 230), 0.2); /* Lighter border */
+    min-height: 24px; /* Match button height */
+}
+
+.filter-controls {
+    flex-wrap: wrap;
+    max-width: 100%;
+    background: rgba(var(--bg-secondary-rgb, 248, 249, 250), 0.2);
+    flex: 1; /* Allow search to expand */
+    min-width: 300px; /* Minimum width for search functionality */
+    justify-content: flex-end;
+}
+
+.pagination-controls {
+    flex-wrap: nowrap; /* Keep pagination together */
+    background: rgba(var(--bg-secondary-rgb, 248, 249, 250), 0.3);
+    flex-shrink: 0; /* Prevent pagination from shrinking */
+    justify-content: flex-end;
+}
+
+.action-controls {
+    flex-wrap: wrap;
+    background: rgba(var(--bg-secondary-rgb, 248, 249, 250), 0.15);
+    flex-shrink: 0; /* Prevent actions from shrinking */
+    justify-content: flex-end;
+}
+
+/* Compact Search Box - Optimized for flex layout */
+.search-box-compact {
+    display: flex;
+    align-items: center;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 3px; /* Reduced from 4px (25% reduction) */
+    padding: 5px 9px; /* 50% increase: 3px→4.5px→5px, 6px→9px→9px */
+    min-width: 240px; /* 50% increase: 160px→240px */
+    max-width: 360px; /* 50% increase: 240px→360px */
+    transition: all 0.3s ease;
+    position: relative;
+    min-height: 30px; /* 50% increase: 20px→30px */
+    flex: 1; /* Allow search to expand within filter group */
+}
+
+.search-box-compact:focus-within {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.search-box-compact i {
+    color: var(--text-secondary);
+    margin-right: 4px; /* Reduced from 6px (33% reduction) */
+    font-size: 14px; /* 50% increase: 9px→13.5px→14px */
+    flex-shrink: 0; /* Prevent icon from shrinking */
+}
+
+.search-box-compact input {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    flex: 1;
+    font-size: 14px; /* 50% increase: 9px→13.5px→14px */
+    outline: none;
+    padding: 0;
+    margin: 0;
+    min-height: 20px; /* Increased for better usability */
+}
+
+.search-box-compact .clear-search-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 2px 4px;
+    margin-left: 4px;
+    border-radius: 3px;
+    transition: all 0.3s ease;
+    font-size: 10px;
+}
+
+.search-box-compact .clear-search-btn:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+/* Compact Filter Presets - Legacy */
+.filter-presets-compact {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.preset-btn-compact {
+    padding: 2px 5px; /* Reduced from 3px 6px (17% reduction) */
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px; /* Reduced from 8px (25% reduction) */
+    color: var(--text-secondary);
+    font-size: 8px; /* Reduced from 9px (11% reduction) */
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+    min-height: 18px; /* Reduced from 20px (10% reduction) */
+    flex-shrink: 0; /* Prevent preset buttons from shrinking */
+}
+
+.preset-btn-compact:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.preset-btn-compact.active {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+}
+
+/* Large Filter Presets - New for center column */
+.filter-presets-large {
+    display: flex;
+    gap: 4px; /* Reduced from 6px between filter buttons */
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+}
+
+.preset-btn-large {
+    padding: 5px 10px; /* 30% increase: 4px→5.2px→5px, 8px→10.4px→10px (rounded) */
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px; /* Increase from 8px to 10px for proportion */
+    color: var(--text-secondary);
+    font-size: 13px; /* 30% increase: 10px→13px */
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+    min-height: 29px; /* 30% increase: 22px→28.6px→29px */
+    flex-shrink: 0;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); /* Subtle shadow */
+}
+
+.preset-btn-large:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+}
+
+.preset-btn-large.active {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+/* Prominent Add Lead Button */
+.btn-add-lead {
+    padding: 8px 16px !important; /* 30% increase: 6px→7.8px→8px, 12px→15.6px→16px */
+    font-size: 14px !important; /* 30% increase: 11px→14.3px→14px */
+    min-height: 34px !important; /* 30% increase: 26px→33.8px→34px */
+    border-radius: 8px !important; /* Proportional increase */
+    font-weight: 600 !important;
+    box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2) !important;
+    transition: all 0.3s ease !important;
+    flex-shrink: 0;
+}
+
+.btn-add-lead:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3) !important;
+}
+
+/* Compact Button Styles - 30% increase for better accessibility */
+.btn-compact {
+    padding: 4px 8px !important; /* 30% increase: 3px→3.9px→4px, 6px→7.8px→8px */
+    font-size: 12px !important; /* 30% increase: 9px→11.7px→12px */
+    min-height: 26px !important; /* 30% increase: 20px→26px */
+    border-radius: 3px !important; /* Proportional increase from 2px */
+    line-height: 1.1 !important;
+    flex-shrink: 0; /* Prevent buttons from shrinking */
+}
+
+/* Universal Back Button in Page Header */
+.page-header-left #universalBackButton {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    z-index: auto !important;
+    background: linear-gradient(135deg, #667eea, #764ba2, #667eea) !important;
+    background-size: 300% 300% !important;
+    animation: gradientShift 3s ease infinite !important;
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3), 0 3px 10px rgba(118, 75, 162, 0.2) !important;
+    border: 2px solid rgba(255, 255, 255, 0.2) !important;
+    transform: scale(1.0) !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.3px !important;
+    padding: 8px 12px !important;
+    border-radius: 6px !important;
+    transition: all 0.3s ease !important;
+    margin: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+
+.page-header-left #universalBackButton:hover {
+    transform: scale(1.05) translateY(-1px) !important;
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4), 0 4px 15px rgba(118, 75, 162, 0.3) !important;
+    animation-duration: 1s !important;
+}
+
+.page-header-left #universalBackButton i {
+    color: white !important;
+    font-size: 12px !important;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
+}
+
+.page-header-left #universalBackButton span {
+    color: white !important;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
+    font-weight: 600 !important;
+    font-size: 12px !important;
+}
+
+/* Dark theme adjustments for page header back button */
+[data-theme="dark"] .page-header-left #universalBackButton {
+    background: linear-gradient(135deg, #9c27b0, #8e24aa, #9c27b0) !important;
+    box-shadow: 0 6px 20px rgba(156, 39, 176, 0.3), 0 3px 10px rgba(142, 36, 170, 0.2) !important;
+    border: 2px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+[data-theme="dark"] .page-header-left #universalBackButton:hover {
+    box-shadow: 0 8px 25px rgba(156, 39, 176, 0.4), 0 4px 15px rgba(142, 36, 170, 0.3) !important;
+}
+
+/* Responsive Design for Three-Column Layout */
+@media (max-width: 1024px) {
+    /* Tablet: Stack left column, keep center/right side-by-side */
+    .page-header {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+    
+    .page-header-left {
+        flex: 0 0 100%; /* Full width, stacked on top */
+        order: 1;
+        flex-direction: row; /* Horizontal layout for tablet */
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 4px 0;
+    }
+    
+    .page-header-center {
+        flex: 1 1 60%; /* 60% of remaining space */
+        order: 2;
+    }
+    
+    .page-header-right {
+        flex: 1 1 40%; /* 40% of remaining space */
+        order: 3;
+    }
+    
+    /* Adjust sections for horizontal left column */
+    .back-section {
+        flex: 0 0 auto;
+    }
+    
+    .title-section {
+        flex: 1 1 auto;
+        text-align: center;
+    }
+    
+    .stats-section {
+        flex: 0 0 auto;
+    }
+    
+    /* Reduce gaps for tablet */
+    .filters-row {
+        gap: 4px;
+    }
+    
+    .search-pagination-row {
+        gap: 6px;
+    }
+    
+    /* Tablet responsive sizing - 20% increase for filter buttons */
+    .preset-btn-large {
+        padding: 5px 9px; /* 20% increase: 4px→4.8px→5px, 8px→9.6px→9px */
+        font-size: 12px; /* 20% increase: 10px→12px */
+        min-height: 26px; /* 20% increase: 22px→26.4px→26px */
+        border-radius: 9px; /* Proportional increase */
+    }
+    
+    /* Tablet responsive sizing - 35% increase for search box */
+    .search-box-compact {
+        padding: 4px 7px; /* 35% increase: 3px→4.05px→4px, 6px→8.1px→7px */
+        min-width: 216px; /* 35% increase: 160px→216px */
+        max-width: 324px; /* 35% increase: 240px→324px */
+        min-height: 27px; /* 35% increase: 20px→27px */
+    }
+    
+    .search-box-compact i {
+        font-size: 12px; /* 35% increase: 9px→12.15px→12px */
+    }
+    
+    .search-box-compact input {
+        font-size: 12px; /* 35% increase: 9px→12.15px→12px */
+    }
+    
+    /* Tablet responsive sizing - 35% increase for pagination */
+    .page-nav-btn {
+        width: 27px; /* 35% increase: 20px→27px */
+        height: 27px; /* 35% increase: 20px→27px */
+        font-size: 12px; /* 35% increase: 9px→12.15px→12px */
+    }
+    
+    .page-btn {
+        min-width: 27px; /* 35% increase: 20px→27px */
+        height: 27px; /* 35% increase: 20px→27px */
+        font-size: 12px; /* 35% increase: 9px→12.15px→12px */
+        padding: 0 5px; /* 35% increase: 4px→5.4px→5px */
+    }
+    
+    .page-jump-input {
+        width: 47px; /* 35% increase: 35px→47.25px→47px */
+        height: 27px; /* 35% increase: 20px→27px */
+        font-size: 12px; /* 35% increase: 9px→12.15px→12px */
+        padding: 0 4px; /* 35% increase: 3px→4.05px→4px */
+    }
+    
+    .primary-actions-row {
+        gap: 3px;
+    }
+    
+    .secondary-action-row {
+        gap: 3px;
+    }
+    
+    .secondary-action-top {
+        gap: 3px;
+    }
+    
+    .secondary-action-bottom {
+        gap: 3px;
+    }
+    
+    /* Higher specificity responsive rules */
+    .leads-page .page-header-right .secondary-action-top {
+        gap: 3px !important;
+        flex-direction: row !important;
+    }
+    
+    .leads-page .page-header-right .secondary-action-bottom {
+        gap: 3px !important;
+        flex-direction: row !important;
+    }
+    
+    /* Tablet responsive sizing - 20% increase for right column buttons */
+    .btn-compact {
+        padding: 4px 7px !important; /* 20% increase: 3px→3.6px→4px, 6px→7.2px→7px */
+        font-size: 11px !important; /* 20% increase: 9px→10.8px→11px */
+        min-height: 24px !important; /* 20% increase: 20px→24px */
+        border-radius: 3px !important; /* Proportional increase */
+    }
+    
+    .btn-add-lead {
+        padding: 5px 10px !important; /* 20% increase: 6px→7.2px→5px, 12px→14.4px→10px */
+        font-size: 12px !important; /* 20% increase: 11px→13.2px→12px */
+        min-height: 30px !important; /* 20% increase: 26px→31.2px→30px */
+        border-radius: 7px !important; /* Proportional increase */
+    }
+}
+
+@media (max-width: 768px) {
+    /* Mobile: Single column layout with stacked content */
+    .page-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+    }
+    
+    .page-header-left {
+        flex: 1 1 auto; /* Full width */
+        flex-direction: column; /* Vertical layout for mobile */
+        align-items: flex-start;
+        gap: 3px;
+        padding: 2px 0;
+    }
+    
+    .page-header-center {
+        flex: 1 1 auto; /* Full width */
+        gap: 3px;
+    }
+    
+    .page-header-right {
+        flex: 1 1 auto; /* Full width */
+        gap: 3px;
+    }
+    
+    /* Center column adjustments for mobile */
+    .filters-row {
+        justify-content: flex-start;
+        gap: 3px;
+    }
+    
+    .search-pagination-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+    }
+    
+    .filter-presets-large {
+        justify-content: flex-start;
+        gap: 3px;
+    }
+    
+    /* Right column adjustments for mobile */
+    .primary-actions-row {
+        justify-content: flex-start;
+        gap: 3px;
+    }
+    
+    .secondary-action-row {
+        justify-content: flex-start;
+        gap: 3px;
+    }
+    
+    .secondary-action-top {
+        justify-content: flex-start;
+        gap: 3px;
+    }
+    
+    .secondary-action-bottom {
+        justify-content: flex-start;
+        gap: 3px;
+    }
+    
+    /* Higher specificity responsive rules */
+    .leads-page .page-header-right .secondary-action-top {
+        justify-content: flex-start !important;
+        gap: 3px !important;
+        flex-direction: row !important;
+    }
+    
+    .leads-page .page-header-right .secondary-action-bottom {
+        justify-content: flex-start !important;
+        gap: 3px !important;
+        flex-direction: row !important;
+    }
+    
+    /* Mobile responsive sizing - 15% increase for filter buttons */
+    .preset-btn-large {
+        padding: 5px 9px; /* 15% increase: 4px→4.6px→5px, 8px→9.2px→9px */
+        font-size: 11px; /* 15% increase: 10px→11.5px→11px */
+        min-height: 25px; /* 15% increase: 22px→25.3px→25px */
+        border-radius: 9px; /* Proportional increase */
+    }
+    
+    /* Mobile responsive sizing - 15% increase for right column buttons */
+    .btn-compact {
+        padding: 3px 6px !important; /* 15% increase: 3px→3.45px→3px, 6px→6.9px→6px */
+        font-size: 10px !important; /* 15% increase: 9px→10.35px→10px */
+        min-height: 23px !important; /* 15% increase: 20px→23px */
+        border-radius: 3px !important; /* Proportional increase */
+    }
+    
+    .btn-add-lead {
+        padding: 5px 10px !important; /* 15% increase: 6px→6.9px→5px, 12px→13.8px→10px */
+        font-size: 12px !important; /* 15% increase: 11px→12.65px→12px */
+        min-height: 28px !important; /* 15% increase: 26px→29.9px→28px */
+        border-radius: 7px !important; /* Proportional increase */
+    }
+    
+    .page-header-left #universalBackButton {
+        padding: 6px 10px !important;
+        font-size: 11px !important;
+    }
+    
+    .page-header-left #universalBackButton i {
+        font-size: 10px !important;
+    }
+    
+    .page-header-left #universalBackButton span {
+        font-size: 10px !important;
+    }
+}
+
+/* Responsive Design for Three-Column Layout - Large Tablet */
+@media (max-width: 1200px) {
+    /* Start transitioning to tablet layout */
+    .page-header {
+        gap: 8px;
+        padding: 6px 10px;
+    }
+    
+    .page-header-left {
+        gap: 6px;
+    }
+    
+    .page-header-center {
+        gap: 6px;
+    }
+    
+    .page-header-right {
+        gap: 3px; /* Reduced from 6px to accommodate larger buttons */
+    }
+    
+    /* Large tablet responsive sizing - 15% increase for filter buttons */
+    .preset-btn-large {
+        padding: 5px 9px; /* 15% increase: 4px→4.6px→5px, 8px→9.2px→9px */
+        font-size: 11px; /* 15% increase: 10px→11.5px→11px */
+        min-height: 25px; /* 15% increase: 22px→25.3px→25px */
+        border-radius: 9px; /* Proportional increase */
+    }
+    
+    /* Large tablet responsive sizing - 25% increase for search box */
+    .search-box-compact {
+        padding: 4px 7px; /* 25% increase: 3px→3.75px→4px, 6px→7.5px→7px */
+        min-width: 200px; /* 25% increase: 160px→200px */
+        max-width: 300px; /* 25% increase: 240px→300px */
+        min-height: 25px; /* 25% increase: 20px→25px */
+    }
+    
+    .search-box-compact i {
+        font-size: 11px; /* 25% increase: 9px→11.25px→11px */
+    }
+    
+    .search-box-compact input {
+        font-size: 11px; /* 25% increase: 9px→11.25px→11px */
+    }
+    
+    /* Large tablet responsive sizing - 25% increase for right column buttons */
+    .btn-compact {
+        padding: 4px 7px !important; /* 25% increase: 3px→3.75px→4px, 6px→7.5px→7px */
+        font-size: 11px !important; /* 25% increase: 9px→11.25px→11px */
+        min-height: 25px !important; /* 25% increase: 20px→25px */
+        border-radius: 3px !important; /* Proportional increase */
+    }
+    
+    .btn-add-lead {
+        padding: 6px 12px !important; /* 25% increase: 6px→7.5px→6px, 12px→15px→12px */
+        font-size: 13px !important; /* 25% increase: 11px→13.75px→13px */
+        min-height: 32px !important; /* 25% increase: 26px→32.5px→32px */
+        border-radius: 7px !important; /* Proportional increase */
+    }
+    
+    /* Compact pagination for tablet */
+    .header-pagination {
+        gap: 6px;
+        padding: 2px 4px;
+        min-height: 20px;
+    }
+    
+    .page-nav-btn {
+        width: 20px;
+        height: 20px;
+        font-size: 9px;
+    }
+    
+    /* Large tablet responsive sizing - 25% increase for pagination */
+    .page-btn {
+        min-width: 25px; /* 25% increase: 20px→25px */
+        height: 25px; /* 25% increase: 20px→25px */
+        padding: 0 5px; /* 25% increase: 4px→5px */
+        font-size: 11px; /* 25% increase: 9px→11.25px→11px */
+    }
+    
+    .page-nav-info {
+        font-size: 11px; /* 25% increase: 9px→11.25px→11px */
+    }
+    
+    .page-jump-input {
+        width: 44px; /* 25% increase: 35px→43.75px→44px */
+        height: 25px; /* 25% increase: 20px→25px */
+        font-size: 11px; /* 25% increase: 9px→11.25px→11px */
+        padding: 0 4px; /* 25% increase: 3px→3.75px→4px */
+    }
+}
+
+/* Additional mobile optimizations */
+@media (max-width: 768px) {
+    /* Title and stats adjustments */
+    .page-header h2 {
+        font-size: 16px; /* Reduced from 18px (11% reduction) */
+    }
+    
+    .page-stats {
+        gap: 3px;
+        margin-left: 0;
+    }
+    
+    .stat-item {
+        font-size: 8px; /* Reduced from 9px (11% reduction) */
+        padding: 2px 3px; /* Reduced from 2px 4px (25% reduction) */
+    }
+    
+    /* Mobile responsive sizing - 25% increase for search box */
+    .search-box-compact {
+        min-width: 200px; /* 25% increase: 160px→200px */
+        max-width: 300px; /* 25% increase: 240px→300px */
+        padding: 4px 7px; /* 25% increase: 3px→3.75px→4px, 6px→7.5px→7px */
+        min-height: 25px; /* 25% increase: 20px→25px */
+    }
+    
+    .search-box-compact i {
+        font-size: 11px; /* 25% increase: 9px→11.25px→11px */
+    }
+    
+    .search-box-compact input {
+        font-size: 11px; /* 25% increase: 9px→11.25px→11px */
+    }
+    
+    /* Compact button adjustments */
+    .preset-btn-compact {
+        font-size: 7px; /* Reduced from 8px (13% reduction) */
+        padding: 2px 3px; /* Reduced from 2px 4px (25% reduction) */
+        min-height: 16px; /* Reduced from 18px (11% reduction) */
+    }
+    
+    /* Removed conflicting smaller .btn-compact rules - now using larger 30% increase sizes from main styles */
+    
+    /* Mobile responsive sizing - 25% increase for pagination */
+    .header-pagination {
+        gap: 4px;
+        padding: 2px 3px;
+        min-height: 24px;
+    }
+    
+    .page-nav-numbers {
+        display: none; /* Hide page numbers on mobile */
+    }
+    
+    .page-nav-info {
+        font-size: 7px;
+        padding: 0 3px;
+    }
+    
+    .page-nav-jump {
+        display: none; /* Hide jump input on mobile */
+    }
+    
+    .page-nav-btn {
+        width: 25px; /* 25% increase: 20px→25px */
+        height: 25px; /* 25% increase: 20px→25px */
+        font-size: 11px; /* 25% increase: 9px→11.25px→11px */
+    }
+}
+
+@media (max-width: 480px) {
+    /* Small mobile: Ultra-compact single column */
+    .page-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 3px; /* Minimal gap */
+        padding: 3px 6px; /* Further reduced */
+    }
+    
+    .page-header-left {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px; /* Minimal gap */
+    }
+    
+    .page-header h2 {
+        font-size: 14px; /* Reduced from 16px (13% reduction) */
+    }
+    
+    .page-stats {
+        margin-left: 0;
+        gap: 2px; /* Minimal gap */
+    }
+    
+    .stat-item {
+        font-size: 8px; /* Reduced from 9px (11% reduction) */
+        padding: 2px 3px; /* Reduced from 2px 4px (25% reduction) */
+    }
+    
+    .page-header-center {
+        gap: 2px;
+    }
+    
+    .page-header-right {
+        gap: 2px; /* Minimal gap */
+    }
+    
+    /* Center column adjustments for small mobile */
+    .filters-row {
+        gap: 2px;
+    }
+    
+    .search-pagination-row {
+        gap: 3px;
+    }
+    
+    .filter-presets-large {
+        gap: 2px;
+    }
+    
+    /* Right column adjustments for small mobile */
+    .primary-actions-row {
+        gap: 2px;
+    }
+    
+    .secondary-action-row {
+        gap: 2px;
+    }
+    
+    .secondary-action-top {
+        gap: 2px;
+    }
+    
+    .secondary-action-bottom {
+        gap: 2px;
+    }
+    
+    /* Higher specificity responsive rules */
+    .leads-page .page-header-right .secondary-action-top {
+        gap: 2px !important;
+        flex-direction: row !important;
+    }
+    
+    .leads-page .page-header-right .secondary-action-bottom {
+        gap: 2px !important;
+        flex-direction: row !important;
+    }
+    
+    .controls-group {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 2px;
+    }
+    
+    /* Order controls for small mobile */
+    .filter-controls {
+        order: 1;
+    }
+    
+    .pagination-controls {
+        order: 2;
+    }
+    
+    .action-controls {
+        order: 3;
+    }
+    
+    /* Small mobile responsive sizing - 20% increase for search box */
+    .search-box-compact {
+        max-width: 100%;
+        min-height: 24px; /* 20% increase: 20px→24px */
+        padding: 3px 7px; /* 20% increase: 3px→3.6px→3px, 6px→7.2px→7px */
+    }
+    
+    .search-box-compact i {
+        font-size: 11px; /* 20% increase: 9px→10.8px→11px */
+    }
+    
+    .search-box-compact input {
+        font-size: 11px; /* 20% increase: 9px→10.8px→11px */
+    }
+    
+    /* Small mobile responsive sizing - 10% increase for filter buttons */
+    .preset-btn-large {
+        padding: 4px 8px; /* 10% increase: 4px→4.4px→4px, 8px→8.8px→8px */
+        font-size: 11px; /* 10% increase: 10px→11px */
+        min-height: 24px; /* 10% increase: 22px→24.2px→24px */
+        border-radius: 9px; /* Proportional increase */
+    }
+    
+    .btn-add-lead {
+        padding: 4px 8px !important; /* 10% increase: 6px→6.6px→4px, 12px→13.2px→8px */
+        font-size: 11px !important; /* 10% increase: 11px→12.1px→11px */
+        min-height: 26px !important; /* 10% increase: 26px→28.6px→26px */
+        border-radius: 7px !important; /* Proportional increase */
+    }
+    
+    .preset-btn-compact {
+        font-size: 7px; /* Reduced from 8px (13% reduction) */
+        padding: 2px 3px; /* Reduced from 2px 4px (25% reduction) */
+        min-height: 16px; /* Reduced from 18px */
+    }
+    
+    .btn-compact {
+        padding: 3px 6px !important; /* 10% increase: 3px→3.3px→3px, 6px→6.6px→6px */
+        font-size: 10px !important; /* 10% increase: 9px→9.9px→10px */
+        min-height: 22px !important; /* 10% increase: 20px→22px */
+        border-radius: 3px !important; /* Proportional increase */
+    }
+    
+    .page-header-left #universalBackButton {
+        padding: 5px 8px !important;
+        border-radius: 50% !important;
+        width: 32px !important;
+        height: 32px !important;
+        min-width: auto !important;
+    }
+    
+    .page-header-left #universalBackButton span {
+        display: none !important;
+    }
+    
+    .page-header-left #universalBackButton i {
+        font-size: 10px !important;
+    }
+    
+    /* Small mobile responsive sizing - 20% increase for pagination */
+    .header-pagination {
+        gap: 4px;
+        padding: 2px;
+        min-height: 24px;
+    }
+    
+    .page-nav-info {
+        font-size: 7px;
+        padding: 0 2px;
+    }
+    
+    .page-nav-btn {
+        width: 24px; /* 20% increase: 20px→24px */
+        height: 24px; /* 20% increase: 20px→24px */
+        font-size: 11px; /* 20% increase: 9px→10.8px→11px */
+    }
 }
 
 .filters {
@@ -396,31 +1640,6 @@
     flex-wrap: wrap;
 }
 
-.preset-btn {
-    padding: 8px 16px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: 20px;
-    color: var(--text-secondary);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    white-space: nowrap;
-}
-
-.preset-btn:hover {
-    background: var(--accent-color);
-    color: white;
-    border-color: var(--accent-color);
-    transform: translateY(-1px);
-}
-
-.preset-btn.active {
-    background: var(--accent-color);
-    color: white;
-    border-color: var(--accent-color);
-}
 
 .filter-indicator {
     background: var(--accent-color);
@@ -621,55 +1840,130 @@
 
 .leads-table-container {
     background: var(--card-bg);
-    border-radius: 12px;
+    border-radius: 8px; /* Reduced from 12px for more compact look */
     overflow: visible; /* Changed from hidden to allow dropdowns to show */
     border: 1px solid var(--border-color);
     position: relative; /* Ensure positioning context */
+    margin-top: 8px; /* Reduced spacing */
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05); /* Subtle shadow */
 }
 
+/* Maximize table height for better space utilization */
+.leads-table-container {
+    max-height: calc(100vh - 200px); /* Reduced from 280px for more table space */
+    overflow-y: auto;
+}
+
+/* Enhanced table styling for compact layout */
 .leads-table {
     width: 100%;
     border-collapse: collapse;
-}
-
-.leads-table thead {
-    background: var(--sidebar-bg);
+    font-size: 11px; /* Reduced from 13px for more data density */
 }
 
 .leads-table th {
-    padding: 15px;
+    padding: 6px 8px; /* Further reduced from 10px 12px */
     text-align: left;
     font-weight: 600;
-    font-size: 13px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: white;
+    font-size: 10px; /* Reduced to match compact design */
+    background: var(--bg-secondary);
+    border-bottom: 2px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
+.leads-table td {
+    padding: 4px 8px; /* Further reduced from 8px 12px */
+    color: var(--text-primary);
+    font-size: 11px; /* Reduced from 12px */
+    vertical-align: middle;
+}
+
+/* Compact status badges */
+.status-badge {
+    padding: 2px 6px; /* Further reduced from 4px 8px */
+    border-radius: 8px; /* Reduced from 12px */
+    font-size: 9px; /* Reduced from 10px */
+    font-weight: 600;
+    text-transform: capitalize;
+    background: var(--hover-bg);
+}
+
+/* Compact action buttons */
+.btn-action {
+    background: rgba(122, 40, 138, 0.1);
+    border: 1px solid rgba(122, 40, 138, 0.3);
+    color: var(--accent-color);
+    padding: 3px 5px; /* Further reduced from 4px 6px */
+    border-radius: 2px; /* Reduced from 3px */
+    font-size: 9px; /* Reduced from 10px */
+    margin-right: 2px; /* Reduced from 3px */
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+/* Advanced filter panel positioning */
+.advanced-filter-panel {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-top: 8px; /* Reduced from 10px */
+    margin-bottom: 8px; /* Reduced from default */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    animation: slideDown 0.3s ease-out;
+}
+
+/* Optimize table row height for more data visibility */
 .leads-table tbody tr {
     border-bottom: 1px solid var(--border-color);
     transition: all 0.3s ease;
+    height: 32px; /* Reduced from 40px for more compact layout */
 }
 
 .leads-table tbody tr:hover {
     background: var(--hover-bg);
 }
 
-.leads-table td {
-    padding: 9px 15px;
-    color: var(--text-primary);
-    font-size: 14px;
+/* Improve empty state styling */
+.empty-state {
+    padding: 20px 16px !important; /* Reduced from 30px 20px */
 }
 
-.status-badge {
-    display: inline-block;
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: capitalize;
-    background: var(--hover-bg);
+.empty-state i {
+    font-size: 36px; /* Reduced from 48px */
+    color: var(--text-muted);
+    display: block;
+    margin-bottom: 12px; /* Reduced from 15px */
 }
+
+.empty-state p {
+    color: var(--text-secondary);
+    font-size: 14px; /* Reduced from 16px */
+    margin: 0 0 12px 0;
+}
+
+/* Final optimizations for compact layout */
+.leads-page {
+    padding: 0;
+    max-height: calc(100vh - 40px); /* Use full viewport height */
+    overflow: hidden;
+}
+
+/* Ensure pagination doesn't take too much space */
+.pagination {
+    margin: 12px 0 8px 0; /* Reduced margins */
+    padding: 8px 0;
+}
+
+/* Make the main content area scrollable */
+.leads-page > .leads-table-container {
+    flex: 1;
+    overflow: auto;
+}
+
+/* Duplicate styles removed - using compact versions above */
 
 .status-badge.status-sale_done {
     background: var(--success-color);
@@ -686,17 +1980,7 @@
     color: white;
 }
 
-.btn-action {
-    background: rgba(122, 40, 138, 0.1);
-    border: 1px solid rgba(122, 40, 138, 0.3);
-    color: var(--accent-color);
-    padding: 6px 8px;
-    border-radius: 4px;
-    text-decoration: none;
-    font-size: 12px;
-    margin-right: 5px;
-    transition: all 0.3s ease;
-}
+/* Duplicate btn-action styles removed - using compact version above */
 
 .btn-action:hover {
     background: rgba(122, 40, 138, 0.2);
@@ -744,17 +2028,18 @@
 }
 
 .btn-primary {
-    padding: 12px 24px;
+    padding: 8px 16px; /* Reduced from 12px 24px (33% reduction) */
     background: var(--accent-color);
     border: none;
-    border-radius: 8px;
+    border-radius: 6px; /* Reduced from 8px (25% reduction) */
     color: white;
     font-weight: 600;
+    font-size: 13px; /* Added for consistency */
     cursor: pointer;
     transition: all 0.3s ease;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px; /* Reduced from 8px (25% reduction) */
 }
 
 .btn-primary:hover {
@@ -785,17 +2070,18 @@
 }
 
 .btn-secondary {
-    padding: 12px 24px;
+    padding: 8px 16px; /* Reduced from 12px 24px (33% reduction) */
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 6px; /* Reduced from 8px (25% reduction) */
     color: var(--text-primary);
     font-weight: 600;
+    font-size: 13px; /* Added for consistency */
     cursor: pointer;
     transition: all 0.3s ease;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px; /* Reduced from 8px (25% reduction) */
     text-decoration: none;
 }
 
@@ -805,17 +2091,18 @@
 }
 
 .btn-warning {
-    padding: 12px 24px;
+    padding: 8px 16px; /* Reduced from 12px 24px (33% reduction) */
     background: var(--warning-color);
     border: none;
-    border-radius: 8px;
+    border-radius: 6px; /* Reduced from 8px (25% reduction) */
     color: white;
     font-weight: 600;
+    font-size: 13px; /* Added for consistency */
     cursor: pointer;
     transition: all 0.3s ease;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px; /* Reduced from 8px (25% reduction) */
 }
 
 .btn-warning:hover {
@@ -824,17 +2111,18 @@
 }
 
 .btn-danger {
-    padding: 12px 24px;
+    padding: 8px 16px; /* Reduced from 12px 24px (33% reduction) */
     background: var(--danger-color);
     border: none;
-    border-radius: 8px;
+    border-radius: 6px; /* Reduced from 8px (25% reduction) */
     color: white;
     font-weight: 600;
+    font-size: 13px; /* Added for consistency */
     cursor: pointer;
     transition: all 0.3s ease;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px; /* Reduced from 8px (25% reduction) */
 }
 
 .btn-danger:hover {
@@ -843,8 +2131,8 @@
 }
 
 .btn-sm {
-    padding: 6px 12px;
-    font-size: 12px;
+    padding: 4px 8px; /* Reduced from 6px 12px (33% reduction) */
+    font-size: 11px; /* Reduced from 12px (8% reduction) */
 }
 
 .btn-outline {
@@ -1529,11 +2817,101 @@
 </form>
 
 <script>
+// Pagination Navigation Functions
+function navigateToPage(pageNum) {
+    // Get current filter parameters
+    const params = new URLSearchParams(window.location.search);
+    
+    // Update page parameter
+    params.set('page', pageNum);
+    
+    // Navigate to new page
+    window.location.href = `${window.location.pathname}?${params.toString()}`;
+}
+
+function handlePageJump() {
+    const jumpInput = document.querySelector('.page-jump-input');
+    if (!jumpInput) return;
+    
+    const pageNum = parseInt(jumpInput.value);
+    const maxPage = parseInt(jumpInput.getAttribute('max'));
+    
+    if (pageNum && pageNum >= 1 && pageNum <= maxPage) {
+        navigateToPage(pageNum);
+    } else {
+        // Reset to current page if invalid
+        jumpInput.value = '{{ page_obj.number|escapejs }}';
+    }
+}
+
 // Search functionality
 let searchTimeout;
 
 function getCurrentSearch() {
     return document.getElementById('search-input').value.trim();
+}
+
+// Dynamic Filter Snapshot Capture
+function getCurrentFilterSnapshot() {
+    const params = new URLSearchParams();
+    
+    // Capture search query
+    const searchValue = document.getElementById('search-input').value.trim();
+    if (searchValue) {
+        params.set('search', searchValue);
+    }
+    
+    // Capture advanced filter values
+    const status = document.getElementById('status-select').value;
+    if (status) {
+        params.set('status', status);
+    }
+    
+    const country = document.getElementById('country-select').value;
+    if (country) {
+        params.set('country', country);
+    }
+    
+    const course = document.getElementById('course-select').value;
+    if (course) {
+        params.set('course', course);
+    }
+    
+    const startDate = document.getElementById('start-date').value;
+    if (startDate) {
+        params.set('start_date', startDate);
+    }
+    
+    const endDate = document.getElementById('end-date').value;
+    if (endDate) {
+        params.set('end_date', endDate);
+    }
+    
+    const assignedUser = document.getElementById('assigned-user-select').value;
+    if (assignedUser) {
+        params.set('assigned_user', assignedUser);
+    }
+    
+    const pageSize = document.getElementById('page-size-select').value;
+    if (pageSize) {
+        params.set('page_size', pageSize);
+    }
+    
+    // Capture current preset filter if active
+    const activePresetBtn = document.querySelector('.preset-btn-compact.active');
+    if (activePresetBtn) {
+        const preset = activePresetBtn.getAttribute('data-preset');
+        if (preset) {
+            params.set('preset', preset);
+        }
+    }
+    
+    // Capture sort order (from URL or default)
+    const urlParams = new URLSearchParams(window.location.search);
+    const sort = urlParams.get('sort') || '-created_at';
+    params.set('sort', sort);
+    
+    return params.toString();
 }
 
 // Advanced Filter System
@@ -1672,6 +3050,9 @@ function applyAdvancedFilters() {
 }
 
 function clearAllFilters() {
+    // Set flag to prevent change events during clear operation
+    isClearingFilters = true;
+    
     // Reset all filter fields
     document.getElementById('country-select').value = '';
     document.getElementById('course-select').value = '';
@@ -1679,10 +3060,10 @@ function clearAllFilters() {
     document.getElementById('start-date').value = '';
     document.getElementById('end-date').value = '';
     document.getElementById('assigned-user-select').value = '';
-    document.getElementById('page-size-select').value = '25';
+    document.getElementById('page-size-select').value = '100';
     document.getElementById('search-input').value = '';
     
-    // Clear URL
+    // Clear URL including preset parameter
     updateUrl({
         country: '',
         course: '',
@@ -1690,9 +3071,15 @@ function clearAllFilters() {
         start_date: '',
         end_date: '',
         assigned_user: '',
-        page_size: '25',
-        search: ''
+        page_size: '100',
+        search: '',
+        preset: ''
     });
+    
+    // Reset flag after updateUrl completes
+    setTimeout(() => {
+        isClearingFilters = false;
+    }, 100);
 }
 
 function applyPreset(preset) {
@@ -1734,6 +3121,7 @@ function applyPreset(preset) {
             params.preset = 'my';
             break;
     }
+    
     
     updateUrl(params);
 }
@@ -1808,6 +3196,7 @@ function updateUrl(params) {
     // Reset to page 1 when filters change
     url.searchParams.delete('page');
     
+    
     window.location.href = url.toString();
 }
 
@@ -1861,7 +3250,11 @@ function openBulkAssignModal() {
 // Bulk selection functionality
 let selectedLeads = new Set();
 
+// Flag to prevent change events during clear operation
+let isClearingFilters = false;
+
 document.addEventListener("DOMContentLoaded", function() {
+    
     const selectAllCheckbox = document.getElementById('select-all-checkbox');
     const leadCheckboxes = document.querySelectorAll('.lead-checkbox');
     const bulkAssignBtn = document.getElementById('bulk-assign-btn');
@@ -1881,7 +3274,7 @@ document.addEventListener("DOMContentLoaded", function() {
     const advancedFilterToggle = document.getElementById('advanced-filter-toggle');
     const applyFiltersBtn = document.getElementById('apply-filters');
     const clearFiltersBtn = document.getElementById('clear-filters');
-    const presetBtns = document.querySelectorAll('.preset-btn');
+    const presetBtns = document.querySelectorAll('.preset-btn-compact');
     const pageSizeSelect = document.getElementById('page-size-select');
     const totalFilteredCount = parseInt('{{ total_filtered_count|default:0 }}', 10) || 0;
     let selectionScope = 'current_page';
@@ -1935,6 +3328,27 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     });
     
+    // Pagination event listeners
+    const pageJumpInput = document.querySelector('.page-jump-input');
+    if (pageJumpInput) {
+        pageJumpInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handlePageJump();
+            }
+        });
+        
+        pageJumpInput.addEventListener('blur', function() {
+            // Validate and reset if invalid
+            const pageNum = parseInt(this.value);
+            const maxPage = parseInt(this.getAttribute('max'));
+            
+            if (!pageNum || pageNum < 1 || pageNum > maxPage) {
+                this.value = '{{ page_obj.number|escapejs }}';
+            }
+        });
+    }
+    
     // Search input event listener with debouncing
     if (searchInput) {
         searchInput.addEventListener('input', debounceSearch);
@@ -1968,6 +3382,11 @@ document.addEventListener("DOMContentLoaded", function() {
     // Page size select event listener
     if (pageSizeSelect) {
         pageSizeSelect.addEventListener('change', function() {
+            // Skip updateUrl during clearAllFilters operation to prevent interference
+            if (isClearingFilters) {
+                return;
+            }
+            
             updateUrl({
                 page_size: this.value, 
                 status: statusSelect ? statusSelect.value : '{{ request.GET.status|default:"" }}',
@@ -2054,6 +3473,13 @@ document.addEventListener("DOMContentLoaded", function() {
                 selectAllCheckbox.checked = false;
                 selectAllCheckbox.indeterminate = false;
             }
+            
+            // Capture current filter state dynamically
+            const currentFilterSnapshot = getCurrentFilterSnapshot();
+            
+            // Store the dynamic filter snapshot for use in bulk operations
+            window.dynamicFilterSnapshot = currentFilterSnapshot;
+            
             selectionScope = 'all_filtered';
             updateBulkActionButtons();
             showNotification(`All filtered leads selected (${totalFilteredCount}).`, 'success');
@@ -2063,6 +3489,7 @@ document.addEventListener("DOMContentLoaded", function() {
     // Clear selection button
     if (clearSelectionBtn) {
         clearSelectionBtn.addEventListener('click', function() {
+            // Clear all checkboxes (existing functionality)
             leadCheckboxes.forEach(function(checkbox) {
                 checkbox.checked = false;
             });
@@ -2072,6 +3499,15 @@ document.addEventListener("DOMContentLoaded", function() {
             }
             selectionScope = 'current_page';
             updateBulkActionButtons();
+            
+            // Clear all filter fields
+            clearAllFilters();
+            
+            // Remove active state from all preset buttons
+            const presetBtns = document.querySelectorAll('.preset-btn-compact');
+            presetBtns.forEach(function(btn) {
+                btn.classList.remove('active');
+            });
         });
     }
     
@@ -2107,7 +3543,9 @@ document.addEventListener("DOMContentLoaded", function() {
                 });
             }
             document.getElementById('bulk-delete-action-scope').value = selectionScope;
-            document.getElementById('bulk-delete-filter-snapshot').value = '{{ filter_snapshot|default:"" }}';
+            // Use dynamic filter snapshot if available, otherwise fall back to template snapshot
+            const filterSnapshotField = document.getElementById('bulk-delete-filter-snapshot');
+            filterSnapshotField.value = window.dynamicFilterSnapshot || '{{ filter_snapshot|default:"" }}';
             document.getElementById('bulk-delete-scope-count').value = scopeTarget;
             form.submit();
         });
@@ -2136,7 +3574,9 @@ document.addEventListener("DOMContentLoaded", function() {
                 });
             }
             document.getElementById('bulk-restore-action-scope').value = selectionScope;
-            document.getElementById('bulk-restore-filter-snapshot').value = '{{ filter_snapshot|default:"" }}';
+            // Use dynamic filter snapshot if available, otherwise fall back to template snapshot
+            const restoreFilterSnapshotField = document.getElementById('bulk-restore-filter-snapshot');
+            restoreFilterSnapshotField.value = window.dynamicFilterSnapshot || '{{ filter_snapshot|default:"" }}';
             document.getElementById('bulk-restore-scope-count').value = scopeTarget;
             form.submit();
         });
@@ -2150,7 +3590,9 @@ document.addEventListener("DOMContentLoaded", function() {
                 return;
             }
             document.getElementById('purge-confirm-text').value = confirmation;
-            document.getElementById('purge-filter-snapshot').value = '{{ filter_snapshot|default:"" }}';
+            // Use dynamic filter snapshot if available, otherwise fall back to template snapshot
+            const purgeFilterSnapshotField = document.getElementById('purge-filter-snapshot');
+            purgeFilterSnapshotField.value = window.dynamicFilterSnapshot || '{{ filter_snapshot|default:"" }}';
             document.getElementById('purge-scope-count').value = totalFilteredCount;
             document.getElementById('purge-trash-form').submit();
         });
@@ -2192,7 +3634,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const assignedUserValue = document.getElementById('assigned-user-select') ? document.getElementById('assigned-user-select').value : '';
         
         // Check if any preset is active
-        const activePreset = document.querySelector('.preset-btn.active');
+        const activePreset = document.querySelector('.preset-btn-compact.active');
         const presetActive = activePreset && activePreset.dataset.preset !== '';
         
         return !!(searchValue || statusValue || countryValue || courseValue || 
@@ -2252,7 +3694,8 @@ document.addEventListener("DOMContentLoaded", function() {
         const filterInput = document.createElement('input');
         filterInput.type = 'hidden';
         filterInput.name = 'filter_snapshot';
-        filterInput.value = '{{ filter_snapshot|default:"" }}';
+        // Use dynamic filter snapshot if available, otherwise fall back to template snapshot
+        filterInput.value = window.dynamicFilterSnapshot || '{{ filter_snapshot|default:"" }}';
         leadIdsContainer.appendChild(filterInput);
 
         if (selectionScope === 'current_page') {

@@ -1,5 +1,6 @@
 {% extends 'dashboard/base_dashboard.html' %}
 
+
 {% block page_title %}Import Leads{% endblock %}
 
 {% block content %}
@@ -24,11 +25,12 @@
             </div>
             
             <div class="info-section">
-                <h4>📋 Required Columns</h4>
+                <h4>📋 Data Import</h4>
                 <ul>
-                    <li><strong style="color: #e74c3c;">name</strong> - Lead's full name</li>
-                    <li><strong style="color: #e74c3c;">mobile</strong> - Primary mobile number</li>
-                    <li><strong style="color: #e74c3c;">email</strong> - Email address</li>
+                    <li>All data accepted as provided</li>
+                    <li>No format restrictions</li>
+                    <li>No required fields</li>
+                    <li>Admin-controlled data import</li>
                 </ul>
             </div>
             
@@ -46,15 +48,12 @@
             </div>
             
             <div class="info-section">
-                <h4>⚠️ Important Notes</h4>
+                <h4>✅ Import Freedom</h4>
                 <ul>
-                    <li>Duplicate mobile numbers or emails will be skipped</li>
-                    <li>Invalid dates will be ignored</li>
-                    <li><strong>New leads will be unassigned by default</strong> - you can assign them later</li>
-                    <li>Make sure your file has proper headers in first row</li>
-                    <li><strong>Encoding Issues:</strong> If you get encoding errors, try saving your CSV as UTF-8</li>
-                    <li><strong>File Format:</strong> CSV files should use comma (,) as separator</li>
-                    <li><strong>Special Characters:</strong> Avoid special characters in mobile numbers</li>
+                    <li>Any mobile number format accepted</li>
+                    <li>Missing fields handled gracefully</li>
+                    <li>No data validation errors</li>
+                    <li>Import exactly as provided</li>
                 </ul>
             </div>
         </div>

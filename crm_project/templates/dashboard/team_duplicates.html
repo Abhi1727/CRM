@@ -1,5 +1,6 @@
 {% extends 'dashboard/base_dashboard.html' %}
 
+
 {% block page_title %}{{ page_title }}{% endblock %}
 
 {% block content %}
@@ -138,9 +139,7 @@
             {% endfor %}
         </div>
         
-        <!-- Enhanced Pagination -->
-        {% include 'dashboard/pagination.html' with item_name="groups" %}
-        {% else %}
+                {% else %}
         <div class="empty-state">
             <i class="fas fa-copy"></i>
             <h3>No Duplicate Groups Found</h3>

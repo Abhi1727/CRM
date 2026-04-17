@@ -630,6 +630,16 @@ class QuickActionsMenu {
         document.addEventListener('contextmenu', (e) => {
             const leadRow = e.target.closest('tbody tr');
             if (leadRow && !leadRow.classList.contains('empty-state')) {
+                // Only prevent context menu if clicking on interactive elements, not text content
+                const isInteractiveElement = e.target.closest('.lead-checkbox, .status-badge, .editable-field, .action-buttons, .quick-actions-trigger');
+                const isTextContent = e.target.closest('.field-content, .lead-name-link, td');
+                
+                // Allow native context menu for text selection and copying
+                if (isTextContent && !isInteractiveElement) {
+                    return; // Allow default context menu for text copying
+                }
+                
+                // Prevent context menu for interactive elements
                 e.preventDefault();
                 this.showMenu(e, leadRow);
             }
@@ -892,9 +902,11 @@ class KeyboardShortcuts {
     setupShortcuts() {
         // Define shortcuts
         this.shortcuts.set('ctrl+c', () => {
-            if (window.quickActionsMenu && window.quickActionsMenu.currentLeadId) {
+            // Only override Ctrl+C if quick actions menu is active and user is not selecting text
+            if (window.quickActionsMenu && window.quickActionsMenu.currentLeadId && !this.isTextSelected()) {
                 window.quickActionsMenu.executeAction('call', window.quickActionsMenu.currentLeadId);
             }
+            // Otherwise, allow native copy behavior by not preventing default
         });
 
         this.shortcuts.set('ctrl+e', () => {
@@ -933,9 +945,20 @@ class KeyboardShortcuts {
             const key = this.getKeyString(e);
             
             if (this.shortcuts.has(key)) {
-                e.preventDefault();
-                const action = this.shortcuts.get(key);
-                action();
+                // For Ctrl+C, only prevent default if we're going to handle it
+                if (key === 'ctrl+c') {
+                    if (window.quickActionsMenu && window.quickActionsMenu.currentLeadId && !this.isTextSelected()) {
+                        e.preventDefault();
+                        const action = this.shortcuts.get(key);
+                        action();
+                    }
+                    // If text is selected or no quick actions context, don't prevent default
+                } else {
+                    // For other shortcuts, prevent default as before
+                    e.preventDefault();
+                    const action = this.shortcuts.get(key);
+                    action();
+                }
             }
         });
     }
@@ -985,6 +1008,11 @@ class KeyboardShortcuts {
             searchInput.focus();
             searchInput.select();
         }
+    }
+
+    isTextSelected() {
+        const selection = window.getSelection();
+        return selection && selection.toString().trim().length > 0;
     }
 }
 

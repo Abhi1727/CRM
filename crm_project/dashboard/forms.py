@@ -193,9 +193,9 @@ class LeadImportForm(forms.Form):
             if f'.{file_extension}' not in allowed_extensions:
                 raise ValidationError("Only CSV and Excel files are allowed.")
             
-            # Check file size (max 10MB)
-            if file.size > 10 * 1024 * 1024:
-                raise ValidationError("File size must be less than 10MB.")
+            # Check file size (max 100MB for enterprise imports)
+            if file.size > 100 * 1024 * 1024:
+                raise ValidationError("File size must be less than 100MB.")
         
         return file
 

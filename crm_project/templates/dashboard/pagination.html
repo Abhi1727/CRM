@@ -73,6 +73,12 @@
     border: 1px solid var(--border-color);
     flex-wrap: wrap;
     gap: 15px;
+    position: sticky;
+    bottom: 20px;
+    transform: translateY(-5%);
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
 }
 
 .pagination-info {
@@ -231,6 +237,11 @@
         flex-direction: column;
         align-items: stretch;
         text-align: center;
+        position: sticky;
+        bottom: 10px;
+        transform: translateY(-5%);
+        z-index: 100;
+        margin: 10px;
     }
     
     .pagination-info {
@@ -259,6 +270,11 @@
 @media (max-width: 480px) {
     .enhanced-pagination {
         padding: 15px;
+        position: sticky;
+        bottom: 5px;
+        transform: translateY(-5%);
+        z-index: 100;
+        margin: 5px;
     }
     
     .page-btn {

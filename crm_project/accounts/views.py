@@ -201,10 +201,31 @@ def edit_user(request, user_id):
         
         if form.is_valid():
             try:
-                updated_user = form.save()
-                messages.success(request, f'User {updated_user.username} updated successfully.')
-                return redirect('accounts:user_list')
+                from django.db import transaction
+                import logging
+                logger = logging.getLogger(__name__)
+                
+                with transaction.atomic():
+                    # Check if password is being changed
+                    password_changed = bool(form.cleaned_data.get('password'))
+                    
+                    # Save the user with all changes including password
+                    updated_user = form.save()
+                    
+                    # Log the update
+                    if password_changed:
+                        logger.info(f"User {updated_user.username} updated with password change by {request.user.username}")
+                        messages.success(request, f'User {updated_user.username} updated successfully. Password has been changed and user will need to login again.')
+                    else:
+                        logger.info(f"User {updated_user.username} updated by {request.user.username}")
+                        messages.success(request, f'User {updated_user.username} updated successfully.')
+                    
+                    return redirect('accounts:user_list')
+                    
             except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error updating user {target_user.username}: {str(e)}")
                 messages.error(request, f'Error updating user: {str(e)}')
         else:
             messages.error(request, 'Please correct the errors below.')
@@ -223,6 +244,7 @@ def edit_user(request, user_id):
         'can_edit_role': form._can_edit_role() if hasattr(form, '_can_edit_role') else False,
         'can_edit_hierarchy': form._can_edit_hierarchy() if hasattr(form, '_can_edit_hierarchy') else False,
         'can_edit_status': form._can_edit_status() if hasattr(form, '_can_edit_status') else False,
+        'can_manage_password': form._can_manage_password() if hasattr(form, '_can_manage_password') else False,
     }
     return render(request, 'accounts/edit_user.html', context)
 

@@ -469,17 +469,149 @@ class CustomPasswordChangeForm(PasswordChangeForm):
             if not any(c.isdigit() for c in password):
                 raise forms.ValidationError('Password must contain at least one number')
             
-            # Check for common patterns
-            common_patterns = ['password', '123456', 'qwerty', 'admin', 'user']
-            password_lower = password.lower()
-            if any(pattern in password_lower for pattern in common_patterns):
-                raise forms.ValidationError('Password cannot contain common patterns like "password", "123456", etc.')
-            
-            # Check if password contains username
-            if self.user.username.lower() in password_lower:
-                raise forms.ValidationError('Password cannot contain your username')
+            # Password validation restrictions removed - users can set any password content
         
         return password
+
+
+class PasswordVisibilityWidget(forms.widgets.TextInput):
+    """Custom password widget with visibility toggle"""
+    
+    def __init__(self, attrs=None):
+        default_attrs = {
+            'class': 'form-control',
+            'placeholder': 'Enter password'
+        }
+        if attrs:
+            default_attrs.update(attrs)
+        super().__init__(default_attrs)
+    
+    def render(self, name, value, attrs=None, renderer=None):
+        from django.utils.safestring import mark_safe
+        from django.utils.html import escape
+        
+        if attrs is None:
+            attrs = {}
+        
+        # Add password visibility toggle attributes
+        attrs['data-password-toggle'] = 'true'
+        attrs['autocomplete'] = 'new-password'
+        
+        # Render the input field
+        input_html = super().render(name, value, attrs, renderer)
+        
+        # Add the visibility toggle button
+        toggle_html = f'''
+        <div class="input-group">
+            {input_html}
+            <button type="button" class="btn btn-outline-secondary password-toggle-btn" data-target="{attrs.get('id', name)}">
+                <i class="bi bi-eye" id="{attrs.get('id', name)}-icon"></i>
+            </button>
+        </div>
+        '''
+        
+        return mark_safe(toggle_html)
+
+
+class AdminPasswordForm(forms.Form):
+    """Form for admins to set new passwords for users"""
+    
+    new_password1 = forms.CharField(
+        widget=PasswordVisibilityWidget,
+        label='New Password',
+        help_text='Password must be at least 8 characters long and contain letters and numbers'
+    )
+    new_password2 = forms.CharField(
+        widget=PasswordVisibilityWidget,
+        label='Confirm Password',
+        help_text='Enter the same password as above for verification'
+    )
+    
+    def __init__(self, *args, **kwargs):
+        self.target_user = kwargs.pop('target_user', None)
+        self.editor = kwargs.pop('editor', None)
+        super().__init__(*args, **kwargs)
+        
+        # Add password generation button
+        self.fields['new_password1'].help_text += (
+            '<br><button type="button" class="btn btn-sm btn-outline-primary generate-password-btn" '
+            'data-target="id_new_password1">Generate Secure Password</button>'
+        )
+    
+    def clean_new_password1(self):
+        password = self.cleaned_data.get('new_password1')
+        if password:
+            # Enhanced password validation
+            if len(password) < 8:
+                raise forms.ValidationError('Password must be at least 8 characters long')
+            
+            # Check for at least one letter
+            if not any(c.isalpha() for c in password):
+                raise forms.ValidationError('Password must contain at least one letter')
+            
+            # Check for at least one digit
+            if not any(c.isdigit() for c in password):
+                raise forms.ValidationError('Password must contain at least one number')
+            
+            # Check for at least one special character (optional but recommended)
+            special_chars = '!@#$%^&*()_+-=[]{}|;:,.<>?'
+            if not any(c in special_chars for c in password):
+                raise forms.ValidationError('Password must contain at least one special character')
+            
+            # Password validation restrictions removed - users can set any password content
+        
+        return password
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        password1 = cleaned_data.get('new_password1')
+        password2 = cleaned_data.get('new_password2')
+        
+        if password1 and password2 and password1 != password2:
+            raise forms.ValidationError('The two password fields didn\'t match.')
+        
+        return cleaned_data
+    
+    def save(self):
+        """Save the new password to the target user"""
+        if not self.target_user:
+            raise ValueError('Target user is required')
+        
+        password = self.cleaned_data['new_password1']
+        self.target_user.set_password(password)
+        self.target_user.save()
+        
+        return self.target_user
+    
+    def generate_secure_password(self):
+        """Generate a secure random password"""
+        import secrets
+        import string
+        
+        # Define character sets
+        lowercase = string.ascii_lowercase
+        uppercase = string.ascii_uppercase
+        digits = string.digits
+        special = '!@#$%^&*()_+-=[]{}|;:,.<>?'
+        
+        # Ensure password has at least one character from each set
+        password = [
+            secrets.choice(lowercase),
+            secrets.choice(uppercase),
+            secrets.choice(digits),
+            secrets.choice(special)
+        ]
+        
+        # Fill the rest of the password with random characters from all sets
+        all_chars = lowercase + uppercase + digits + special
+        for _ in range(8):  # Make it 12 characters total
+            password.append(secrets.choice(all_chars))
+        
+        # Shuffle the password to avoid predictable patterns
+        secrets.SystemRandom().shuffle(password)
+        
+        return ''.join(password)
+
 
 class UserEditForm(forms.ModelForm):
     """Form for editing user details with role-based permissions"""
@@ -523,6 +655,21 @@ class UserEditForm(forms.ModelForm):
                 required=True,
                 initial=self.target_user.account_status,
                 help_text='Account status'
+            )
+        
+        # Add password management fields if editor can manage passwords
+        if self._can_manage_password():
+            self.fields['password'] = forms.CharField(
+                widget=PasswordVisibilityWidget,
+                required=False,
+                label='New Password',
+                help_text='Leave blank to keep current password. Must be at least 8 characters with letters, numbers, and special characters.'
+            )
+            self.fields['confirm_password'] = forms.CharField(
+                widget=PasswordVisibilityWidget,
+                required=False,
+                label='Confirm Password',
+                help_text='Enter the same password as above for verification'
             )
         
         # Restrict fields based on permissions
@@ -571,6 +718,25 @@ class UserEditForm(forms.ModelForm):
             return self.target_user == self.editor
         
         # Agents cannot change status
+        return False
+    
+    def _can_manage_password(self):
+        """Check if editor can manage the target user's password"""
+        # Owner can manage anyone's password
+        if self.editor.role == 'owner':
+            return True
+        
+        # Manager can manage passwords of team leads and agents in their hierarchy
+        if self.editor.role == 'manager':
+            return (self.target_user.manager == self.editor or 
+                   (self.target_user.team_lead and self.target_user.team_lead.manager == self.editor))
+        
+        # Team lead can manage passwords of agents only
+        if self.editor.role == 'team_lead':
+            return (self.target_user.role == 'agent' and 
+                   self.target_user.team_lead == self.editor)
+        
+        # Agents cannot manage other users' passwords
         return False
     
     def _get_allowed_roles_for_edit(self):
@@ -742,6 +908,39 @@ class UserEditForm(forms.ModelForm):
             if self.editor.role in ['owner', 'manager']:
                 raise forms.ValidationError('Agents must be assigned to either a manager or team lead.')
         
+        # Validate password fields if present
+        password = cleaned_data.get('password')
+        confirm_password = cleaned_data.get('confirm_password')
+        
+        if password or confirm_password:
+            if not password and not confirm_password:
+                pass  # Both empty, no password change
+            elif password and not confirm_password:
+                self.add_error('confirm_password', 'Please confirm the password.')
+            elif not password and confirm_password:
+                self.add_error('password', 'Please enter a password.')
+            elif password != confirm_password:
+                self.add_error('confirm_password', 'Passwords do not match.')
+            else:
+                # Password strength validation
+                if len(password) < 8:
+                    self.add_error('password', 'Password must be at least 8 characters long.')
+                
+                # Check for at least one letter
+                if not any(c.isalpha() for c in password):
+                    self.add_error('password', 'Password must contain at least one letter.')
+                
+                # Check for at least one digit
+                if not any(c.isdigit() for c in password):
+                    self.add_error('password', 'Password must contain at least one number.')
+                
+                # Check for at least one special character
+                special_chars = '!@#$%^&*()_+-=[]{}|;:,.<>?'
+                if not any(c in special_chars for c in password):
+                    self.add_error('password', 'Password must contain at least one special character.')
+                
+                # Password validation restrictions removed - users can set any password content
+        
         return cleaned_data
     
     def save(self, commit=True):
@@ -776,8 +975,35 @@ class UserEditForm(forms.ModelForm):
             elif user.account_status in ['inactive', 'suspended']:
                 user.is_active = False
         
+        # Handle password change if provided
+        password_changed = False
+        if self._can_manage_password() and self.cleaned_data.get('password'):
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            logger.info(f"Password change for user {user.username} by {self.editor.username}")
+            user.set_password(self.cleaned_data['password'])
+            password_changed = True
+        
         if commit:
             user.save()
+            
+            # Log password change if it occurred
+            if password_changed:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Password successfully changed for user {user.username} by {self.editor.username}")
+                
+                # Invalidate user sessions if password was changed (except for self-changes)
+                if user != self.editor:
+                    # Use optimized session invalidation for fast performance
+                    from accounts.services.session_manager import invalidate_user_sessions_fast
+                    
+                    # Clear all sessions for the target user to force re-login (optimized)
+                    session_count = invalidate_user_sessions_fast(user.id, timeout=30)
+                    
+                    if session_count > 0:
+                        logger.info(f"Invalidated {session_count} sessions for user {user.username} after password change")
             
             # Additional cache invalidation for the editor and affected users
             self._clear_editor_caches(original_role, original_manager, original_team_lead, original_status)

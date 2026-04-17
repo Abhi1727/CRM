@@ -40,6 +40,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const sidebar = document.getElementById('sidebar');
     const mobileToggle = document.getElementById('mobileToggle');
     const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebarThemeToggle = document.getElementById('sidebarThemeToggle');
+    const sidebarThemeIcon = document.getElementById('sidebarThemeIcon');
+    const topBar = document.querySelector('.top-bar');
     
     // SIMPLIFIED THEME TOGGLE - DIRECT APPROACH
     console.log('Initializing theme toggle...');
@@ -65,6 +68,7 @@ document.addEventListener('DOMContentLoaded', function() {
             html.removeAttribute('data-theme');
             localStorage.setItem('theme', 'light');
             if (themeIcon) themeIcon.className = 'fas fa-moon';
+            if (sidebarThemeIcon) sidebarThemeIcon.className = 'fas fa-moon';
             console.log('Switched to light mode');
             
             // Apply light styles immediately
@@ -76,6 +80,7 @@ document.addEventListener('DOMContentLoaded', function() {
             html.setAttribute('data-theme', 'dark');
             localStorage.setItem('theme', 'dark');
             if (themeIcon) themeIcon.className = 'fas fa-sun';
+            if (sidebarThemeIcon) sidebarThemeIcon.className = 'fas fa-sun';
             console.log('Switched to dark mode');
             
             // Apply dark styles immediately
@@ -84,7 +89,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Add click listener
+    // Add click listener for top-bar theme toggle
     if (themeToggle) {
         themeToggle.addEventListener('click', function(e) {
             e.preventDefault();
@@ -102,23 +107,43 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         console.log('Theme toggle listener added successfully');
-        
     } else {
-        console.error('Theme toggle button NOT found!');
+        console.log('Top-bar theme toggle not found (expected on leads pages)');
+    }
+    
+    // Add click listener for sidebar theme toggle
+    if (sidebarThemeToggle) {
+        sidebarThemeToggle.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('Sidebar theme toggle clicked!');
+            toggleTheme();
+        });
         
-        // Try to find any element with theme-toggle class
-        const fallback = document.querySelector('.theme-toggle');
-        if (fallback) {
+        console.log('Sidebar theme toggle listener added successfully');
+    }
+    
+    // Show sidebar theme toggle if no top-bar
+    if (!topBar && sidebarThemeToggle) {
+        sidebarThemeToggle.style.display = 'flex';
+        console.log('Showing sidebar theme toggle (no top-bar found)');
+    }
+    
+    // Try to find any fallback theme toggle elements
+    const fallbackToggles = document.querySelectorAll('.theme-toggle');
+    fallbackToggles.forEach(fallback => {
+        if (fallback !== themeToggle && fallback !== sidebarThemeToggle) {
             console.log('Found fallback theme toggle:', fallback);
             fallback.addEventListener('click', toggleTheme);
         }
-    }
+    });
     
     // Initialize theme on load
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark') {
         document.documentElement.setAttribute('data-theme', 'dark');
         if (themeIcon) themeIcon.className = 'fas fa-sun';
+        if (sidebarThemeIcon) sidebarThemeIcon.className = 'fas fa-sun';
         document.body.style.backgroundColor = '#1a0f1f';
         document.body.style.color = '#f0e6ff';
     }
@@ -129,6 +154,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.documentElement.setAttribute('data-theme', 'dark');
         localStorage.setItem('theme', 'dark');
         if (themeIcon) themeIcon.className = 'fas fa-sun';
+        if (sidebarThemeIcon) sidebarThemeIcon.className = 'fas fa-sun';
         document.body.style.backgroundColor = '#1a0f1f';
         document.body.style.color = '#f0e6ff';
         console.log('Force dark mode applied');
@@ -138,6 +164,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.documentElement.removeAttribute('data-theme');
         localStorage.setItem('theme', 'light');
         if (themeIcon) themeIcon.className = 'fas fa-moon';
+        if (sidebarThemeIcon) sidebarThemeIcon.className = 'fas fa-moon';
         document.body.style.backgroundColor = '#ffffff';
         document.body.style.color = '#212529';
         console.log('Force light mode applied');
@@ -145,11 +172,21 @@ document.addEventListener('DOMContentLoaded', function() {
     
     console.log('Theme toggle ready! Use: toggleTheme(), forceDarkMode(), or forceLightMode()');
     
-    // Mobile toggle
+    // Mobile toggle (only if top-bar exists)
     if (mobileToggle) {
         mobileToggle.addEventListener('click', function() {
             sidebar.classList.toggle('active');
         });
+    } else {
+        console.log('Mobile toggle not found (expected on leads pages without top-bar)');
+        
+        // If no mobile toggle, ensure sidebar toggle works for mobile
+        if (sidebarToggle) {
+            sidebarToggle.addEventListener('click', function() {
+                sidebar.classList.toggle('active');
+                sidebar.classList.toggle('collapsed');
+            });
+        }
     }
     
     // Sidebar toggle

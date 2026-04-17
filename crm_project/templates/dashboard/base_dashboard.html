@@ -7,6 +7,9 @@
     {% load static %}
     <!-- CSRF Token for JavaScript -->
     <meta name="csrf-token" content="{{ csrf_token }}">
+    <!-- Copy-Friendly Meta Tags -->
+    <meta name="format-detection" content="telephone=no">
+    <meta name="msapplication-tap-highlight" content="no">
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
@@ -127,11 +130,18 @@
                 </ul>
                 {% endif %}
             </nav>
+            
+            <!-- Sidebar Theme Toggle (for leads pages without top-bar) -->
+            <div class="sidebar-theme-toggle" id="sidebarThemeToggle" title="Toggle theme" style="display: none;">
+                <i class="fas fa-moon" id="sidebarThemeIcon"></i>
+                <span>Theme</span>
+            </div>
         </aside>
         
         <!-- Main Content -->
         <div class="main-content">
-            <header class="top-bar">
+            <!-- {% if show_top_bar|default:True %} -->
+            <!-- <header class="top-bar">
                 <div class="top-bar-left">
                     <button class="mobile-toggle" id="mobileToggle">
                         <i class="fas fa-bars"></i>
@@ -150,7 +160,8 @@
                         <span>{{ user.first_name|default:user.username }}</span>
                     </div>
                 </div>
-            </header>
+            </header> -->
+            <!-- {% endif %} -->
             
             {% if messages %}
             <div class="messages-container">
@@ -166,82 +177,6 @@
             <main class="content">
                 {% block content %}{% endblock %}
             </main>
-            
-            <!-- Universal Back Button - Positioned in Page Header -->
-            <script>
-                // Move back button to page header after page loads
-                document.addEventListener('DOMContentLoaded', function() {
-                    const backButton = document.getElementById('universalBackButton');
-                    const pageHeader = document.querySelector('.page-header');
-                    
-                    if (backButton && pageHeader) {
-                        // Create a container for the back button
-                        const backContainer = document.createElement('div');
-                        backContainer.style.cssText = `
-                            display: flex;
-                            align-items: center;
-                            margin-right: 20px;
-                        `;
-                        
-                        // Update button styles for inline positioning
-                        backButton.style.cssText = `
-                            background: linear-gradient(135deg, #667eea, #764ba2, #667eea) !important;
-                            background-size: 300% 300% !important;
-                            animation: gradientShift 3s ease infinite !important;
-                            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4), 0 4px 12px rgba(118, 75, 162, 0.3) !important;
-                            border: 2px solid rgba(255, 255, 255, 0.2) !important;
-                            transform: scale(1.0) !important;
-                            font-weight: 600 !important;
-                            letter-spacing: 0.3px !important;
-                            position: relative !important;
-                            top: auto !important;
-                            left: auto !important;
-                            right: auto !important;
-                            z-index: auto !important;
-                            opacity: 1 !important;
-                            visibility: visible !important;
-                            display: flex !important;
-                            padding: 10px 16px !important;
-                            border-radius: 10px !important;
-                            transition: all 0.3s ease !important;
-                            margin: 0 !important;
-                        `;
-                        
-                        // Move button into container
-                        backContainer.appendChild(backButton);
-                        
-                        // Insert at the beginning of page header
-                        pageHeader.insertBefore(backContainer, pageHeader.firstChild);
-                        
-                        // Update page header to be flex
-                        pageHeader.style.display = 'flex';
-                        pageHeader.style.alignItems = 'center';
-                        pageHeader.style.justifyContent = 'space-between';
-                        
-                        // Wrap the h2 and page-actions
-                        const headerContent = document.createElement('div');
-                        headerContent.style.cssText = `
-                            display: flex;
-                            align-items: center;
-                            justify-content: space-between;
-                            width: 100%;
-                        `;
-                        
-                        // Move existing content into headerContent
-                        while (pageHeader.children.length > 1) {
-                            headerContent.appendChild(pageHeader.children[1]);
-                        }
-                        
-                        pageHeader.appendChild(headerContent);
-                    }
-                });
-            </script>
-            
-            <!-- Universal Back Button - Will be moved by script -->
-            <button id="universalBackButton" class="universal-back-button back-button-visible" onclick="goBackWithFallback()" title="Go back to previous page">
-                <i class="fas fa-arrow-left"></i>
-                <span>Back</span>
-            </button>
         </div>
     </div>
     
@@ -272,29 +207,42 @@
             
             const themeToggle = document.getElementById('themeToggle');
             const themeIcon = document.getElementById('themeIcon');
+            const sidebarThemeToggle = document.getElementById('sidebarThemeToggle');
+            const sidebarThemeIcon = document.getElementById('sidebarThemeIcon');
+            const topBar = document.querySelector('.top-bar');
             
             console.log('Found theme toggle:', themeToggle);
+            console.log('Found sidebar theme toggle:', sidebarThemeToggle);
+            console.log('Found top bar:', topBar);
             
-            if (themeToggle) {
-                // Add multiple event listeners for maximum compatibility
-                themeToggle.onclick = function(e) {
-                    e.preventDefault();
-                    console.log('Theme toggle clicked (onclick)!');
-                    toggleThemeInline();
-                };
-                
-                themeToggle.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    console.log('Theme toggle clicked (addEventListener)!');
-                    toggleThemeInline();
-                });
-                
-                // Make it globally clickable
-                themeToggle.style.cursor = 'pointer';
-                themeToggle.style.pointerEvents = 'auto';
-                
-                console.log('Theme toggle listeners added');
+            // Always show sidebar theme toggle since top-bar is commented out
+            if (sidebarThemeToggle) {
+                sidebarThemeToggle.style.display = 'flex';
+                console.log('Showing sidebar theme toggle');
             }
+            
+            // Add event listeners to both theme toggles
+            [themeToggle, sidebarThemeToggle].forEach(toggle => {
+                if (toggle) {
+                    toggle.onclick = function(e) {
+                        e.preventDefault();
+                        console.log('Theme toggle clicked!');
+                        toggleThemeInline();
+                    };
+                    
+                    toggle.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        console.log('Theme toggle clicked (addEventListener)!');
+                        toggleThemeInline();
+                    });
+                    
+                    // Make it globally clickable
+                    toggle.style.cursor = 'pointer';
+                    toggle.style.pointerEvents = 'auto';
+                    
+                    console.log('Theme toggle listeners added for:', toggle.id);
+                }
+            });
             
             // Inline toggle function
             window.toggleThemeInline = function() {
@@ -306,6 +254,7 @@
                     html.removeAttribute('data-theme');
                     localStorage.setItem('theme', 'light');
                     if (themeIcon) themeIcon.className = 'fas fa-moon';
+                    if (sidebarThemeIcon) sidebarThemeIcon.className = 'fas fa-moon';
                     document.body.style.backgroundColor = '#ffffff';
                     document.body.style.color = '#212529';
                     console.log('Switched to light mode');
@@ -313,6 +262,7 @@
                     html.setAttribute('data-theme', 'dark');
                     localStorage.setItem('theme', 'dark');
                     if (themeIcon) themeIcon.className = 'fas fa-sun';
+                    if (sidebarThemeIcon) sidebarThemeIcon.className = 'fas fa-sun';
                     document.body.style.backgroundColor = '#1a0f1f';
                     document.body.style.color = '#f0e6ff';
                     console.log('Switched to dark mode');
@@ -324,6 +274,7 @@
             if (savedTheme === 'dark') {
                 document.documentElement.setAttribute('data-theme', 'dark');
                 if (themeIcon) themeIcon.className = 'fas fa-sun';
+                if (sidebarThemeIcon) sidebarThemeIcon.className = 'fas fa-sun';
                 document.body.style.backgroundColor = '#1a0f1f';
                 document.body.style.color = '#f0e6ff';
             }
@@ -335,18 +286,21 @@
         window.toggleThemeNow = function() {
             const html = document.documentElement;
             const themeIcon = document.getElementById('themeIcon');
+            const sidebarThemeIcon = document.getElementById('sidebarThemeIcon');
             const isDark = html.hasAttribute('data-theme');
             
             if (isDark) {
                 html.removeAttribute('data-theme');
                 localStorage.setItem('theme', 'light');
                 if (themeIcon) themeIcon.className = 'fas fa-moon';
+                if (sidebarThemeIcon) sidebarThemeIcon.className = 'fas fa-moon';
                 document.body.style.backgroundColor = '#ffffff';
                 document.body.style.color = '#212529';
             } else {
                 html.setAttribute('data-theme', 'dark');
                 localStorage.setItem('theme', 'dark');
                 if (themeIcon) themeIcon.className = 'fas fa-sun';
+                if (sidebarThemeIcon) sidebarThemeIcon.className = 'fas fa-sun';
                 document.body.style.backgroundColor = '#1a0f1f';
                 document.body.style.color = '#f0e6ff';
             }
@@ -357,6 +311,9 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const backButton = document.getElementById('universalBackButton');
+            
+            // Only proceed if back button exists
+            if (!backButton) return;
             
             // Initialize back button visibility
             updateBackButtonVisibility();
@@ -423,6 +380,17 @@
         // Enhanced back navigation with feedback
         function goBackWithFallback() {
             const backButton = document.getElementById('universalBackButton');
+            
+            // Only proceed if back button exists
+            if (!backButton) {
+                // Fallback navigation without button feedback
+                if (window.history.length > 1) {
+                    window.history.back();
+                } else {
+                    window.location.href = '/dashboard/';
+                }
+                return;
+            }
             
             // Add loading state
             backButton.style.transform = 'translateY(-1px) scale(0.95)';
@@ -545,8 +513,8 @@
             transform: scale(1.05) !important;
             font-weight: 600 !important;
             letter-spacing: 0.3px !important;
-            padding: 12px 18px !important;
-            border-radius: 12px !important;
+            padding: 8px 12px !important; /* Reduced from 12px 18px (33% reduction) */
+            border-radius: 8px !important; /* Reduced from 12px (33% reduction) */
             transition: all 0.3s ease !important;
             position: fixed !important;
             top: 90px !important;
@@ -589,12 +557,12 @@
             #universalBackButton {
                 top: 70px !important;
                 left: 15px !important;
-                padding: 10px 14px !important;
-                font-size: 13px !important;
+                padding: 7px 10px !important; /* Reduced from 10px 14px (30% reduction) */
+                font-size: 11px !important; /* Reduced from 13px (15% reduction) */
             }
             
             #universalBackButton i {
-                font-size: 12px !important;
+                font-size: 10px !important; /* Reduced from 12px (17% reduction) */
             }
         }
         
@@ -602,11 +570,11 @@
             #universalBackButton {
                 top: 65px !important;
                 left: 10px !important;
-                padding: 8px 12px !important;
-                font-size: 12px !important;
+                padding: 6px 8px !important; /* Reduced from 8px 12px (25% reduction) */
+                font-size: 10px !important; /* Reduced from 12px (17% reduction) */
                 border-radius: 50% !important;
-                width: 40px !important;
-                height: 40px !important;
+                width: 28px !important; /* Reduced from 40px (30% reduction) */
+                height: 28px !important; /* Reduced from 40px (30% reduction) */
                 min-width: auto !important;
             }
             
@@ -615,19 +583,82 @@
             }
             
             #universalBackButton i {
-                font-size: 14px !important;
+                font-size: 10px !important; /* Reduced from 14px (29% reduction) */
             }
         }
         
         /* Sidebar adjustments for left positioning */
         @media (min-width: 1200px) {
             #universalBackButton {
-                left: calc(280px + 20px) !important; /* Sidebar width + margin */
+                left: calc(200px + 20px) !important; /* New sidebar width + margin */
             }
             
             .sidebar-collapsed #universalBackButton {
-                left: calc(80px + 20px) !important; /* Collapsed sidebar width + margin */
+                left: calc(60px + 20px) !important; /* New collapsed sidebar width + margin */
             }
+        }
+        
+        /* Sidebar Theme Toggle Styles */
+        .sidebar-theme-toggle {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px; /* Reduced from 12px 20px */
+            margin: 6px 10px; /* Reduced from 10px 15px */
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-radius: 6px; /* Reduced from 8px */
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .sidebar-theme-toggle:hover {
+            background: linear-gradient(135deg, #764ba2, #667eea);
+            transform: translateY(-1px); /* Reduced from -2px */
+            box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3); /* Reduced shadow */
+        }
+        
+        .sidebar-theme-toggle i {
+            font-size: 14px; /* Reduced from 16px */
+            margin-right: 6px; /* Reduced from 10px */
+        }
+        
+        .sidebar-theme-toggle span {
+            font-weight: 500;
+            font-size: 12px; /* Reduced from 14px */
+        }
+        
+        /* Dark theme sidebar toggle */
+        [data-theme="dark"] .sidebar-theme-toggle {
+            background: linear-gradient(135deg, #9c27b0, #8e24aa);
+        }
+        
+        [data-theme="dark"] .sidebar-theme-toggle:hover {
+            background: linear-gradient(135deg, #8e24aa, #9c27b0);
+            box-shadow: 0 3px 10px rgba(156, 39, 176, 0.3); /* Reduced shadow */
+        }
+        
+        /* Adjust main content padding when no top-bar */
+        .main-content {
+            padding-top: 20px !important;
+        }
+        
+        /* Ensure content starts at the top */
+        .content {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+        }
+        
+        /* Adjust page headers for no top-bar */
+        .page-header {
+            margin-top: 0 !important;
+            padding-top: 10px !important;
+        }
+        
+        /* Fallback for browsers without :has() support */
+        .no-top-bar {
+            padding-top: 20px;
         }
     </style>
     

@@ -156,8 +156,8 @@ if DB_ENGINE == 'mysql':
                 'write_timeout': 30,
                 'sql_mode': 'STRICT_TRANS_TABLES',
             },
-            # Optimized connection pooling settings
-            'CONN_MAX_AGE': 3600,  # Persistent connections for 1 hour
+            # Optimized connection pooling settings for enterprise bulk operations
+            'CONN_MAX_AGE': 7200,  # Persistent connections for 2 hours
             'ATOMIC_REQUESTS': True,  # Wrap each request in a transaction
         }
     }

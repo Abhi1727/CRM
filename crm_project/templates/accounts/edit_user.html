@@ -274,6 +274,72 @@
                     {% endif %}
                 </div>
 
+                <!-- Password Management (conditional) -->
+                {% if can_manage_password %}
+                <div class="form-section">
+                    <h3><i class="fas fa-key"></i> Password Management</h3>
+                    
+                    <div class="password-notice">
+                        <div class="notice-icon">
+                            <i class="fas fa-info-circle"></i>
+                        </div>
+                        <div class="notice-content">
+                            <p><strong>Password Management:</strong> You can set a new password for this user. The user will need to login with the new password after it's changed.</p>
+                            <p><strong>Security Requirements:</strong> Password must be at least 8 characters long and contain letters, numbers, and special characters.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            {{ form.password.label_tag }}
+                            {{ form.password }}
+                            {% if form.password.errors %}
+                                <div class="error-message">
+                                    {% for error in form.password.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            {% if form.password.help_text %}
+                                <small class="help-text">{{ form.password.help_text|safe }}</small>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="form-group">
+                            {{ form.confirm_password.label_tag }}
+                            {{ form.confirm_password }}
+                            {% if form.confirm_password.errors %}
+                                <div class="error-message">
+                                    {% for error in form.confirm_password.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            {% if form.confirm_password.help_text %}
+                                <small class="help-text">{{ form.confirm_password.help_text }}</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <div class="password-actions">
+                        <button type="button" class="btn btn-outline-primary generate-password-btn" id="generatePasswordBtn">
+                            <i class="fas fa-random"></i> Generate Secure Password
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary toggle-passwords-btn" id="togglePasswordsBtn">
+                            <i class="fas fa-eye"></i> Show/Hide Passwords
+                        </button>
+                    </div>
+                    
+                    <div class="password-strength-indicator" id="passwordStrengthIndicator">
+                        <div class="strength-label">Password Strength:</div>
+                        <div class="strength-bar">
+                            <div class="strength-fill" id="strengthFill"></div>
+                        </div>
+                        <div class="strength-text" id="strengthText">Enter a password</div>
+                    </div>
+                </div>
+                {% endif %}
+
                 <!-- Statistics -->
                 <div class="form-section">
                     <h3><i class="fas fa-chart-bar"></i> Performance Statistics</h3>
@@ -703,6 +769,164 @@
     gap: 8px;
 }
 
+/* Password Management Styles */
+.password-notice {
+    background: rgba(102, 126, 234, 0.1);
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 25px;
+    display: flex;
+    gap: 15px;
+    align-items: flex-start;
+}
+
+.notice-icon {
+    color: #667eea;
+    font-size: 20px;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.notice-content {
+    flex: 1;
+}
+
+.notice-content p {
+    margin: 0 0 8px 0;
+    color: #e4e6eb;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.notice-content p:last-child {
+    margin-bottom: 0;
+}
+
+.notice-content strong {
+    color: #667eea;
+    font-weight: 600;
+}
+
+.password-actions {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.btn-outline-primary {
+    background: transparent;
+    color: #667eea;
+    border: 2px solid #667eea;
+}
+
+.btn-outline-primary:hover {
+    background: #667eea;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-outline-secondary {
+    background: transparent;
+    color: #a8adb7;
+    border: 2px solid #a8adb7;
+}
+
+.btn-outline-secondary:hover {
+    background: #a8adb7;
+    color: #0f1419;
+}
+
+.password-strength-indicator {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid #2d3139;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 15px;
+}
+
+.strength-label {
+    color: #e4e6eb;
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+.strength-bar {
+    background: #2d3139;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.strength-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 4px;
+    transition: width 0.3s ease, background-color 0.3s ease;
+    background: #dc3545;
+}
+
+.strength-fill.weak {
+    width: 25%;
+    background: #dc3545;
+}
+
+.strength-fill.fair {
+    width: 50%;
+    background: #ffc107;
+}
+
+.strength-fill.good {
+    width: 75%;
+    background: #28a745;
+}
+
+.strength-fill.strong {
+    width: 100%;
+    background: #20c997;
+}
+
+.strength-text {
+    color: #a8adb7;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Input group styling for password fields */
+.input-group {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+}
+
+.input-group .form-control {
+    flex: 1;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.input-group .btn {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left: none;
+    padding: 0 12px;
+    background: #2d3139;
+    border-color: #2d3139;
+    color: #a8adb7;
+}
+
+.input-group .btn:hover {
+    background: #3d4149;
+    color: #e4e6eb;
+}
+
 @media (max-width: 768px) {
     .form-row {
         grid-template-columns: 1fr;
@@ -962,6 +1186,292 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
         showFeedback('available', 'Current username');
     }
+    
+    // Password Management Functionality
+    const passwordField = document.querySelector('input[name="password"]');
+    const confirmPasswordField = document.querySelector('input[name="confirm_password"]');
+    const generateBtn = document.getElementById('generatePasswordBtn');
+    const toggleBtn = document.getElementById('togglePasswordsBtn');
+    const strengthIndicator = document.getElementById('passwordStrengthIndicator');
+    const strengthFill = document.getElementById('strengthFill');
+    const strengthText = document.getElementById('strengthText');
+    
+    if (passwordField && confirmPasswordField) {
+        // Generate secure password
+        if (generateBtn) {
+            generateBtn.addEventListener('click', function() {
+                const password = generateSecurePassword();
+                passwordField.value = password;
+                confirmPasswordField.value = password;
+                
+                // Update strength indicator
+                updatePasswordStrength(password);
+                
+                // Show password temporarily
+                showPasswords();
+                
+                // Select the password for easy copying
+                passwordField.select();
+                
+                // Show success message
+                showNotification('Secure password generated! You can now copy or modify it.');
+            });
+        }
+        
+        // Toggle password visibility
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', function() {
+                togglePasswordVisibility();
+            });
+        }
+        
+        // Password strength checking
+        passwordField.addEventListener('input', function() {
+            updatePasswordStrength(this.value);
+        });
+        
+        // Confirm password validation
+        confirmPasswordField.addEventListener('input', function() {
+            validatePasswordMatch();
+        });
+    }
+    
+    function generateSecurePassword() {
+        const length = 12;
+        const lowercase = 'abcdefghijklmnopqrstuvwxyz';
+        const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const digits = '0123456789';
+        const special = '!@#$%^&*()_+-=[]{}|;:,.<>?';
+        
+        let password = [
+            lowercase[Math.floor(Math.random() * lowercase.length)],
+            uppercase[Math.floor(Math.random() * uppercase.length)],
+            digits[Math.floor(Math.random() * digits.length)],
+            special[Math.floor(Math.random() * special.length)]
+        ];
+        
+        const allChars = lowercase + uppercase + digits + special;
+        for (let i = 4; i < length; i++) {
+            password.push(allChars[Math.floor(Math.random() * allChars.length)]);
+        }
+        
+        // Shuffle the password
+        for (let i = password.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [password[i], password[j]] = [password[j], password[i]];
+        }
+        
+        return password.join('');
+    }
+    
+    function togglePasswordVisibility() {
+        const passwordInputs = document.querySelectorAll('input[type="password"], input[data-password-toggle="true"]');
+        const isHidden = passwordInputs[0].type === 'password';
+        
+        passwordInputs.forEach(input => {
+            input.type = isHidden ? 'text' : 'password';
+        });
+        
+        // Update button text and icon
+        if (toggleBtn) {
+            const icon = toggleBtn.querySelector('i');
+            if (icon) {
+                icon.className = isHidden ? 'fas fa-eye-slash' : 'fas fa-eye';
+            }
+            toggleBtn.innerHTML = '<i class="' + (isHidden ? 'fas fa-eye-slash' : 'fas fa-eye') + '"></i> ' + (isHidden ? 'Hide' : 'Show') + ' Passwords';
+        }
+    }
+    
+    function showPasswords() {
+        const passwordInputs = document.querySelectorAll('input[type="password"], input[data-password-toggle="true"]');
+        passwordInputs.forEach(input => {
+            input.type = 'text';
+        });
+        
+        if (toggleBtn) {
+            const icon = toggleBtn.querySelector('i');
+            if (icon) {
+                icon.className = 'fas fa-eye-slash';
+            }
+            toggleBtn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide Passwords';
+        }
+        
+        // Auto-hide after 10 seconds
+        setTimeout(() => {
+            hidePasswords();
+        }, 10000);
+    }
+    
+    function hidePasswords() {
+        const passwordInputs = document.querySelectorAll('input[type="text"][data-password-toggle="true"]');
+        passwordInputs.forEach(input => {
+            input.type = 'password';
+        });
+        
+        if (toggleBtn) {
+            const icon = toggleBtn.querySelector('i');
+            if (icon) {
+                icon.className = 'fas fa-eye';
+            }
+            toggleBtn.innerHTML = '<i class="fas fa-eye"></i> Show Passwords';
+        }
+    }
+    
+    function updatePasswordStrength(password) {
+        if (!strengthIndicator || !strengthFill || !strengthText) return;
+        
+        let strength = 0;
+        let feedback = '';
+        
+        if (password.length === 0) {
+            strength = 0;
+            feedback = 'Enter a password';
+        } else {
+            // Length check
+            if (password.length >= 8) strength += 20;
+            if (password.length >= 12) strength += 10;
+            
+            // Character variety
+            if (/[a-z]/.test(password)) strength += 20;
+            if (/[A-Z]/.test(password)) strength += 20;
+            if (/[0-9]/.test(password)) strength += 20;
+            if (/[^a-zA-Z0-9]/.test(password)) strength += 10;
+            
+            // Determine strength level
+            if (strength < 40) {
+                feedback = 'Weak';
+                strengthFill.className = 'strength-fill weak';
+            } else if (strength < 60) {
+                feedback = 'Fair';
+                strengthFill.className = 'strength-fill fair';
+            } else if (strength < 80) {
+                feedback = 'Good';
+                strengthFill.className = 'strength-fill good';
+            } else {
+                feedback = 'Strong';
+                strengthFill.className = 'strength-fill strong';
+            }
+        }
+        
+        strengthFill.style.width = strength + '%';
+        strengthText.textContent = feedback;
+    }
+    
+    function validatePasswordMatch() {
+        if (!confirmPasswordField) return;
+        
+        const password = passwordField ? passwordField.value : '';
+        const confirmPassword = confirmPasswordField.value;
+        
+        // Remove previous validation
+        const existingError = confirmPasswordField.closest('.form-group').querySelector('.password-match-error');
+        if (existingError) {
+            existingError.remove();
+        }
+        
+        if (confirmPassword && password !== confirmPassword) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message password-match-error';
+            errorDiv.innerHTML = '<span>Passwords do not match</span>';
+            confirmPasswordField.closest('.form-group').appendChild(errorDiv);
+        }
+    }
+    
+    function showNotification(message) {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = 'password-notification';
+        notification.innerHTML = `
+            <div class="notification-content">
+                <i class="fas fa-check-circle"></i>
+                <span>${message}</span>
+            </div>
+        `;
+        
+        // Add styles
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #28a745, #20c997);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Animate in
+        setTimeout(() => {
+            notification.style.transform = 'translateX(0)';
+        }, 100);
+        
+        // Remove after 3 seconds
+        setTimeout(() => {
+            notification.style.transform = 'translateX(100%)';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }, 3000);
+    }
+    
+    // Handle password field visibility toggles from custom widget
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.password-toggle-btn')) {
+            const btn = e.target.closest('.password-toggle-btn');
+            const targetId = btn.dataset.target;
+            const targetField = document.getElementById(targetId);
+            
+            if (targetField) {
+                const isHidden = targetField.type === 'password';
+                targetField.type = isHidden ? 'text' : 'password';
+                
+                const icon = btn.querySelector('i');
+                if (icon) {
+                    icon.className = isHidden ? 'fas fa-eye-slash' : 'fas fa-eye';
+                }
+            }
+        }
+    });
+    
+    // Handle generate password buttons from custom widget
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.generate-password-btn')) {
+            const btn = e.target.closest('.generate-password-btn');
+            const targetId = btn.dataset.target;
+            const targetField = document.getElementById(targetId);
+            
+            if (targetField) {
+                const password = generateSecurePassword();
+                targetField.value = password;
+                
+                // If there's a confirm field, fill it too
+                const confirmField = document.getElementById('id_confirm_password');
+                if (confirmField) {
+                    confirmField.value = password;
+                }
+                
+                // Update strength
+                updatePasswordStrength(password);
+                
+                // Show notification
+                showNotification('Secure password generated!');
+                
+                // Select the password for easy copying
+                targetField.select();
+            }
+        }
+    });
 });
 </script>
 {% endblock %}
