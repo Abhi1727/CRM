@@ -2657,10 +2657,36 @@ tr.search-filtered.editing {
 }
 
 /* Copy-Friendly Styles - Ensure text selection works everywhere */
+/* Universal text selection - Override any blockers */
+* {
+    user-select: auto !important;
+    -webkit-user-select: auto !important;
+    -moz-user-select: auto !important;
+    -ms-user-select: auto !important;
+}
+
+/* Force text selection on all content elements */
+body,
+div,
+span,
+p,
+h1, h2, h3, h4, h5, h6,
+a,
+td, th,
+li,
+input[type="text"],
+input[type="email"],
+input[type="tel"],
+input[type="number"],
+textarea,
+select,
+button,
+.label,
+.value,
+.text,
+.content,
 .field-content,
 .lead-name-link,
-td,
-th,
 .card-value,
 .metric-value,
 .user-name,
@@ -2672,6 +2698,7 @@ th,
     -webkit-user-select: text !important;
     -moz-user-select: text !important;
     -ms-user-select: text !important;
+    -webkit-touch-callout: text !important;
 }
 
 /* Ensure interactive elements can still be selected when needed */
@@ -2683,6 +2710,23 @@ th,
     -webkit-user-select: auto !important;
     -moz-user-select: auto !important;
     -ms-user-select: auto !important;
+}
+
+/* Prevent any global styles from blocking text selection */
+*:not([unselectable="on"]):not([disabled]) {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    -webkit-touch-callout: text !important;
+}
+
+/* Force enable context menu everywhere */
+* {
+    -webkit-user-drag: auto !important;
+    -khtml-user-drag: auto !important;
+    -moz-user-drag: auto !important;
+    -o-user-drag: auto !important;
 }
 
 /* Dark theme support - Enhanced */
